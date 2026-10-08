@@ -8,8 +8,8 @@
     "GAP": "specific scenario has no direct executable regression; blocks Step 2 closure"
   },
   "counts": {
-    "PASS": 31,
-    "GAP": 16,
+    "PASS": 32,
+    "GAP": 15,
     "PARTIAL": 18
   },
   "entries": [
@@ -57,9 +57,9 @@
       "id": "R21",
       "description": "local node cancellation",
       "criterion": "node=CANCELLED；ordinary descendants BLOCKED",
-      "status": "GAP",
-      "test": null,
-      "assessment": "缺少 local-node cancel API 和独立下游传播测试"
+      "status": "PASS",
+      "test": "tests/unit/test_scheduler_local_cancel.py::test_r21_running_local_cancel_joins_without_task_cancel",
+      "assessment": "本地节点取消可 cancel+join；不取消全 Task；下游阻塞；precommit 撤销、dirty fail-close 和终态拒绝专测"
     },
     {
       "id": "R22",

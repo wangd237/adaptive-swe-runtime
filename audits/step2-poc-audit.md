@@ -3,7 +3,7 @@
 **Audit is complete; implementation exit is NOT automatically passed.**
 
 - Total frozen PoCs audited: **65**
-- PASS: **31** · PARTIAL: **18** · GAP: **16**
+- PASS: **32** · PARTIAL: **18** · GAP: **15**
 - PASS is scenario-specific evidence, not proof of DeerFlow or all acceptance semantics.
 - Every PASS/PARTIAL maps to a real test symbol present on the audited branch.
 - PARTIAL/GAP are blocking for full Step-2 closeout; do not change Specs to remove them.
@@ -15,7 +15,7 @@
 | POC-R18 | PASS | `test_scheduler_repair.py::test_unique_writer_attribution_is_persisted_and_reopen_revokes_authority` | 旧 Handoff 撤销和 Reviewer 回 PENDING |
 | POC-R19 | PASS | `test_scheduler_repair.py::test_successful_nonverification_consumer_forbids_reopen` | 已成功消费的下游使 reopen fail closed |
 | POC-R20 | PASS | `test_scheduler_step2_exit.py::test_r104_single_business_root_and_ten_blocked_consequences` | 多层阻塞与 root 独立聚合 |
-| POC-R21 | GAP | — | 缺少 local-node cancel API 和独立下游传播测试 |
+| POC-R21 | PASS | `test_scheduler_local_cancel.py::test_r21_running_local_cancel_joins_without_task_cancel` | 已实现 local cancel + join、下游 BLOCKED；precommit 撤销及 dirty-state failclose 均有测试 |
 | POC-R22 | PASS | `test_scheduler_step2_exit.py::test_r22_user_cancel_joins_running_and_cancels_unstarted` | Task user cancel + active join + 未启动节点 CANCELLED |
 | POC-R23 | PARTIAL | `test_scheduler_repair.py::test_repair_feedback_freshness_checked_under_workspace_lock` | 拒绝过期反馈已验证；refresh/reverify 或 REPAIR_FEEDBACK_STALE 规范处理未闭环 |
 | POC-R24 | GAP | — | own AcceptanceFailure revision 改变后的确定性 acceptance 重评估未实现 |
@@ -85,7 +85,7 @@
 
 ## Next remediation order
 
-1. R21 / R23–R26 — local cancel and stale Feedback refresh/reverification.
+1. R23–R26 — stale Feedback refresh/reverification (R21 local cancel is covered).
 2. R76–R89 — verification attribution ambiguity and chronology adversarial matrix.
 3. R100–R103, R123 — Review/Acceptance/repair exhausted and cancelled-mutating consumer outcomes.
 4. R119–R121, R125–R126 — true adversarial concurrency barriers (not static claims).

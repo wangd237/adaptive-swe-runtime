@@ -27,14 +27,21 @@
 ## Full frozen PoC exit audit
 
 - Audited cases: 65 (R16–R26, R75–R128)
-- PASS: 31
+- PASS: 32
 - PARTIAL: 18
-- GAP: 16
+- GAP: 15
 - **Step 2 CLOSED is forbidden while PARTIAL/GAP remains.**
+
+## Step 2 latest CI
+
+- Commit `947839feec301f446289cebbcc5e6767b2c0cd08` passed Python 3.11 and 3.13 Actions matrix.
+- Newly covered POC-R21: test `tests/unit/test_scheduler_local_cancel.py`.
+- R23 now has an explicit `REPAIR_FEEDBACK_STALE` fail-close fallback test; this is not a complete refresh/reverify implementation and remains PARTIAL.
 
 ## High-priority remaining P0 blockers
 
-- [ ] Local Node cancellation (R21) and stale RepairFeedback automatic deterministic refresh (R23–R26)
+- [x] Local Node cancellation (R21), including running join and descendant propagation
+- [ ] Stale RepairFeedback automatic deterministic refresh (R23–R26); fail-closed R23 fallback is implemented, refresh remains pending
 - [ ] Multi-writer ambiguity/adversarial history cases R76–R89
 - [ ] Reviewer/Acceptance repair and repair-budget termination R100–R103
 - [ ] Cancelled consumer mutating Workspace and disposition R123
