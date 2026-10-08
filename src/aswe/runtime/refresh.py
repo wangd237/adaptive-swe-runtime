@@ -28,6 +28,14 @@ async def refresh_stale_verification(core, ticket_id: str) -> bool:
     Fresh canonical receipts are attached to a real new logical Verification
     REVERIFY attempt; old source attempt and its evidence remain immutable.
     """
+    # Own Writer acceptance is a separate authority family from downstream
+    # verification. Never cast its verdict into a VerificationResult.
+    async with core.state_mutex:
+        pending = core._typed_repair_feedback.get(core.tickets[ticket_id].node_id)
+    if pending is not None and pending.trigger_kind is RepairTriggerKind.NODE_ACCEPTANCE:
+        from aswe.runtime.own_acceptance import refresh_stale_own_acceptance
+        return await refresh_stale_own_acceptance(core, ticket_id, pending)
+
     async with core.state_mutex:
         ticket = core.tickets[ticket_id]
         writer_id = ticket.node_id
