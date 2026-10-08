@@ -17,14 +17,20 @@ from typing import Any, Protocol
 
 from aswe.core.config import RuntimeBudgetConfig
 from aswe.core.contracts import (
-    BackendTerminalStatus, DependencyAcceptanceStamp, NodeAttemptKind,
-    NodeExecutionInvocation, NodeHandoff, TaskDAG, WorkspaceRevision,
+    AttemptEvidenceKind, BackendTerminalStatus, DependencyAcceptanceStamp, EvidenceRef,
+    NodeAttemptKind, NodeExecutionInvocation, NodeHandoff, TaskDAG, WorkspaceRevision,
+    WorkKind,
 )
 from aswe.core.ids import new_execution_id, new_run_id, new_safe_id
 from aswe.runtime.dispatch import (
     DispatchRevoked, NodeDispatchTicket, NodeDispatchTicketState,
-    TaskDispatchGate, TaskDispatchGateState,
+    RepairScopeInvalidated, TaskDispatchGate, TaskDispatchGateState,
 )
+from aswe.runtime.repair import (
+    RepairAttributionEvidence, RepairAttributionKind,
+    resolve_verification_repair_attribution,
+)
+from aswe.evidence import LocalEvidenceStore
 from aswe.runtime.state import (
     NodeAttemptRecord, NodeAttemptStatus, NodeBlockReason,
     NodeLogicalStatus, NodeRuntimeState,
@@ -76,6 +82,9 @@ class SchedulerCore:
         }
         self.tickets: dict[str, NodeDispatchTicket] = {}
         self.failure_kinds: list[str] = []
+        self._pending_attempt_kinds: dict[str, NodeAttemptKind] = {}
+        self._repair_feedback_revision: dict[str, WorkspaceRevision] = {}
+        self._repair_feedback_text: dict[str, str] = {}
         self._task_failed = False
         self._recompute_locked()
 
@@ -217,10 +226,17 @@ class SchedulerCore:
                 raise DispatchRevoked("stale ticket, dependency evidence or task gate")
             state = self.states[ticket.node_id]
             attempt = state.next_attempt
+            kind = self._pending_attempt_kinds.get(
+                ticket.node_id, NodeAttemptKind.INITIAL if attempt == 1 else NodeAttemptKind.RETRY
+            )
+            if kind is NodeAttemptKind.REPAIR and (
+                self._repair_feedback_revision.get(ticket.node_id) != self.revision
+            ):
+                raise DispatchRevoked("RepairFeedback stale against current locked WorkspaceRevision")
             invocation = NodeExecutionInvocation(
                 task_id=self.task_id, node_id=ticket.node_id,
                 attempt=attempt,
-                attempt_kind=NodeAttemptKind.INITIAL if attempt == 1 else NodeAttemptKind.RETRY,
+                attempt_kind=kind,
                 execution_id=new_execution_id(), run_id=new_run_id(),
                 execution_workspace_revision=self.revision,
                 dispatch_ticket_id=ticket_id, task_dispatch_epoch=self.gate.epoch,
@@ -229,7 +245,8 @@ class SchedulerCore:
                 dependency_handoff_fingerprints=tuple(
                     s.handoff_fingerprint for s in ticket.dependency_acceptance_stamps
                 ),
-                repair_feedback_text=None,
+                repair_feedback_text=self._repair_feedback_text.get(ticket.node_id)
+                if kind is NodeAttemptKind.REPAIR else None,
                 context_fingerprint="step2-fake-backend-context",
             )
             running = NodeAttemptRecord(
@@ -247,6 +264,10 @@ class SchedulerCore:
             self.tickets[ticket_id] = ticket.model_copy(update={
                 "state": NodeDispatchTicketState.COMMITTED,
             })
+            self._pending_attempt_kinds.pop(ticket.node_id, None)
+            if kind is NodeAttemptKind.REPAIR:
+                self._repair_feedback_revision.pop(ticket.node_id, None)
+                self._repair_feedback_text.pop(ticket.node_id, None)
             return invocation
 
     async def _finish(self, invocation: NodeExecutionInvocation, result: Any,
@@ -312,6 +333,7 @@ class SchedulerCore:
                 invocation, result, mutation
             ):
                 changes["logical_status"] = NodeLogicalStatus.REMEDIATION_PENDING
+                self._pending_attempt_kinds[invocation.node_id] = NodeAttemptKind.RETRY
             else:
                 changes.update(
                     logical_status=NodeLogicalStatus.FAILED,
@@ -358,6 +380,163 @@ class SchedulerCore:
                     "block_reason": NodeBlockReason.TASK_FAIL_CLOSED,
                     "blocked_by": (root_node,) if root_node else (),
                 })
+
+    def _descendants_locked(self, upstream_id: str) -> set[str]:
+        """Closure includes direct and indirect consumers, not the source writer."""
+        descendants: set[str] = set()
+        frontier = [upstream_id]
+        while frontier:
+            current = frontier.pop()
+            for node_id, node in self.nodes.items():
+                if current in node.dependencies and node_id not in descendants:
+                    descendants.add(node_id)
+                    frontier.append(node_id)
+        return descendants
+
+    async def attach_attempt_evidence(
+        self, *, node_id: str, evidence_ref: EvidenceRef,
+        evidence_store: LocalEvidenceStore,
+    ) -> None:
+        """Verify durable provenance outside mutex, then publish attempt evidence."""
+        evidence_store.get(evidence_ref)
+        if evidence_ref.source_node_id != node_id:
+            raise ValueError("evidence node mismatch")
+        async with self.state_mutex:
+            state = self.states[node_id]
+            matching = next((a for a in state.attempts
+                             if a.execution_id == evidence_ref.source_execution_id
+                             and a.attempt == evidence_ref.source_attempt), None)
+            if matching is None or matching.status is NodeAttemptStatus.RUNNING:
+                raise ValueError("evidence must attach to a completed historical attempt")
+            attempts = tuple(
+                a.model_copy(update={"evidence_refs": a.evidence_refs + (evidence_ref,)})
+                if a == matching and evidence_ref not in a.evidence_refs else a
+                for a in state.attempts
+            )
+            self.states[node_id] = state.model_copy(update={"attempts": attempts})
+
+    async def reopen_writer_from_verification(
+        self, *, verification_ref: EvidenceRef, attribution_ref: EvidenceRef,
+        evidence_store: LocalEvidenceStore,
+    ) -> RepairAttributionEvidence:
+        """Validate durable ownership, then linearize Writer reopen vs commit.
+
+        No evidence-store reads, Workspace waits or backend calls in state_mutex.
+        Successful return revokes current Writer Handoff authority, increments
+        its epoch and makes the same immutable Writer eligible for REPAIR.
+        """
+        if attribution_ref.kind is not AttemptEvidenceKind.REPAIR_ATTRIBUTION:
+            raise ValueError("repair attribution must use typed EvidenceRef")
+        attribution = RepairAttributionEvidence.model_validate(evidence_store.get(attribution_ref))
+        if (attribution_ref.source_node_id != attribution.source_verification_node_id
+            or attribution_ref.source_execution_id != attribution.source_verification_execution_id
+            or attribution_ref.source_attempt != attribution.source_verification_attempt):
+            raise ValueError("repair attribution evidence provenance mismatch")
+        source_id = attribution.source_verification_node_id
+        async with self.state_mutex:
+            if source_id not in self.states:
+                raise ValueError("unknown verification source")
+            source = self.states[source_id]
+            source_attempt = source.attempts[-1] if source.attempts else None
+            if source_attempt is None:
+                raise ValueError("missing verification attempt")
+            # Capture only immutable snapshots; do integrity I/O outside mutex.
+            state_snapshot = dict(self.states)
+        resolved = resolve_verification_repair_attribution(
+            dag=self.dag, source_attempt=source_attempt,
+            verification_ref=verification_ref, node_states=state_snapshot,
+            evidence_store=evidence_store,
+        )
+        if attribution != resolved:
+            raise ValueError("stored repair attribution differs from deterministic resolution")
+        if attribution.kind is not RepairAttributionKind.UNIQUE_WRITER:
+            raise RepairScopeInvalidated("verification has no unique legal repair owner")
+        writer_id = attribution.target_write_node_id
+        assert writer_id is not None
+        fail_reason = None
+        async with self.state_mutex:
+            source_now = self.states[source_id]
+            writer = self.states[writer_id]
+            if (self.gate.state is not TaskDispatchGateState.OPEN
+                or source_now != state_snapshot[source_id]
+                or writer != state_snapshot[writer_id]
+                or self.revision != attribution.observed_workspace_revision
+                or writer.logical_status is not NodeLogicalStatus.SUCCEEDED
+                or writer.accepted_attempt != attribution.target_write_attempt
+                or writer.repair_count >= self.budget.max_repairs_per_write):
+                fail_reason = "REPAIR_SCOPE_INVALIDATED_STALE"
+            else:
+                descendants = self._descendants_locked(writer_id)
+                for node_id in descendants:
+                    if node_id == source_id:
+                        continue  # Failed source Verification is a legitimate trigger.
+                    node_state = self.states[node_id]
+                    running = (node_state.logical_status is NodeLogicalStatus.RUNNING
+                               or any(t.node_id == node_id and
+                                      t.state is NodeDispatchTicketState.COMMITTED
+                                      for t in self.tickets.values()))
+                    if running:
+                        fail_reason = "REPAIR_SCOPE_INVALIDATED_ACTIVE_DOWNSTREAM_DISPATCH"
+                        break
+                    if (node_state.logical_status is NodeLogicalStatus.SUCCEEDED
+                        and self.nodes[node_id].work_kind is not WorkKind.VERIFICATION):
+                        fail_reason = "REPAIR_SCOPE_INVALIDATED_COMMITTED_DOWNSTREAM_SUCCESS"
+                        break
+                if fail_reason is None:
+                    # Entire authority revocation and ticket invalidation form
+                    # one SchedulerStateMutex transaction, before any consumer commit.
+                    for tid, ticket in tuple(self.tickets.items()):
+                        if ticket.node_id in descendants and ticket.state in (
+                            NodeDispatchTicketState.PREPARING,
+                            NodeDispatchTicketState.WAITING_WORKSPACE,
+                            NodeDispatchTicketState.LOCKED_PRECOMMIT,
+                        ):
+                            self.tickets[tid] = ticket.model_copy(update={
+                                "state": NodeDispatchTicketState.REVOKED,
+                            })
+                    self.states[writer_id] = writer.model_copy(update={
+                        "logical_status": NodeLogicalStatus.REMEDIATION_PENDING,
+                        "accepted_attempt": None, "accepted_handoff": None,
+                        "acceptance_epoch": writer.acceptance_epoch + 1,
+                        "repair_count": writer.repair_count + 1,
+                    })
+                    self._pending_attempt_kinds[writer_id] = NodeAttemptKind.REPAIR
+                    self._repair_feedback_revision[writer_id] = attribution.observed_workspace_revision
+                    self._repair_feedback_text[writer_id] = (
+                        "deterministic verification obligations: " + ", ".join(attribution.failed_check_ids)
+                    )
+                    if source_now.logical_status is not NodeLogicalStatus.FAILED:
+                        raise RuntimeError("verification source no longer FAILED")
+                    self.states[source_id] = source_now.model_copy(update={
+                        "logical_status": NodeLogicalStatus.REMEDIATION_PENDING,
+                        "terminal_failure_kind": None,
+                    })
+                    self._pending_attempt_kinds[source_id] = NodeAttemptKind.REVERIFY
+                    for node_id in descendants:
+                        if node_id == source_id:
+                            continue
+                        descendant = self.states[node_id]
+                        if descendant.active_dispatch_ticket_id is not None:
+                            self.states[node_id] = descendant.model_copy(update={
+                                "active_dispatch_ticket_id": None,
+                            })
+                            descendant = self.states[node_id]
+                        if descendant.logical_status in (NodeLogicalStatus.READY,
+                                  NodeLogicalStatus.BLOCKED) and (
+                            descendant.logical_status is NodeLogicalStatus.READY
+                            or descendant.block_reason is NodeBlockReason.UPSTREAM_FAILURE
+                        ):
+                            self.states[node_id] = descendant.model_copy(update={
+                                "logical_status": NodeLogicalStatus.PENDING,
+                                "block_reason": None, "blocked_by": (),
+                            })
+                    self._recompute_locked()
+            if fail_reason is not None:
+                self._fail_close_locked(fail_reason, root_node=source_id)
+        if fail_reason is not None:
+            await self.workspace.close_dispatch()
+            raise RepairScopeInvalidated(fail_reason)
+        return attribution
 
     async def fail_closed(self, reason: str, *, root_node: str | None = None) -> None:
         async with self.state_mutex:
