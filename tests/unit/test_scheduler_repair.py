@@ -16,6 +16,7 @@ from aswe.runtime.repair import (
     make_verification_result, resolve_verification_repair_attribution,
 )
 from aswe.runtime.state import NodeLogicalStatus
+from aswe.workspace.session import WorkspaceSessionStatus
 from tests.fakes import FakeExecutionBackend, FakeExecutionScenario, MutationEvidence
 from tests.unit.test_scheduler_foundation import accept, node, scheduler
 
