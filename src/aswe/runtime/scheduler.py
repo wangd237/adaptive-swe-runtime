@@ -436,6 +436,8 @@ class SchedulerCore:
     ) -> None:
         """Verify durable provenance outside mutex, then publish attempt evidence."""
         evidence_store.get(evidence_ref)
+        if not evidence_ref.evidence_id.startswith(self.task_id + "__"):
+            raise ValueError("attempt evidence belongs to a different task")
         if evidence_ref.source_node_id != node_id:
             raise ValueError("evidence node mismatch")
         async with self.state_mutex:

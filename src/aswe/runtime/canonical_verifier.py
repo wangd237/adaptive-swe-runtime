@@ -163,6 +163,8 @@ class CanonicalVerifier:
     def validate(self, ref: EvidenceRef, *, node_id: str, execution_id: str,
                  attempt: int, revision: WorkspaceRevision,
                  check_id: str) -> CanonicalCommandReceipt:
+        if not ref.evidence_id.startswith(self.task_id + "__"):
+            raise ValueError("canonical proof belongs to a different task")
         if ref.kind is not AttemptEvidenceKind.TOOL_RECEIPT_LEDGER:
             raise ValueError("not a canonical tool ledger evidence reference")
         if (ref.source_node_id, ref.source_execution_id, ref.source_attempt) != (
