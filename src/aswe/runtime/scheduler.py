@@ -32,7 +32,7 @@ from aswe.runtime.repair import (
     resolve_verification_repair_attribution,
 )
 from aswe.evidence import LocalEvidenceStore
-from aswe.runtime.canonical_verifier import CanonicalVerifier
+from aswe.runtime.canonical_verifier import CanonicalVerifier, CanonicalCommandPolicy
 from aswe.runtime.feedback import RepairFeedback, build_verification_repair_feedback
 from aswe.runtime.repair import VerificationResult
 from aswe.runtime.state import (
@@ -78,6 +78,7 @@ class SchedulerCore:
         initial_revision: WorkspaceRevision, evidence_checker: EvidenceChecker,
         budget: RuntimeBudgetConfig | None = None,
         canonical_verifier: CanonicalVerifier | None = None,
+        canonical_check_policies: dict[str, CanonicalCommandPolicy] | None = None,
         test_only_allow_fixture_receipts: bool = False,
     ) -> None:
         if not task_id or not callable(evidence_checker):
@@ -92,6 +93,7 @@ class SchedulerCore:
         self.revision = initial_revision
         self._evidence_checker = evidence_checker
         self._canonical_verifier = canonical_verifier
+        self._canonical_check_policies = dict(canonical_check_policies or {})
         self._test_only_allow_fixture_receipts = test_only_allow_fixture_receipts
         self.states = {
             node_id: NodeRuntimeState(
@@ -835,7 +837,17 @@ class SchedulerCore:
                     if h is None or not self._evidence_checker(h):
                         refs_ok = False
                         break
-                invocation = await self._commit(current_id, evidence_validated=refs_ok, backend=backend)
+                try:
+                    invocation = await self._commit(current_id, evidence_validated=refs_ok, backend=backend)
+                except DispatchRevoked as exc:
+                    if "RepairFeedback stale" not in str(exc):
+                        raise
+                    # Preserve the physical WRITE lock while refreshing, but never
+                    # execute checks or EvidenceStore I/O under SchedulerStateMutex.
+                    from aswe.runtime.refresh import refresh_stale_verification
+                    if not await refresh_stale_verification(self, current_id):
+                        raise DispatchRevoked("RepairFeedback stale: no authorized repair remains")
+                    invocation = await self._commit(current_id, evidence_validated=refs_ok, backend=backend)
                 try:
                     result = await backend.execute_prepared(preparation, invocation)
                 except BaseException:
@@ -874,10 +886,9 @@ class SchedulerCore:
             if invocation is not None:
                 raise  # A committed attempt is never silently uncommitted.
             await self.revoke(current_id)
-            if isinstance(exc, DispatchRevoked) and "RepairFeedback stale" in str(exc):
-                # Freshness mismatch must not strand a REMEDIATION_PENDING writer
-                # behind an open gate. No automatic repair without fresh proof.
-                # Deterministic refresh is not yet implemented; fail safely.
+            if (isinstance(exc, DispatchRevoked)
+                    and "RepairFeedback stale" in str(exc)
+                    and self.gate.state is TaskDispatchGateState.OPEN):
                 await self.fail_closed("REPAIR_FEEDBACK_STALE", root_node=ticket.node_id)
             return None
         except asyncio.CancelledError:
@@ -893,7 +904,8 @@ class SchedulerCore:
                 item = self._committed[invocation.execution_id]
                 item.quiescent = completed_quiescent
                 item.done.set()
-                await self._settle_if_drained()
+            # A stale refresh can close the gate without a Writer attempt.
+            await self._settle_if_drained()
 
     @property
     def failed(self) -> bool:
