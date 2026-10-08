@@ -9,8 +9,10 @@ Implementation repository for **Adaptive Agent Runtime for Software Engineering 
 P0 Design: FROZEN (DeerFlow integration PoCs pending)
 Coding Step 0: CLOSED / ACCEPTED
 Coding Step 1: CLOSED / ACCEPTED
-Next: Step 2 — Scheduler State Machine on FakeBackend
+Step 2: IN PROGRESS — foundation + repair/reopen + cancel/join merged (PR #3)
+Next: complete Step 2 canonical verifier, TaskResult/drain and PoC exit gates
 DeerFlow / LLM integration: NOT STARTED
+CI of PR #3 reviewed head: 127 passed on Python 3.11 and 3.13
 
 ## Accepted implementation
 

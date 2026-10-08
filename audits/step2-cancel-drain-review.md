@@ -32,3 +32,11 @@ Verdict: **acceptable for incremental merge only**, subject to CI. Coding Step 2
 ## Next incremental gate
 
 Open a separate Step 2 follow-up after merge to complete terminal result/evaluation bridge, deterministic canonical verifier, cancellation outcomes and full PoC exit matrix. **Do not label Coding Step 2 CLOSED.**
+
+## Incremental merge record
+
+- PR: https://github.com/wangd237/adaptive-swe-runtime/pull/3
+- Reviewed head: `8dcd8a553c03920710f4d256d8073689812855ae`
+- CI: Python 3.11 and 3.13, each 127 passed, 0 skipped
+- Squash merge: `943a9228cc5f09ae1a9448196f2262a3bc9800f6`
+- Verdict: **Step 2 incremental code accepted; full Step 2 still IN PROGRESS**.

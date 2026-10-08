@@ -5,7 +5,7 @@
 - Coding Step 0 — CLOSED / ACCEPTED
 - Coding Step 1 — CLOSED / ACCEPTED
 
-## Coding Step 2 — IN PROGRESS (PR #3 incremental merge candidate)
+## Coding Step 2 — IN PROGRESS (PR #3 increment MERGED / ACCEPTED)
 
 Implemented in the current Step 2 incremental branch:
 
@@ -19,6 +19,7 @@ Implemented in the current Step 2 incremental branch:
 - [x] QUARANTINED on missing join, timeout or interrupted drain coordinator
 - [x] CI Python 3.11: 127 passed / 0 skipped
 - [x] CI Python 3.13: 127 passed / 0 skipped
+- [x] PR #3 merged after both CI gates and implementation review
 
 ## Remaining before Step 2 can be CLOSED
 
@@ -28,6 +29,6 @@ Implemented in the current Step 2 incremental branch:
 - [ ] exhaustive POC-R16–R26 and R75–R128 exit matrix
 - [ ] independent Step 2 completion audit and final acceptance
 
-PR #3 can be merged only as a **reviewed interim implementation**. This does not represent complete Step 2 acceptance, nor real DeerFlow shared Workspace execution.
+PR #3 merged as a reviewed **incremental implementation** at `943a9228cc5f09ae1a9448196f2262a3bc9800f6`. Step 2 is NOT CLOSED; no real DeerFlow shared Workspace execution is claimed.
 
 Related reviews: audits/step2-foundation-review.md, audits/step2-repair-reopen-review.md, audits/step2-cancel-drain-review.md.
