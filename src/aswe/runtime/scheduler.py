@@ -32,6 +32,9 @@ from aswe.runtime.repair import (
     resolve_verification_repair_attribution,
 )
 from aswe.evidence import LocalEvidenceStore
+from aswe.runtime.canonical_verifier import CanonicalVerifier
+from aswe.runtime.feedback import RepairFeedback, build_verification_repair_feedback
+from aswe.runtime.repair import VerificationResult
 from aswe.runtime.state import (
     NodeAttemptRecord, NodeAttemptStatus, NodeBlockReason,
     NodeLogicalStatus, NodeRuntimeState,
@@ -74,6 +77,8 @@ class SchedulerCore:
         self, *, task_id: str, dag: TaskDAG, workspace: WorkspaceAccessManager,
         initial_revision: WorkspaceRevision, evidence_checker: EvidenceChecker,
         budget: RuntimeBudgetConfig | None = None,
+        canonical_verifier: CanonicalVerifier | None = None,
+        test_only_allow_fixture_receipts: bool = False,
     ) -> None:
         if not task_id or not callable(evidence_checker):
             raise ValueError("task identity and trusted evidence checker required")
@@ -86,6 +91,8 @@ class SchedulerCore:
         self.gate = TaskDispatchGate()
         self.revision = initial_revision
         self._evidence_checker = evidence_checker
+        self._canonical_verifier = canonical_verifier
+        self._test_only_allow_fixture_receipts = test_only_allow_fixture_receipts
         self.states = {
             node_id: NodeRuntimeState(
                 node_id=node_id, logical_status=NodeLogicalStatus.PENDING,
@@ -97,6 +104,7 @@ class SchedulerCore:
         self._pending_attempt_kinds: dict[str, NodeAttemptKind] = {}
         self._repair_feedback_revision: dict[str, WorkspaceRevision] = {}
         self._repair_feedback_text: dict[str, str] = {}
+        self._typed_repair_feedback: dict[str, RepairFeedback] = {}
         self._task_failed = False
         self._committed: dict[str, CommittedExecution] = {}
         self._terminal_mutex = asyncio.Lock()
@@ -247,6 +255,8 @@ class SchedulerCore:
             )
             if kind is NodeAttemptKind.REPAIR and (
                 self._repair_feedback_revision.get(ticket.node_id) != self.revision
+                or ticket.node_id not in self._typed_repair_feedback
+                or self._typed_repair_feedback[ticket.node_id].observed_workspace_revision != self.revision
             ):
                 raise DispatchRevoked("RepairFeedback stale against current locked WorkspaceRevision")
             invocation = NodeExecutionInvocation(
@@ -287,6 +297,7 @@ class SchedulerCore:
             if kind is NodeAttemptKind.REPAIR:
                 self._repair_feedback_revision.pop(ticket.node_id, None)
                 self._repair_feedback_text.pop(ticket.node_id, None)
+                self._typed_repair_feedback.pop(ticket.node_id, None)
             return invocation
 
     async def _finish(self, invocation: NodeExecutionInvocation, result: Any,
@@ -466,10 +477,12 @@ class SchedulerCore:
                 raise ValueError("repair attribution must be attached to current source attempt")
             # Capture only immutable snapshots; do integrity I/O outside mutex.
             state_snapshot = dict(self.states)
+        if self._canonical_verifier is None and not self._test_only_allow_fixture_receipts:
+            raise ValueError("Runtime Canonical Verifier required for real repair authorization")
         resolved = resolve_verification_repair_attribution(
             dag=self.dag, source_attempt=source_attempt,
             verification_ref=verification_ref, node_states=state_snapshot,
-            evidence_store=evidence_store,
+            evidence_store=evidence_store, canonical_verifier=self._canonical_verifier,
         )
         if attribution != resolved:
             raise ValueError("stored repair attribution differs from deterministic resolution")
@@ -477,6 +490,11 @@ class SchedulerCore:
             raise RepairScopeInvalidated("verification has no unique legal repair owner")
         writer_id = attribution.target_write_node_id
         assert writer_id is not None
+        source_result = VerificationResult.model_validate(evidence_store.get(verification_ref))
+        feedback = build_verification_repair_feedback(
+            source=source_result, source_ref=verification_ref,
+            attribution=attribution, attribution_ref=attribution_ref,
+        )
         fail_reason = None
         async with self.state_mutex:
             source_now = self.states[source_id]
@@ -525,10 +543,9 @@ class SchedulerCore:
                         "repair_count": writer.repair_count + 1,
                     })
                     self._pending_attempt_kinds[writer_id] = NodeAttemptKind.REPAIR
-                    self._repair_feedback_revision[writer_id] = attribution.observed_workspace_revision
-                    self._repair_feedback_text[writer_id] = (
-                        "deterministic verification obligations: " + ", ".join(attribution.failed_check_ids)
-                    )
+                    self._typed_repair_feedback[writer_id] = feedback
+                    self._repair_feedback_revision[writer_id] = feedback.observed_workspace_revision
+                    self._repair_feedback_text[writer_id] = feedback.bounded_projection()
                     if source_now.logical_status is not NodeLogicalStatus.FAILED:
                         raise RuntimeError("verification source no longer FAILED")
                     self.states[source_id] = source_now.model_copy(update={
