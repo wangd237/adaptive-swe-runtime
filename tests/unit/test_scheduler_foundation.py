@@ -324,3 +324,26 @@ async def test_explicit_transient_with_unknown_mutation_is_not_retryable(tmp_pat
     )
     assert core.states["writer"].logical_status is NodeLogicalStatus.FAILED
     assert core.failed
+
+
+@pytest.mark.asyncio
+async def test_external_cancellation_after_dispatch_commit_fails_closed_and_quarantines(tmp_path):
+    core, manager = scheduler(tmp_path, node("writer"))
+    gate = asyncio.Event()
+    backend = FakeExecutionBackend([FakeExecutionScenario(release_event=gate)])
+    claim = await core.claim("writer")
+    runner = asyncio.create_task(core.run_claim(claim, backend, accept=accept))
+    for _ in range(30):
+        if core.states["writer"].logical_status is NodeLogicalStatus.RUNNING:
+            break
+        await asyncio.sleep(0)
+    assert core.states["writer"].logical_status is NodeLogicalStatus.RUNNING
+    runner.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await runner
+    state = core.states["writer"]
+    assert state.logical_status is NodeLogicalStatus.FAILED
+    assert state.attempts[0].status is NodeAttemptStatus.FAILED
+    assert core.failed
+    assert manager.lifecycle.current.status is WorkspaceSessionStatus.QUARANTINED
+    assert not gate.is_set()
