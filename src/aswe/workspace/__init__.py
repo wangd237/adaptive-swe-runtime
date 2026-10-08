@@ -1,10 +1,12 @@
 """Task-scoped workspace lifecycle, access arbitration and mutation observations."""
+from .bootstrap import WorkspaceBootstrapResult, bootstrap_task_workspace
 from .session import WorkspaceLifecycle, WorkspaceSession, WorkspaceSessionStatus
 from .access import WorkspaceAccessManager, WorkspaceClosedError
 from .snapshot import FilesystemSnapshot, capture_filesystem_snapshot, changed_snapshot_paths
 from .delta import MutationEvidence, NodeWorkspaceDelta, derive_node_workspace_delta
 
 __all__ = [
+    "WorkspaceBootstrapResult", "bootstrap_task_workspace",
     "WorkspaceLifecycle", "WorkspaceSession", "WorkspaceSessionStatus",
     "WorkspaceAccessManager", "WorkspaceClosedError",
     "FilesystemSnapshot", "capture_filesystem_snapshot", "changed_snapshot_paths",
