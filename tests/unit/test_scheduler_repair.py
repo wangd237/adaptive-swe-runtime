@@ -80,6 +80,9 @@ async def fixture(tmp_path, *, consumer: bool = False, candidates=("writer",)):
         attempt=source.attempt, kind=AttemptEvidenceKind.REPAIR_ATTRIBUTION,
         payload=decision, workspace_revision=decision.observed_workspace_revision,
     )
+    await core.attach_attempt_evidence(
+        node_id="verify", evidence_ref=attribution_ref, evidence_store=store,
+    )
     return core, manager, store, ref, decision, attribution_ref
 
 
