@@ -113,7 +113,10 @@ class TaskResult(FrozenModel):
 
 
 def _root(**values) -> RootFailureRecord:
-    return RootFailureRecord(**values, fingerprint=fingerprint(values))
+    normalized = dict(failure_kind=values["failure_kind"], node_id=None,
+        execution_id=None, attempt=None, supporting_evidence_refs=(), diagnostics=())
+    normalized.update(values)
+    return RootFailureRecord(**normalized, fingerprint=fingerprint(normalized))
 
 
 def finalize_task(

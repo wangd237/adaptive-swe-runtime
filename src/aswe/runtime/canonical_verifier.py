@@ -39,7 +39,7 @@ class CanonicalCommandPolicy(FrozenModel):
 
 
 def make_command_policy(check_id: str, argv: tuple[str, ...], timeout_seconds: float = 15):
-    fields = dict(check_id=check_id, argv=argv, timeout_seconds=timeout_seconds)
+    fields = dict(check_id=check_id, argv=argv, timeout_seconds=float(timeout_seconds))
     return CanonicalCommandPolicy(**fields, fingerprint=fingerprint(fields))
 
 
