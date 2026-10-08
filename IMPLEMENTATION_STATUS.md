@@ -4,31 +4,25 @@
 
 Coding Step 0 — CLOSED / ACCEPTED
 Coding Step 1 — CLOSED / ACCEPTED
-Coding Step 2 — NOT STARTED
+Coding Step 2 — IN PROGRESS / FOUNDATION PR
 
-## Coding Step 1: accepted deliverables
-- [x] Durable LocalEvidenceStore with attempt/task provenance, atomic publication, full SHA-256 integrity and reload/tamper checks
-- [x] Minimal append-only RuntimeEvent sink separated from EvidenceStore
-- [x] Runtime-owned bootstrap: checkout exact detached base SHA, clean check, then initial snapshot
-- [x] Temporary-index Git RepositoryStateDigest, tracked/new/deleted patch and per-attempt tree delta
-- [x] Unsupported baseline/newly introduced submodules and sparse Git config rejected
-- [x] Bounded filesystem snapshots, NodeWorkspaceDelta and conservative UNKNOWN mutation classification
-- [x] Task-local fair READ/WRITE access with cancellation of waiting operations
-- [x] FROZEN/QUARANTINED lifecycle with quiescence-gated terminal transition and finalization guard
-- [x] Design/implementation review: audits/step1-implementation-review.md
-- [x] Python 3.11: 84 passed, 0 skipped
-- [x] Python 3.13: 84 passed, 0 skipped
-- [x] PR #2 merged at 7252dbf3b667a7ac5bf6569dfe2b2c4425d2f4a0
+## Implemented on Step 2 foundation branch (not yet accepted)
+- [x] NodeDispatchTicket and TaskDispatchGate immutable schemas
+- [x] SchedulerStateMutex/atomic READY claim + dependency acceptance stamps
+- [x] revocable PREPARING / WAITING_WORKSPACE / LOCKED_PRECOMMIT tickets
+- [x] post-lock dispatch commit with attempt/execution/run identity allocated only at commit
+- [x] bounded transient-clean Retry using original immutable TaskNode
+- [x] accepted Handoff publication and monotonic acceptance_epoch
+- [x] task-wide fail-close blocking unrelated READY/PENDING nodes
+- [x] deterministic FakeBackend scheduling/race tests
 
-## Coding Step 2: next, not yet started
-- NodeDispatchTicket, SchedulerStateMutex, TaskDispatchGate
-- DependencyAcceptanceStamp / acceptance_epoch
-- workspace-aware final dispatch commit
-- NodeRuntimeState transitions, Retry/Repair/Reverify, fail-close and terminal drain
-- deterministic FakeBackend race PoCs before DeerFlow
+## Remaining Step 2 milestones (must not be claimed complete)
+- [ ] VerificationResult/RepairAttributionResolver -> unique writer proof
+- [ ] atomic Writer reopen, revoke stale descendant tickets, active consumer fail-close
+- [ ] REPAIR and REVERIFY attempts with revision-scoped RepairFeedback
+- [ ] committed execution cancellation, join/quiescence and terminal FROZEN/QUARANTINED drain
+- [ ] root failure assembly, TaskResult state and finalization integration
+- [ ] full R16–R26, R75–R128 PoC coverage
+- [ ] Python 3.11 / 3.13 CI + deep implementation review
 
-## Explicit integration limitations
-- Real network-hosted repository clone and DeerFlow shared-workspace execution remain integration gated.
-- No distributed EvidenceStore, autonomous Scheduler, LLM, or agent execution introduced.
-
-See AGENTS.md, plan/master-plan.md and the Step 1 implementation review.
+DeerFlow, LLM, and Planning Compiler remain intentionally unimplemented.
