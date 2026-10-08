@@ -614,8 +614,20 @@ class SchedulerCore:
                 item.cancel_error = type(exc).__name__
                 self._quiescence_unknown = True
 
-        if active:
-            await asyncio.gather(*(cancel_join(eid, item) for eid, item in active))
+        try:
+            if active:
+                await asyncio.gather(*(cancel_join(eid, item) for eid, item in active))
+        except BaseException:
+            # The drain coordinator itself may be cancelled. No completed
+            # join proof exists; never leave the workspace merely ACTIVE.
+            self._quiescence_unknown = True
+            from aswe.workspace.session import WorkspaceSessionStatus
+            if self.workspace.lifecycle.current.status not in (
+                WorkspaceSessionStatus.QUARANTINED, WorkspaceSessionStatus.FROZEN,
+                WorkspaceSessionStatus.CLOSED,
+            ):
+                await self.workspace.terminalize(quiescence_proven=False)
+            raise
         if self._quiescence_unknown:
             from aswe.workspace.session import WorkspaceSessionStatus
             if self.workspace.lifecycle.current.status not in (
