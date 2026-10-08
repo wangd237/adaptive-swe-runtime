@@ -3,34 +3,31 @@
 ## Current phase
 
 ```text
-Coding Step 0 — IN PROGRESS
+Coding Step 0 — FINAL PR REVIEW / CI GATE
 ```
 
-## Completed in bootstrap
+## Completed
 
-- [x] Python package skeleton (`src/aswe`)
-- [x] `AGENTS.md` coding constraints
-- [x] frozen design snapshot copied into repository
-- [x] safe runtime ID helpers
-- [x] canonical SHA-256 fingerprint helper
-- [x] `RuntimeBudgetConfig`
-- [x] shared Workspace/Evidence/Handoff contracts
-- [x] `TaskNode / VerificationRepairBinding / TaskDAG`
-- [x] `NodeExecutionPreparation / NodeExecutionInvocation`
-- [x] deterministic `FakeExecutionBackend` harness
-- [x] architecture conformance bootstrap tests
-- [x] GitHub Actions CI
+- [x] Package skeleton; `AGENTS.md` and pinned design snapshot
+- [x] Provider-neutral shared contracts, safe IDs, canonical SHA-256, RuntimeBudgetConfig
+- [x] Frozen TaskNode / TaskDAG with canonical two-stage fingerprint, structural/topological validation
+- [x] NodeAttemptRecord / NodeRuntimeState authority data contracts; validated atomic snapshots
+- [x] FakeBackend controlled execution/cancellation barrier, cleanup and identity replay guards
+- [x] P0-F01 through F06 executable architecture checks
+- [x] Regression tests for forged hashes, stale Handoff, invalid state copy and cancellation cleanup
+- [x] Architecture import boundaries and GitHub Actions matrix (Python 3.11/3.13)
+- [x] Focused implementation review documented at `audits/step0-implementation-review.md`
 
-## Still required before Coding Step 0 exit
+## Final acceptance gate
 
-- [ ] implement/confirm remaining Step-0 shared contracts needed by Step 1
-- [ ] convert POC-F01 ~ F06 into complete executable conformance coverage
-- [ ] review first implementation against frozen Specs before starting Step 1
+- [ ] Updated PR head CI green (Python 3.11 and 3.13), no skipped F01
+- [ ] Merge PR #1
+- [ ] Mark Coding Step 0 CLOSED on main
 
-## Explicitly not started
+## Deferred by design
 
-- Workspace/Git substrate
-- Scheduler
-- Planning compiler
-- DeerFlow integration
-- LLM / prompts / Skills
+- Step 1: EvidenceStore / Workspace / Git substrate
+- Step 2: Scheduler state transitions, locks, dispatch commit
+- Step 3+: Planning compiler / DeerFlow / LLM / Agents
+
+See `AGENTS.md`, `plan/master-plan.md`, and the implementation review for acceptance rules.
