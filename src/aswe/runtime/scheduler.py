@@ -580,6 +580,45 @@ class SchedulerCore:
             raise RepairScopeInvalidated(fail_reason)
         return attribution
 
+    async def complete_task(self) -> None:
+        """Close successful scheduling without incorrectly marking a root failure.
+
+        ContractVerdict is checked separately by Runtime-only TaskResult finalizer.
+        """
+        async with self.state_mutex:
+            if self.gate.state is not TaskDispatchGateState.OPEN or self._task_failed:
+                raise RuntimeError("task is not eligible for normal completion")
+            if any(s.logical_status is not NodeLogicalStatus.SUCCEEDED for s in self.states.values()):
+                raise RuntimeError("ordinary nodes not all accepted")
+            if any(t.state in (NodeDispatchTicketState.PREPARING, NodeDispatchTicketState.WAITING_WORKSPACE,
+                              NodeDispatchTicketState.LOCKED_PRECOMMIT, NodeDispatchTicketState.COMMITTED)
+                   for t in self.tickets.values()):
+                raise RuntimeError("task still has pending dispatch")
+            self.gate = TaskDispatchGate(state=TaskDispatchGateState.CLOSED, epoch=self.gate.epoch + 1)
+        await self.drain_committed()
+
+    async def cancel_task(self) -> None:
+        """Cancellation is not a business failure; residual patches stay unaccepted."""
+        async with self.state_mutex:
+            if self.gate.state is not TaskDispatchGateState.CLOSED:
+                self._fail_close_locked("TASK_USER_CANCELLED")
+            self._task_cancelled = True
+            for node_id, state in tuple(self.states.items()):
+                if state.logical_status in (
+                    NodeLogicalStatus.PENDING, NodeLogicalStatus.READY,
+                    NodeLogicalStatus.REMEDIATION_PENDING, NodeLogicalStatus.BLOCKED,
+                ):
+                    self.states[node_id] = state.model_copy(update={
+                        "logical_status": NodeLogicalStatus.CANCELLED,
+                        "active_dispatch_ticket_id": None,
+                        "block_reason": None, "blocked_by": (),
+                    })
+        await self.drain_committed()
+
+    @property
+    def cancelled(self) -> bool:
+        return getattr(self, "_task_cancelled", False)
+
     async def fail_closed(self, reason: str, *, root_node: str | None = None) -> None:
         async with self.state_mutex:
             self._fail_close_locked(reason, root_node=root_node)
