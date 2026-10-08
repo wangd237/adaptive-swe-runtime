@@ -147,8 +147,34 @@ def resolve_verification_repair_attribution(
             result.verification_attempt != source_attempt.attempt or
             result.verification_execution_id != source_attempt.execution_id):
         raise ValueError("verification payload provenance mismatch")
+    if (verification_ref.workspace_revision_generation !=
+            result.observed_workspace_revision.generation or
+            verification_ref.workspace_state_fingerprint !=
+            result.observed_workspace_revision.repository_state_fingerprint):
+        raise ValueError("verification evidence revision provenance mismatch")
 
     failed = tuple(c.check_id for c in result.checks if c.status is VerificationCheckStatus.FAILED)
+    check_proofs_complete = True
+    for check in result.checks:
+        if check.status is not VerificationCheckStatus.FAILED:
+            continue
+        if not check.evidence_refs:
+            check_proofs_complete = False
+            break
+        for proof in check.evidence_refs:
+            if (proof.kind is not AttemptEvidenceKind.TOOL_RECEIPT_LEDGER
+                or proof.source_node_id != source_attempt.node_id
+                or proof.source_execution_id != source_attempt.execution_id
+                or proof.source_attempt != source_attempt.attempt
+                or proof.workspace_revision_generation !=
+                   result.observed_workspace_revision.generation):
+                check_proofs_complete = False
+                break
+            # A failed-check claim cannot substitute a nonexistent or tampered
+            # Runtime-owned tool receipt; no guessing from free-text reports.
+            evidence_store.get(proof)
+        if not check_proofs_complete:
+            break
     def report(kind: RepairAttributionKind, reason: str, candidates: tuple[str, ...] = (),
                target: str | None = None, attempt: int | None = None) -> RepairAttributionEvidence:
         return _attribution(result, dag, kind, failures=failed, candidates=candidates,
@@ -169,6 +195,7 @@ def resolve_verification_repair_attribution(
                result.observed_workspace_revision.repository_state_fingerprint
             or source_attempt.post_workspace_revision != result.observed_workspace_revision
             or not failed
+            or not check_proofs_complete
             or any(not c.deterministic for c in result.checks if c.status is VerificationCheckStatus.FAILED)
     ):
         return report(RepairAttributionKind.SOURCE_INELIGIBLE, "INVALID_DETERMINISTIC_SOURCE")
