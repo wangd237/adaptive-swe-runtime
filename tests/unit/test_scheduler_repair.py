@@ -188,10 +188,13 @@ async def test_consumer_commit_wins_then_reopen_fails_closed_even_prestart(tmp_p
     assert core.failed and manager.dispatch_closed
     assert core.states["writer"].logical_status is NodeLogicalStatus.SUCCEEDED
     assert core.states["writer"].acceptance_epoch == 1
-    assert core.states["reviewer"].attempts[0].status.value == "running"
-    await backend.cancel_node(core.states["reviewer"].attempts[0].execution_id)
+    # Reopen fail-close now automatically cancels and JOINs the COMMITTED
+    # consumer; PRE_START does not make it revocable as a precommit ticket.
+    assert core.states["reviewer"].attempts[0].status.value == "cancelled"
     await running
     assert core.states["reviewer"].logical_status is NodeLogicalStatus.FAILED
+    assert manager.lifecycle.current.status is WorkspaceSessionStatus.FROZEN
+    assert backend.records[-1].terminal_status is BackendTerminalStatus.CANCELLED
 
 
 @pytest.mark.asyncio
