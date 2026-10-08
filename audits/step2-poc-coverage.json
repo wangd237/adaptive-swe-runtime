@@ -1,0 +1,537 @@
+{
+  "scope": "Step 2 frozen POC-R16..R26 and POC-R75..R128",
+  "source": "tests/poc-matrix.md",
+  "version": 1,
+  "status_meaning": {
+    "PASS": "named executable regression covers the specified essential behavior",
+    "PARTIAL": "related behavior tested but at least one condition lacks executable proof",
+    "GAP": "specific scenario has no direct executable regression; blocks Step 2 closure"
+  },
+  "counts": {
+    "PASS": 31,
+    "GAP": 16,
+    "PARTIAL": 18
+  },
+  "entries": [
+    {
+      "id": "R16",
+      "description": "attempt transient fail 且 retry budget exists",
+      "criterion": "Node=REMEDIATION_PENDING，下游保持 PENDING 而非 BLOCKED",
+      "status": "PASS",
+      "test": "tests/unit/test_scheduler_step2_exit.py::test_r16_r17_retry_then_exhausted_blocks_all_descendants",
+      "assessment": "同一逻辑节点 transient-clean 重试；子节点保持等待"
+    },
+    {
+      "id": "R17",
+      "description": "retry budget耗尽",
+      "criterion": "Node=FAILED，ordinary descendants 转 BLOCKED",
+      "status": "PASS",
+      "test": "tests/unit/test_scheduler_step2_exit.py::test_r16_r17_retry_then_exhausted_blocks_all_descendants",
+      "assessment": "预算耗尽后依赖链 BLOCKED"
+    },
+    {
+      "id": "R18",
+      "description": "Writer SUCCEEDED 后 verification triggers repair",
+      "criterion": "old accepted_handoff 立即失效；Reviewer 不可提前 READY",
+      "status": "PASS",
+      "test": "tests/unit/test_scheduler_repair.py::test_unique_writer_attribution_is_persisted_and_reopen_revokes_authority",
+      "assessment": "旧 Handoff 撤销和 Reviewer 回 PENDING"
+    },
+    {
+      "id": "R19",
+      "description": "Writer 已被普通 downstream SUCCEEDED 消费后再触发 repair",
+      "criterion": "REPAIR_SCOPE_INVALIDATED，P1 fail closed",
+      "status": "PASS",
+      "test": "tests/unit/test_scheduler_repair.py::test_successful_nonverification_consumer_forbids_reopen",
+      "assessment": "已成功消费的下游使 reopen fail closed"
+    },
+    {
+      "id": "R20",
+      "description": "upstream FAILED 有多层 descendants",
+      "criterion": "descendants BLOCKED，但 Task aggregation 只保留 root failure ownership",
+      "status": "PASS",
+      "test": "tests/unit/test_scheduler_step2_exit.py::test_r104_single_business_root_and_ten_blocked_consequences",
+      "assessment": "多层阻塞与 root 独立聚合"
+    },
+    {
+      "id": "R21",
+      "description": "local node cancellation",
+      "criterion": "node=CANCELLED；ordinary descendants BLOCKED",
+      "status": "GAP",
+      "test": null,
+      "assessment": "缺少 local-node cancel API 和独立下游传播测试"
+    },
+    {
+      "id": "R22",
+      "description": "task-wide cancellation",
+      "criterion": "running nodes cancel+join；未运行 descendants=CANCELLED，不误标 business failure",
+      "status": "PASS",
+      "test": "tests/unit/test_scheduler_step2_exit.py::test_r22_user_cancel_joins_running_and_cancels_unstarted",
+      "assessment": "Task user cancel + active join + 未启动节点 CANCELLED"
+    },
+    {
+      "id": "R23",
+      "description": "Verification failure @ R5，Repair lock 时 Workspace=R6",
+      "criterion": "不向 Coder注入旧 failure；先 refresh/reverify 或 REPAIR_FEEDBACK_STALE",
+      "status": "PARTIAL",
+      "test": "tests/unit/test_scheduler_repair.py::test_repair_feedback_freshness_checked_under_workspace_lock",
+      "assessment": "拒绝过期反馈已验证；refresh/reverify 或 REPAIR_FEEDBACK_STALE 规范处理未闭环"
+    },
+    {
+      "id": "R24",
+      "description": "own AcceptanceFailure 后 current revision 改变",
+      "criterion": "重跑 deterministic acceptance；旧 Feedback 不原地复用",
+      "status": "GAP",
+      "test": null,
+      "assessment": "own AcceptanceFailure revision 改变后的确定性 acceptance 重评估未实现"
+    },
+    {
+      "id": "R25",
+      "description": "stale feedback refresh 后仍失败",
+      "criterion": "创建新的 EvidenceRef / observed revision / fingerprint，再允许 REPAIR",
+      "status": "GAP",
+      "test": null,
+      "assessment": "过期反馈刷新后失败必须生成新 refs/fingerprint 的流程未实现"
+    },
+    {
+      "id": "R26",
+      "description": "stale feedback refresh 后已通过",
+      "criterion": "旧 RepairFeedback 作废，不执行多余 repair",
+      "status": "GAP",
+      "test": null,
+      "assessment": "过期反馈刷新后已通过则取消 REPAIR 的分支未实现"
+    },
+    {
+      "id": "R75",
+      "description": "single business Writer + one deterministic failed check",
+      "criterion": "binding singleton → UNIQUE_WRITER，target=current accepted_attempt",
+      "status": "PASS",
+      "test": "tests/unit/test_strict_canonical_repair.py::test_runtime_canonical_receipt_authorizes_exact_single_writer_reopen",
+      "assessment": "canonical failure + singleton owner + current accepted attempt"
+    },
+    {
+      "id": "R76",
+      "description": "single Writer + multiple deterministic failed checks",
+      "criterion": "每个 check 都绑定同一 singleton Writer → UNIQUE_WRITER",
+      "status": "GAP",
+      "test": null,
+      "assessment": "缺少多个 failed checks 同属唯一 Writer 的执行反例"
+    },
+    {
+      "id": "R77",
+      "description": "two business Writers → global verification fail",
+      "criterion": "candidate set >1 → MULTI_WRITER；不生成 automatic RepairFeedback",
+      "status": "PARTIAL",
+      "test": "tests/unit/test_scheduler_repair.py::test_multi_owner_binding_does_not_pick_one_writer",
+      "assessment": "多候选拒绝已测；尚缺两个实际 business Writer 场景"
+    },
+    {
+      "id": "R78",
+      "description": "Writer B 是最后执行者但 A/B 都是 candidates",
+      "criterion": "禁止 last-writer heuristic；仍 MULTI_WRITER",
+      "status": "PARTIAL",
+      "test": "tests/unit/test_scheduler_repair.py::test_multi_owner_binding_does_not_pick_one_writer",
+      "assessment": "不选最后 Writer 的规则有结构性保护，缺实际最后执行序列"
+    },
+    {
+      "id": "R79",
+      "description": "failed stack trace/path 只与 Writer A changed_paths 重合",
+      "criterion": "path overlap 不缩小 authority candidate set",
+      "status": "GAP",
+      "test": null,
+      "assessment": "缺少伪造 changed_paths 交集来证明 authority 不被缩小"
+    },
+    {
+      "id": "R80",
+      "description": "Tester prose 声称“Writer A caused failure”",
+      "criterion": "self-report 不影响 attribution",
+      "status": "PARTIAL",
+      "test": "tests/unit/test_scheduler_repair.py::test_verification_prose_cannot_provide_deterministic_check",
+      "assessment": "禁止 prose 推断；尚缺带真实 self-report 的否定对照"
+    },
+    {
+      "id": "R81",
+      "description": "一个 failed check 无 owner，另一个属于 Writer A",
+      "criterion": "NO_OWNER / no automatic repair；不能只修可归因子集",
+      "status": "GAP",
+      "test": null,
+      "assessment": "多个 check 中一项无 owner 的全局 NO_OWNER 行为未单测"
+    },
+    {
+      "id": "R82",
+      "description": "failed checks 分别绑定 Writer A / Writer B",
+      "criterion": "MULTI_WRITER；不任选其一",
+      "status": "GAP",
+      "test": null,
+      "assessment": "两个 checks 分属不同 Writer 的 MULTI_WRITER 未单测"
+    },
+    {
+      "id": "R83",
+      "description": "Writer attempt1 clean retry fail、attempt2 accepted，随后 verify fail",
+      "criterion": "target_write_attempt=attempt2",
+      "status": "GAP",
+      "test": null,
+      "assessment": "同一 Writer 重试 attempt2 接受后归因指向 attempt2 未单测"
+    },
+    {
+      "id": "R84",
+      "description": "Tester 修改 tracked repo 后测试失败",
+      "criterion": "repository_state_unchanged=false → SOURCE_INELIGIBLE；不归因 Writer",
+      "status": "PARTIAL",
+      "test": "tests/unit/test_scheduler_repair.py::test_declared_unchanged_repository_must_match_before_and_after",
+      "assessment": "检出前后 Git 指纹不一致；未构建 Tester 实际改 tracked 源码复现"
+    },
+    {
+      "id": "R85",
+      "description": "verifier backend crash / test command 未形成 deterministic result",
+      "criterion": "SOURCE_INELIGIBLE；不把 execution failure 当 verification failure",
+      "status": "PARTIAL",
+      "test": "tests/unit/test_scheduler_foundation.py::test_backend_exception_terminalizes_committed_attempt_and_quarantines",
+      "assessment": "backend crash 终态化已测；验证器无 deterministic verdict 的归因拒绝未串通"
+    },
+    {
+      "id": "R86",
+      "description": "verification only UNVERIFIED",
+      "criterion": "不触发 repair attribution",
+      "status": "PARTIAL",
+      "test": "tests/unit/test_scheduler_repair.py::test_verification_prose_cannot_provide_deterministic_check",
+      "assessment": "非 deterministic 检查拒绝；UNVERIFIED-only 特例未单测"
+    },
+    {
+      "id": "R87",
+      "description": "semantic READ_ONLY Tester 有 physical WRITE lock",
+      "criterion": "不进入 business writer candidate set",
+      "status": "GAP",
+      "test": null,
+      "assessment": "physical WRITE 锁上的 semantic READ_ONLY Tester 不作为 business Writer 的专测缺失"
+    },
+    {
+      "id": "R88",
+      "description": "same Provider 执行两个 IMPLEMENTATION logical nodes",
+      "criterion": "仍是两个 candidates；Provider identity 不合并 ownership",
+      "status": "GAP",
+      "test": null,
+      "assessment": "同一 provider 两个 logical business writers 不合并的专测缺失"
+    },
+    {
+      "id": "R89",
+      "description": "singleton Writer accepted 后，另一个 business Writer 改 Git-visible state，再运行 verifier",
+      "criterion": "SCOPE_INVALIDATED；不沿用旧 singleton attribution",
+      "status": "GAP",
+      "test": null,
+      "assessment": "不同 Writer 中途改变 Git-visible state 的归因 scope invalidated 用例缺失"
+    },
+    {
+      "id": "R90",
+      "description": "UNIQUE_WRITER attribution 后 Scheduler reopen",
+      "criterion": "Writer reopen + old handoff revoke 先于 READY recomputation，无旧 handoff 解锁窗口",
+      "status": "PASS",
+      "test": "tests/unit/test_scheduler_repair.py::test_unique_writer_attribution_is_persisted_and_reopen_revokes_authority",
+      "assessment": "reopen authority revoke 先于 READY 重算"
+    },
+    {
+      "id": "R91",
+      "description": "WRITE execution terminal fail + mutation observed + quiescence proven",
+      "criterion": "Task=FAILED；WorkspaceSession=FROZEN；WorkspaceDisposition=STABLE，不误标 QUARANTINED",
+      "status": "PARTIAL",
+      "test": "tests/unit/test_finalization_extended.py::test_r97_ignored_cache_mutation_distinct_from_git_patch",
+      "assessment": "稳定失败与 patch 维度已建；WRITE 已观察修改的完整结算链需单测"
+    },
+    {
+      "id": "R92",
+      "description": "WRITE failure mutation UNKNOWN + no legal remediation",
+      "criterion": "task-wide fail closed；剩余 ordinary nodes 不再 dispatch",
+      "status": "PASS",
+      "test": "tests/unit/test_scheduler_foundation.py::test_explicit_transient_with_unknown_mutation_is_not_retryable",
+      "assessment": "UNKNOWN mutation 关闭 task dispatch"
+    },
+    {
+      "id": "R93",
+      "description": "dirty root failure 时另有 unrelated READY branch",
+      "criterion": "unrelated branch → BLOCKED + TASK_FAIL_CLOSED，不允许继续污染共享状态",
+      "status": "PASS",
+      "test": "tests/unit/test_scheduler_foundation.py::test_task_failclose_revokes_unrelated_ticket_and_blocks_ready_nodes",
+      "assessment": "无关 READY 阻止并撤销 ticket"
+    },
+    {
+      "id": "R94",
+      "description": "dirty failure 后 planned Reviewer 尚未运行",
+      "criterion": "Reviewer 不 dispatch；不会为了“诊断”重新打开 Agent execution",
+      "status": "PARTIAL",
+      "test": "tests/unit/test_scheduler_foundation.py::test_task_failclose_revokes_unrelated_ticket_and_blocks_ready_nodes",
+      "assessment": "阻塞分支已测；专门 Reviewer 不再执行的调用计数用例缺失"
+    },
+    {
+      "id": "R95",
+      "description": "FROZEN dirty workspace finalization",
+      "criterion": "只允许 Runtime-owned repository digest / changeset / evidence aggregation",
+      "status": "PARTIAL",
+      "test": "tests/unit/test_task_finalization.py::test_failed_task_retains_unaccepted_patch_as_task_evidence",
+      "assessment": "Runtime-only finalizer + Git artifacts；尚缺禁止 Agent tool 的强负测"
+    },
+    {
+      "id": "R96",
+      "description": "dirty failed task + Git-visible patch present",
+      "criterion": "TaskResult FAILED + PATCH_PRESENT + RESIDUAL_UNACCEPTED",
+      "status": "PASS",
+      "test": "tests/unit/test_task_finalization.py::test_failed_task_retains_unaccepted_patch_as_task_evidence",
+      "assessment": "FAILED + PATCH_PRESENT + RESIDUAL_UNACCEPTED"
+    },
+    {
+      "id": "R97",
+      "description": "dirty failed task + only ignored/cache/environment mutation uncertainty",
+      "criterion": "WorkspaceDisposition=STABLE_WITH_UNCERTAINTY；Repository=BASELINE_CLEAN；Patch=NONE",
+      "status": "PASS",
+      "test": "tests/unit/test_finalization_extended.py::test_r97_ignored_cache_mutation_distinct_from_git_patch",
+      "assessment": "ignored cache side effect 与 Git-clean 正交"
+    },
+    {
+      "id": "R98",
+      "description": "quiescence proof missing after mutating failure",
+      "criterion": "Workspace=QUARANTINED；禁止 workspace-touching finalizer",
+      "status": "PASS",
+      "test": "tests/unit/test_task_finalization.py::test_quarantine_never_reads_current_git_state",
+      "assessment": "QUARANTINED 不能检查 final Git"
+    },
+    {
+      "id": "R99",
+      "description": "QUARANTINED 但已有 pre-quarantine RepositoryChangeSet evidence",
+      "criterion": "TaskResult 可引用旧 trusted artifact，但不得声明为重新观察的 current snapshot",
+      "status": "PARTIAL",
+      "test": "tests/unit/test_finalization_extended.py::test_r108_quarantine_preserves_only_verified_historical_attempt_artifacts",
+      "assessment": "历史 attempt evidence 可保留；具体 pre-quarantine RepositoryChangeSet 专测缺失"
+    },
+    {
+      "id": "R100",
+      "description": "Review REQUEST_CHANGES after valid Writer patch",
+      "criterion": "Task FAILED；patch 保留为 RESIDUAL_UNACCEPTED，不伪装 accepted",
+      "status": "GAP",
+      "test": null,
+      "assessment": "Review REQUEST_CHANGES 带 residual Git Patch 的任务级检查未实现"
+    },
+    {
+      "id": "R101",
+      "description": "AcceptanceFailure + mutation + legal deterministic Repair",
+      "criterion": "Node=REMEDIATION_PENDING；不提前 task-wide fail closed",
+      "status": "GAP",
+      "test": null,
+      "assessment": "own AcceptanceFailure + physical mutation + 合法 deterministic Repair 仍可保持 remediation 的复杂条件未实现"
+    },
+    {
+      "id": "R102",
+      "description": "Repair budget exhausted while repository patch remains",
+      "criterion": "Task=FAILED；Workspace→FROZEN；residual patch reported",
+      "status": "GAP",
+      "test": null,
+      "assessment": "修复预算耗尽且 patch 存在的 root/终态联测未实现"
+    },
+    {
+      "id": "R103",
+      "description": "terminal dirty fail-close state transaction",
+      "criterion": "failing node FAILED + task FAILED + dispatch closed + remaining nodes BLOCKED 原子化",
+      "status": "PARTIAL",
+      "test": "tests/unit/test_scheduler_foundation.py::test_task_failclose_revokes_unrelated_ticket_and_blocks_ready_nodes",
+      "assessment": "Node/gate/blocks 同 mutex 已测；TaskLogicalStatus 终态事务尚非同步发布"
+    },
+    {
+      "id": "R104",
+      "description": "Task FAILED + 10 blocked descendants",
+      "criterion": "TaskResult.root_failures 只记录真实 root；blocked nodes 作为 propagation consequences",
+      "status": "PASS",
+      "test": "tests/unit/test_scheduler_step2_exit.py::test_r104_single_business_root_and_ten_blocked_consequences",
+      "assessment": "1 root + 10 blocked consequences"
+    },
+    {
+      "id": "R105",
+      "description": "terminal TaskResult final_repository_changeset",
+      "criterion": "使用 TaskEvidenceRef 指向 immutable artifact，不复制完整 patch bytes",
+      "status": "PASS",
+      "test": "tests/unit/test_task_finalization.py::test_failed_task_retains_unaccepted_patch_as_task_evidence",
+      "assessment": "TaskEvidenceRef 指向 ChangeSet，不拷贝 patch bytes"
+    },
+    {
+      "id": "R106",
+      "description": "FROZEN finalizer 生成 final repository changeset",
+      "criterion": "使用 task-scoped TaskEvidenceRef；不伪造 synthetic Node attempt",
+      "status": "PASS",
+      "test": "tests/unit/test_task_finalization.py::test_failed_task_retains_unaccepted_patch_as_task_evidence",
+      "assessment": "Task scope evidence，无 synthetic Node attempt"
+    },
+    {
+      "id": "R107",
+      "description": "TaskEvidenceRef 被尝试放入 NodeHandoff",
+      "criterion": "schema/policy reject；task-finalization evidence 不进入 ordinary execution handoff",
+      "status": "PASS",
+      "test": "tests/unit/test_finalization_extended.py::test_r107_task_evidence_cannot_appear_as_node_attempt_handoff",
+      "assessment": "Pydantic schema 拒绝 TaskEvidenceRef→NodeHandoff"
+    },
+    {
+      "id": "R108",
+      "description": "QUARANTINED task finalization",
+      "criterion": "不创建声称 current-final 的 TaskEvidenceRef；仅保留 last_trusted attempt EvidenceRef",
+      "status": "PASS",
+      "test": "tests/unit/test_finalization_extended.py::test_r108_quarantine_preserves_only_verified_historical_attempt_artifacts",
+      "assessment": "隔离不读 Git / 仅 last trusted refs"
+    },
+    {
+      "id": "R109",
+      "description": "Writer reopen 时 downstream READY 且尚无 dispatch ticket",
+      "criterion": "accepted authority revoke 后 consumer → PENDING；无 attempt",
+      "status": "PASS",
+      "test": "tests/unit/test_scheduler_repair.py::test_r109_ready_descendant_without_ticket_becomes_pending",
+      "assessment": "READY 无 ticket 返回 PENDING"
+    },
+    {
+      "id": "R110",
+      "description": "downstream ticket=PREPARING 时 Writer reopen",
+      "criterion": "ticket REVOKED；prepared result discard；不创建 NodeAttemptRecord",
+      "status": "PASS",
+      "test": "tests/unit/test_scheduler_repair.py::test_preparing_ticket_is_revoked_without_precommit_attempt",
+      "assessment": "PREPARING revoke 无 attempt"
+    },
+    {
+      "id": "R111",
+      "description": "downstream ticket=WAITING_WORKSPACE 时 Writer reopen",
+      "criterion": "lock wait 被取消/退出；ticket REVOKED；无 backend cancel",
+      "status": "PASS",
+      "test": "tests/unit/test_scheduler_repair.py::test_waiting_workspace_ticket_revoked_without_cancel_backend",
+      "assessment": "WAITING revoke 无 backend cancel"
+    },
+    {
+      "id": "R112",
+      "description": "downstream 已拿 lock、ticket=LOCKED_PRECOMMIT，reopen 先取得 SchedulerStateMutex",
+      "criterion": "ticket REVOKED；consumer commit gate 失败并释放 lock；无 attempt",
+      "status": "PASS",
+      "test": "tests/unit/test_scheduler_repair.py::test_locked_precommit_ticket_revoked_before_atomic_commit",
+      "assessment": "LOCKED_PRECOMMIT revoke + commit fail"
+    },
+    {
+      "id": "R113",
+      "description": "downstream final dispatch commit 先取得 SchedulerStateMutex",
+      "criterion": "consumer → RUNNING/COMMITTED；Writer reopen → REPAIR_SCOPE_INVALIDATED(ACTIVE_DOWNSTREAM_DISPATCH)",
+      "status": "PASS",
+      "test": "tests/unit/test_scheduler_repair.py::test_consumer_commit_wins_then_reopen_fails_closed_even_prestart",
+      "assessment": "commit 赢则 scope invalidated"
+    },
+    {
+      "id": "R114",
+      "description": "Writer reopen transaction 先于 consumer commit",
+      "criterion": "acceptance_epoch/handoff authority 改变；consumer commit 看到 stamp mismatch，不进入 backend",
+      "status": "PASS",
+      "test": "tests/unit/test_scheduler_repair.py::test_locked_precommit_ticket_revoked_before_atomic_commit",
+      "assessment": "reopen 赢则 commit 无 authority"
+    },
+    {
+      "id": "R115",
+      "description": "consumer COMMITTED 但 DeerFlow 尚 PRE_START/排队 capacity",
+      "criterion": "P1 仍视为跨越 dispatch boundary；不 retract attempt 后 repair",
+      "status": "PASS",
+      "test": "tests/unit/test_scheduler_repair.py::test_consumer_commit_wins_then_reopen_fails_closed_even_prestart",
+      "assessment": "PRE_START 仍视为 COMMITTED"
+    },
+    {
+      "id": "R116",
+      "description": "ACTIVE_DOWNSTREAM_DISPATCH 导致 task fail-close",
+      "criterion": "先 close dispatch gate，再 cancel/join committed consumer；全部 quiescent 后才 FROZEN",
+      "status": "PASS",
+      "test": "tests/unit/test_scheduler_repair.py::test_consumer_commit_wins_then_reopen_fails_closed_even_prestart",
+      "assessment": "failclose + cancel/join → FROZEN"
+    },
+    {
+      "id": "R117",
+      "description": "active consumer cancellation 无法证明 quiescence",
+      "criterion": "Workspace→QUARANTINED；不得继续 repair/final workspace inspection",
+      "status": "PASS",
+      "test": "tests/unit/test_scheduler_drain.py::test_cancel_acknowledgement_without_join_forces_quarantine",
+      "assessment": "未完成 join 则 QUARANTINED"
+    },
+    {
+      "id": "R118",
+      "description": "Writer H1 publish→reopen→H2 publish",
+      "criterion": "acceptance_epoch 1→2→3；旧 epoch=1 ticket 永久失效",
+      "status": "PASS",
+      "test": "tests/unit/test_scheduler_repair.py::test_r118_old_epoch_ticket_never_reauthorizes_after_repair",
+      "assessment": "epoch 1→2→3 旧票不能恢复"
+    },
+    {
+      "id": "R119",
+      "description": "task-wide fail-close 时已有 WAITING/LOCKED_PRECOMMIT tickets",
+      "criterion": "TaskDispatchGate epoch 改变；所有旧 ticket commit fail",
+      "status": "PARTIAL",
+      "test": "tests/unit/test_scheduler_foundation.py::test_gate_close_after_claim_before_execution_creates_no_attempt",
+      "assessment": "gate epoch fence 已测，WAITING+LOCKED 同时并发缺复现"
+    },
+    {
+      "id": "R120",
+      "description": "prepare_node 期间 ticket 被 revoke",
+      "criterion": "prepare_node 不产生 model/tool/workspace side effect；结果可直接 discard",
+      "status": "PARTIAL",
+      "test": "tests/unit/test_scheduler_repair.py::test_preparing_ticket_is_revoked_without_precommit_attempt",
+      "assessment": "已有 PREPARING revoke，prepare_node 内阻塞屏障用例未测"
+    },
+    {
+      "id": "R121",
+      "description": "SchedulerStateMutex 持有期间",
+      "criterion": "不等待 Workspace lock/backend capacity/I/O；避免 SchedulerMutex→Workspace 反向等待",
+      "status": "PARTIAL",
+      "test": "tests/unit/test_scheduler_foundation.py::test_concurrent_claims_linearize_at_mutex",
+      "assessment": "mutex 短事务已审；缺恶意 hook 持锁 I/O/死锁反例"
+    },
+    {
+      "id": "R122",
+      "description": "source Verification failure 触发合法 reopen",
+      "criterion": "source Verification→REMEDIATION_PENDING；repair success 后同 Node 用 REVERIFY fresh attempt",
+      "status": "PASS",
+      "test": "tests/unit/test_scheduler_repair.py::test_full_single_writer_repair_and_fresh_reverify",
+      "assessment": "same logical node REPAIR→REVERIFY"
+    },
+    {
+      "id": "R123",
+      "description": "running consumer 被 fail-close cancel 且留下 mutation",
+      "criterion": "consumer 不是业务 root failure，但 mutation evidence 影响最终 Workspace/Repository disposition",
+      "status": "GAP",
+      "test": null,
+      "assessment": "被 fail-close cancel 的 consumer 留下副作用后对终态 disposition 的归因未验证"
+    },
+    {
+      "id": "R124",
+      "description": "same WorkspaceRevision R，Writer H1 已 revoke 但 repair 尚未修改 workspace",
+      "criterion": "revision check alone would pass；acceptance_epoch/handoff stamp 必须阻止旧 consumer commit",
+      "status": "PASS",
+      "test": "tests/unit/test_scheduler_repair.py::test_r118_old_epoch_ticket_never_reauthorizes_after_repair",
+      "assessment": "same physical revision 下旧 epoch fence"
+    },
+    {
+      "id": "R125",
+      "description": "Writer logical success publication 与 downstream READY recompute 并发",
+      "criterion": "accepted_attempt/handoff + acceptance_epoch increment + READY recompute 在同一 SchedulerStateMutex transaction",
+      "status": "PARTIAL",
+      "test": "tests/unit/test_scheduler_foundation.py::test_commit_allocates_attempt_only_after_lock_and_publishes_handoff",
+      "assessment": "accepted + READY under mutex；publish/claim 并发专测缺失"
+    },
+    {
+      "id": "R126",
+      "description": "READY Node claim 与 Writer reopen 并发",
+      "criterion": "READY check + dependency stamps capture + single ticket claim 原子化；ticket 不混合两代 authority",
+      "status": "PARTIAL",
+      "test": "tests/unit/test_scheduler_foundation.py::test_concurrent_claims_linearize_at_mutex",
+      "assessment": "claim atomicity 已测；与 reopen 同时争抢 ticket/stamps 的压力测试缺失"
+    },
+    {
+      "id": "R127",
+      "description": "task-wide cancellation 时 Git-visible patch 已存在",
+      "criterion": "Task=CANCELLED；PatchDisposition=RESIDUAL_UNACCEPTED，不得 ACCEPTED",
+      "status": "PASS",
+      "test": "tests/unit/test_task_finalization.py::test_user_cancel_keeps_residual_patch_but_not_business_success",
+      "assessment": "CANCELLED + residual patch 非 ACCEPTED"
+    },
+    {
+      "id": "R128",
+      "description": "task-wide cancellation 后无法证明 active execution quiescence",
+      "criterion": "Task=CANCELLED；WorkspaceDisposition=QUARANTINED；不读取 final workspace",
+      "status": "PARTIAL",
+      "test": "tests/unit/test_scheduler_step2_exit.py::test_r128_user_cancel_without_quiescence_keeps_quarantined",
+      "assessment": "cancel→QUARANTINED 已测；TaskResult 不读 Git 的取消联合测试待补"
+    }
+  ]
+}
