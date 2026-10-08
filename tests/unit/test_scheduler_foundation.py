@@ -49,6 +49,7 @@ def scheduler(tmp_path: Path, *nodes: TaskNode, budget: RuntimeBudgetConfig | No
         task_id="aswe-task-test", dag=build_task_dag(nodes),
         workspace=manager, initial_revision=revision, budget=budget,
         evidence_checker=lambda handoff: handoff.evidence == HandoffEvidence(),
+        test_only_allow_fixture_receipts=True,
     )
     return core, manager
 
