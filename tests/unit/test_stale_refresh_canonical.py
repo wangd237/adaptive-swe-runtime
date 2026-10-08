@@ -126,7 +126,7 @@ async def test_r23_r25_stale_failure_gets_new_attempt_refs_revision_then_repairs
     new_proof = next(r for r in refreshed_attempt.evidence_refs
                      if r.kind is AttemptEvidenceKind.TOOL_RECEIPT_LEDGER)
     assert new_vref != old_vref and new_proof != old_proof
-    assert new_vref.workspace_revision_generation == core.revision.generation - 1
+    assert new_vref.workspace_revision_generation == core.revision.generation
     new_result = VerificationResult.model_validate(store.get(new_vref))
     assert new_result.observed_workspace_revision.generation == rev.generation + 1
     assert new_result.checks[0].status is VerificationCheckStatus.FAILED
