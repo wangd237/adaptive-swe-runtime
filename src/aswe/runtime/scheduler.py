@@ -346,6 +346,42 @@ class SchedulerCore:
             self._fail_close_locked(reason, root_node=root_node)
         await self.workspace.close_dispatch()
 
+    async def _abort_committed(
+        self, invocation: NodeExecutionInvocation, *, failure_kind: str,
+        quiescence_proven: bool,
+    ) -> None:
+        """Terminalize a committed attempt even when execution/acceptance raises.
+
+        Quiescence cannot be inferred from a completed coroutine alone.
+        """
+        async with self.state_mutex:
+            state = self.states[invocation.node_id]
+            if state.logical_status is NodeLogicalStatus.RUNNING:
+                attempt = state.attempts[-1]
+                if attempt.execution_id != invocation.execution_id:
+                    raise RuntimeError("attempt ownership mismatch")
+                post = self.revision
+                if not quiescence_proven:
+                    post = post.model_copy(update={"generation": post.generation + 1})
+                    self.revision = post
+                finished = attempt.model_copy(update={
+                    "status": NodeAttemptStatus.FAILED,
+                    "failure_kind": failure_kind,
+                    "post_workspace_revision": post if quiescence_proven else None,
+                })
+                self.states[invocation.node_id] = state.model_copy(update={
+                    "logical_status": NodeLogicalStatus.FAILED,
+                    "terminal_failure_kind": failure_kind,
+                    "attempts": state.attempts[:-1] + (finished,),
+                })
+                self.tickets[invocation.dispatch_ticket_id] = self.tickets[
+                    invocation.dispatch_ticket_id
+                ].model_copy(update={"state": NodeDispatchTicketState.FINISHED})
+            self._fail_close_locked(failure_kind, root_node=invocation.node_id)
+        await self.workspace.close_dispatch()
+        if not quiescence_proven:
+            await self.workspace.terminalize(quiescence_proven=False)
+
     async def run_claim(
         self, ticket: NodeDispatchTicket, backend: FakeBackendPort, *,
         accept: Acceptance | None = None,
@@ -374,21 +410,35 @@ class SchedulerCore:
                 try:
                     result = await backend.execute_prepared(preparation, invocation)
                 except BaseException:
-                    # No quiescence proof from a thrown backend task.
-                    await backend.cancel_node(invocation.execution_id)
-                    await self.fail_closed("BACKEND_QUIESCENCE_UNKNOWN", root_node=ticket.node_id)
+                    # The backend has not returned an independent quiescence proof.
+                    try:
+                        await backend.cancel_node(invocation.execution_id)
+                    finally:
+                        await self._abort_committed(
+                            invocation, failure_kind="BACKEND_QUIESCENCE_UNKNOWN",
+                            quiescence_proven=False,
+                        )
                     raise
-                handoff = None
-                observed = MutationEvidence(getattr(result, "mutation_evidence", "unknown"))
+                try:
+                    handoff = None
+                    observed = MutationEvidence(getattr(result, "mutation_evidence", "unknown"))
+                    if not getattr(result, "quiescent", False):
+                        observed = MutationEvidence.UNKNOWN
+                    post = self.revision if observed is MutationEvidence.PROVEN_NONE else self.revision.model_copy(
+                        update={"generation": self.revision.generation + 1}
+                    )
+                    if result.terminal_status is BackendTerminalStatus.COMPLETED and result.quiescent:
+                        if accept is not None:
+                            handoff = await accept(result, invocation, post)
+                    await self._finish(invocation, result, handoff)
+                except BaseException:
+                    await self._abort_committed(
+                        invocation, failure_kind="EVIDENCE_FINALIZATION_FAILURE",
+                        quiescence_proven=bool(getattr(result, "quiescent", False)),
+                    )
+                    raise
                 if not getattr(result, "quiescent", False):
-                    observed = MutationEvidence.UNKNOWN
-                post = self.revision if observed is MutationEvidence.PROVEN_NONE else self.revision.model_copy(
-                    update={"generation": self.revision.generation + 1}
-                )
-                if result.terminal_status is BackendTerminalStatus.COMPLETED and result.quiescent:
-                    if accept is not None:
-                        handoff = await accept(result, invocation, post)
-                await self._finish(invocation, result, handoff)
+                    await self.workspace.terminalize(quiescence_proven=False)
                 return invocation
         except (DispatchRevoked, WorkspaceClosedError):
             if invocation is not None:
