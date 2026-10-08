@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 from threading import RLock
+from uuid import uuid4
 
 from aswe.core.fingerprint import canonical_json_bytes
 from aswe.core.ids import validate_safe_id
@@ -41,25 +42,27 @@ class LocalTaskResultStore:
         with self._lock:
             path.parent.mkdir(parents=True, exist_ok=True)
             raw = canonical_json_bytes(result) + b"\n"
-            fd = None
+            temporary = path.with_name("." + path.name + "." + uuid4().hex + ".tmp")
             try:
-                fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-                with os.fdopen(fd, "wb") as stream:
-                    fd = None
+                with open(temporary, "xb") as stream:
                     stream.write(raw)
                     stream.flush()
                     os.fsync(stream.fileno())
+                # Hardlink is atomic and fails if destination exists. A partial
+                # crash cannot expose a truncated terminal result under its
+                # canonical name, unlike direct exclusive-file writes.
+                try:
+                    os.link(temporary, path)
+                except FileExistsError as exc:
+                    raise TaskResultIntegrityError("terminal TaskResult already published") from exc
                 if os.name != "nt":
                     directory = os.open(path.parent, os.O_RDONLY)
                     try:
                         os.fsync(directory)
                     finally:
                         os.close(directory)
-            except FileExistsError as exc:
-                raise TaskResultIntegrityError("terminal TaskResult already published") from exc
             finally:
-                if fd is not None:
-                    os.close(fd)
+                temporary.unlink(missing_ok=True)
 
     def get(self, task_id: str) -> TaskResult:
         try:
