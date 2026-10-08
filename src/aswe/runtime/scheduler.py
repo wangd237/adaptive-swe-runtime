@@ -870,10 +870,15 @@ class SchedulerCore:
                 if not getattr(result, "quiescent", False):
                     await self.workspace.terminalize(quiescence_proven=False)
                 return invocation
-        except (DispatchRevoked, WorkspaceClosedError):
+        except (DispatchRevoked, WorkspaceClosedError) as exc:
             if invocation is not None:
                 raise  # A committed attempt is never silently uncommitted.
             await self.revoke(current_id)
+            if isinstance(exc, DispatchRevoked) and "RepairFeedback stale" in str(exc):
+                # Freshness mismatch must not strand a REMEDIATION_PENDING writer
+                # behind an open gate. No automatic repair without fresh proof.
+                # Deterministic refresh is not yet implemented; fail safely.
+                await self.fail_closed("REPAIR_FEEDBACK_STALE", root_node=ticket.node_id)
             return None
         except asyncio.CancelledError:
             if invocation is None:
