@@ -170,8 +170,9 @@ async def test_preparing_ticket_is_revoked_without_precommit_attempt(tmp_path):
 async def test_consumer_commit_wins_then_reopen_fails_closed_even_prestart(tmp_path):
     core, manager, store, ref, _, attribution_ref = await fixture(tmp_path, consumer=True)
     event = asyncio.Event()
+    from aswe.core.contracts import BackendExecutionPhase
     backend = FakeExecutionBackend([FakeExecutionScenario(
-        release_event=event,
+        release_event=event, execution_phase=BackendExecutionPhase.PRE_START,
     )])
     ticket = await core.claim("reviewer")
     running = asyncio.create_task(core.run_claim(ticket, backend, accept=accept))
