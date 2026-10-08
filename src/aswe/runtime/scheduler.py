@@ -594,11 +594,14 @@ class SchedulerCore:
         """Cancel and JOIN executions; cancel acknowledgement is not quiescence."""
         if timeout <= 0:
             raise ValueError("join timeout must be positive")
-        await self.workspace.close_dispatch()
         owner = asyncio.current_task()
         async with self.state_mutex:
+            if self.gate.state is TaskDispatchGateState.OPEN:
+                self._fail_close_locked("TASK_DRAIN_REQUESTED")
             active = [(eid, item) for eid, item in self._committed.items()
                       if not item.done.is_set() and item.owner is not owner]
+
+        await self.workspace.close_dispatch()
 
         async def cancel_join(eid: str, item: CommittedExecution) -> None:
             if item.backend is None:
