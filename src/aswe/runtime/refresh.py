@@ -70,6 +70,10 @@ async def refresh_stale_verification(core, ticket_id: str) -> bool:
                 })
                 snapshot_writer = writer_state
                 snapshot_source = core.states[source_id]
+                from aswe.runtime.scheduler import CommittedExecution
+                core._committed[execution_id] = CommittedExecution(
+                    backend=None, owner=asyncio.current_task(),
+                )
     if failure is not None:
         await core.fail_closed(failure, root_node=writer_id)
         return False
@@ -104,16 +108,26 @@ async def refresh_stale_verification(core, ticket_id: str) -> bool:
                 )
                 if receipt.command_policy_fingerprint != policy.fingerprint:
                     raise ValueError("refresh command policy differs from original")
-            proof, receipt = await asyncio.to_thread(
+            command = asyncio.create_task(asyncio.to_thread(
                 verifier.run, node_id=source_id, execution_id=execution_id,
                 attempt=attempt_no, policy=policy, revision=revision,
-            )
+            ))
+            try:
+                proof, receipt = await asyncio.shield(command)
+            except asyncio.CancelledError:
+                # A cancelled await does NOT stop a subprocess running inside
+                # to_thread. Join the checker before releasing physical WRITE.
+                try:
+                    await asyncio.shield(command)
+                finally:
+                    raise
             proofs.append(proof)
             checks.append(VerificationCheckResult(
                 check_id=check.check_id, deterministic=True, evidence_refs=(proof,),
                 status=VerificationCheckStatus(receipt.status),
             ))
             if receipt.status == "unverified":
+                core._quiescence_unknown = True  # timeout/possible late-mutating process
                 raise ValueError("refresh check is UNVERIFIED")
         result = make_verification_result(
             verification_node_id=source_id, verification_execution_id=execution_id,
@@ -172,6 +186,10 @@ async def refresh_stale_verification(core, ticket_id: str) -> bool:
             )
         else:
             refreshed = None
+    except asyncio.CancelledError:
+        core._quiescence_unknown = True
+        await _close_refresh(core, source_id, run, proofs, "REPAIR_REFRESH_CANCELLED")
+        raise
     except Exception:
         await _close_refresh(core, source_id, run, proofs, "REPAIR_FEEDBACK_STALE")
         return False
@@ -208,6 +226,9 @@ async def refresh_stale_verification(core, ticket_id: str) -> bool:
                 core._repair_feedback_revision.pop(writer_id, None)
                 core._repair_feedback_text.pop(writer_id, None)
                 core._pending_attempt_kinds.pop(writer_id, None)
+    active = core._committed[execution_id]
+    active.quiescent = not core._quiescence_unknown
+    active.done.set()
     if invalid:
         await core.fail_closed("REPAIR_REFRESH_RACE", root_node=source_id)
         return False
@@ -234,4 +255,8 @@ async def _close_refresh(core, source_id, running, proofs, reason):
                 "attempts": state.attempts[:-1] + (finished,),
                 "terminal_failure_kind": reason,
             })
+    item = core._committed.get(running.execution_id)
+    if item is not None:
+        item.quiescent = not core._quiescence_unknown
+        item.done.set()
     await core.fail_closed(reason, root_node=source_id)
