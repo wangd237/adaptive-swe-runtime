@@ -1,34 +1,33 @@
 # Implementation Status
 
-## Current phase
+## Accepted previous stages
 
-Coding Step 0 — CLOSED / ACCEPTED
-Coding Step 1 — CLOSED / ACCEPTED
-Coding Step 2 — NOT STARTED
+- Coding Step 0 — CLOSED / ACCEPTED
+- Coding Step 1 — CLOSED / ACCEPTED
 
-## Coding Step 1: accepted deliverables
-- [x] Durable LocalEvidenceStore with attempt/task provenance, atomic publication, full SHA-256 integrity and reload/tamper checks
-- [x] Minimal append-only RuntimeEvent sink separated from EvidenceStore
-- [x] Runtime-owned bootstrap: checkout exact detached base SHA, clean check, then initial snapshot
-- [x] Temporary-index Git RepositoryStateDigest, tracked/new/deleted patch and per-attempt tree delta
-- [x] Unsupported baseline/newly introduced submodules and sparse Git config rejected
-- [x] Bounded filesystem snapshots, NodeWorkspaceDelta and conservative UNKNOWN mutation classification
-- [x] Task-local fair READ/WRITE access with cancellation of waiting operations
-- [x] FROZEN/QUARANTINED lifecycle with quiescence-gated terminal transition and finalization guard
-- [x] Design/implementation review: audits/step1-implementation-review.md
-- [x] Python 3.11: 84 passed, 0 skipped
-- [x] Python 3.13: 84 passed, 0 skipped
-- [x] PR #2 merged at 7252dbf3b667a7ac5bf6569dfe2b2c4425d2f4a0
+## Coding Step 2 — IN PROGRESS (PR #3 incremental merge candidate)
 
-## Coding Step 2: next, not yet started
-- NodeDispatchTicket, SchedulerStateMutex, TaskDispatchGate
-- DependencyAcceptanceStamp / acceptance_epoch
-- workspace-aware final dispatch commit
-- NodeRuntimeState transitions, Retry/Repair/Reverify, fail-close and terminal drain
-- deterministic FakeBackend race PoCs before DeerFlow
+Implemented in the current Step 2 incremental branch:
 
-## Explicit integration limitations
-- Real network-hosted repository clone and DeerFlow shared-workspace execution remain integration gated.
-- No distributed EvidenceStore, autonomous Scheduler, LLM, or agent execution introduced.
+- [x] SchedulerStateMutex, gate epochs, READY claim and revocable precommit tickets
+- [x] post-lock dispatch commit and attempt/execution identity
+- [x] deterministic clean transient Retry, strict Handoff authority and acceptance epochs
+- [x] persistence-gated VerificationRepairBinding resolution, single Writer reopen and REVERIFY
+- [x] reopen vs COMMITTED/PRE_START downstream dispatch fail-close race guard
+- [x] registry for committed executions and task-wide cancel/join
+- [x] FROZEN only after backend quiescence plus all Workspace locks released
+- [x] QUARANTINED on missing join, timeout or interrupted drain coordinator
+- [x] CI Python 3.11: 127 passed / 0 skipped
+- [x] CI Python 3.13: 127 passed / 0 skipped
 
-See AGENTS.md, plan/master-plan.md and the Step 1 implementation review.
+## Remaining before Step 2 can be CLOSED
+
+- [ ] Runtime-owned canonical verification checker and full tool admission proof
+- [ ] typed RepairFeedback and negative freshness/attribution integration coverage
+- [ ] root failure aggregation, task-level cancellation outcomes, terminal TaskResult bridge and residual patch integrity
+- [ ] exhaustive POC-R16–R26 and R75–R128 exit matrix
+- [ ] independent Step 2 completion audit and final acceptance
+
+PR #3 can be merged only as a **reviewed interim implementation**. This does not represent complete Step 2 acceptance, nor real DeerFlow shared Workspace execution.
+
+Related reviews: audits/step2-foundation-review.md, audits/step2-repair-reopen-review.md, audits/step2-cancel-drain-review.md.
