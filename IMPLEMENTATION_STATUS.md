@@ -3,31 +3,39 @@
 ## Current phase
 
 ```text
-Coding Step 0 — FINAL PR REVIEW / CI GATE
+Coding Step 0 — CLOSED / ACCEPTED
+Coding Step 1 — NOT STARTED
 ```
 
-## Completed
+## Step 0 accepted deliverables
 
-- [x] Package skeleton; `AGENTS.md` and pinned design snapshot
-- [x] Provider-neutral shared contracts, safe IDs, canonical SHA-256, RuntimeBudgetConfig
-- [x] Frozen TaskNode / TaskDAG with canonical two-stage fingerprint, structural/topological validation
-- [x] NodeAttemptRecord / NodeRuntimeState authority data contracts; validated atomic snapshots
-- [x] FakeBackend controlled execution/cancellation barrier, cleanup and identity replay guards
-- [x] P0-F01 through F06 executable architecture checks
-- [x] Regression tests for forged hashes, stale Handoff, invalid state copy and cancellation cleanup
-- [x] Architecture import boundaries and GitHub Actions matrix (Python 3.11/3.13)
-- [x] Focused implementation review documented at `audits/step0-implementation-review.md`
+- [x] Python package skeleton, `AGENTS.md`, pinned design snapshot
+- [x] Provider-neutral shared contracts, safe runtime IDs, canonical SHA-256, RuntimeBudgetConfig
+- [x] Immutable TaskNode/TaskDAG and canonical two-stage fingerprint/topology invariants
+- [x] NodeAttemptRecord/NodeRuntimeState validated atomic authority snapshots
+- [x] FakeBackend deterministic scenarios, cancellation cleanup, preparation/execution identity guards
+- [x] P0-F01–F06 architecture conformance checks and negative regression tests
+- [x] Core/DeerFlow/LLM import boundaries
+- [x] Focused implementation review in `audits/step0-implementation-review.md`
+- [x] Python 3.11 CI: 53 passed, 0 skipped
+- [x] Python 3.13 CI: 53 passed, 0 skipped
+- [x] PR #1 merged (squash commit `89e0b3c89acf3c95dd0116362c535317d6946675`)
 
-## Final acceptance gate
+## Step 1 — next, not yet implemented
 
-- [ ] Updated PR head CI green (Python 3.11 and 3.13), no skipped F01
-- [ ] Merge PR #1
-- [ ] Mark Coding Step 0 CLOSED on main
+1. LocalEvidenceStore `put_attempt / put_task / get`
+2. RuntimeEvent minimal sink
+3. WorkspaceSession / RepositoryBinding
+4. exact baseline SHA and Git temporary-index RepositoryStateDigest
+5. WorkspaceRevision / NodeWorkspaceDelta
+6. READ/WRITE workspace lock manager
+7. FROZEN / QUARANTINED lifecycle substrate
 
-## Deferred by design
+## Still deferred
 
-- Step 1: EvidenceStore / Workspace / Git substrate
-- Step 2: Scheduler state transitions, locks, dispatch commit
-- Step 3+: Planning compiler / DeerFlow / LLM / Agents
+- Step 2 Scheduler state transitions / dispatch commit / Repair
+- Step 3–4 Planning / Capability / DAG compilers
+- Step 5 DeerFlow integration (Go/No-Go gated)
+- Agent/LLM, full evaluation and UI
 
-See `AGENTS.md`, `plan/master-plan.md`, and the implementation review for acceptance rules.
+The Step 0 closeout does **not** certify real DeerFlow execution; the P0 integration PoCs are pending.

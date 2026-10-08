@@ -36,3 +36,12 @@ No frozen P0 semantic contract was changed.
 - Required: Python 3.11 and 3.13 CI green, no skipped test for POC-F01.
 - Required: PR merged without changing frozen Specs to accommodate code.
 - Upon acceptance: Step 0 CLOSED; next activity is Step 1 Evidence/Workspace/Git.
+
+## Accepted closeout
+
+- PR: https://github.com/wangd237/adaptive-swe-runtime/pull/1
+- Reviewed head: `689de98cbbbbf947b31a0c97a01aac908b1d5d8e`
+- CI: Python 3.11 **53 passed / 0 skipped**; Python 3.13 **53 passed / 0 skipped**
+- Merge: squash commit `89e0b3c89acf3c95dd0116362c535317d6946675`
+- Verdict: **Coding Step 0 CLOSED / ACCEPTED**
+- Next work: Coding Step 1; no DeerFlow/LLM integration was introduced.
