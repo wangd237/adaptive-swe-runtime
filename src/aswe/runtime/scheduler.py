@@ -130,7 +130,7 @@ class SchedulerCore:
                 raise KeyError(node_id)
             self._recompute_locked()
             state = self.states[node_id]
-            if state.logical_status is not NodeLogicalStatus.READY or state.active_dispatch_ticket_id:
+            if state.logical_status not in (NodeLogicalStatus.READY, NodeLogicalStatus.REMEDIATION_PENDING) or state.active_dispatch_ticket_id:
                 raise DispatchRevoked("node not READY or already claimed")
             stamps = self._dependencies_locked(node_id)
             if stamps is None:
@@ -185,7 +185,7 @@ class SchedulerCore:
         return (
             self.gate.state is TaskDispatchGateState.OPEN
             and self.gate.epoch == ticket.task_dispatch_epoch
-            and state.logical_status is NodeLogicalStatus.READY
+            and state.logical_status in (NodeLogicalStatus.READY, NodeLogicalStatus.REMEDIATION_PENDING)
             and state.active_dispatch_ticket_id == ticket.ticket_id
             and ticket.state is NodeDispatchTicketState.LOCKED_PRECOMMIT
             and self._dependencies_locked(ticket.node_id) == ticket.dependency_acceptance_stamps
@@ -262,7 +262,12 @@ class SchedulerCore:
                 and handoff.observed_workspace_revision == post
             )
             if handoff is not None and not success:
-                raise ValueError("attempt handoff untrusted or stale")
+                # A forged/stale success artifact must never be accepted.
+                # Turn it into a terminal fail-closed outcome, not a thrown
+                # exception leaving a RUNNING attempt indefinitely.
+                self._fail_close_locked("HANDOFF_AUTHORITY_INVALID", root_node=invocation.node_id)
+                close_dispatch = True
+                handoff = None
             record = running.model_copy(update={
                 "status": NodeAttemptStatus.ACCEPTED if success else NodeAttemptStatus.FAILED,
                 "post_workspace_revision": post,
@@ -273,6 +278,8 @@ class SchedulerCore:
                 "attempts": state.attempts[:-1] + (record,),
                 "active_dispatch_ticket_id": None,
             }
+            if success and self.nodes[invocation.node_id].workspace_access.value == "read" and mutation is not MutationEvidence.PROVEN_NONE:
+                success = False
             if success:
                 changes.update(
                     logical_status=NodeLogicalStatus.SUCCEEDED,
@@ -292,7 +299,7 @@ class SchedulerCore:
                         else "ATTEMPT_FAILED"
                     ),
                 )
-                if mutation is not MutationEvidence.PROVEN_NONE:
+                if mutation is not MutationEvidence.PROVEN_NONE or self.gate.state is TaskDispatchGateState.CLOSED:
                     self._fail_close_locked("DIRTY_WRITE_FAILURE", root_node=invocation.node_id)
                     close_dispatch = True
             self.states[invocation.node_id] = state.model_copy(update=changes)
@@ -369,9 +376,15 @@ class SchedulerCore:
                     await self.fail_closed("BACKEND_QUIESCENCE_UNKNOWN", root_node=ticket.node_id)
                     raise
                 handoff = None
+                observed = MutationEvidence(getattr(result, "mutation_evidence", "unknown"))
+                if not getattr(result, "quiescent", False):
+                    observed = MutationEvidence.UNKNOWN
+                post = self.revision if observed is MutationEvidence.PROVEN_NONE else self.revision.model_copy(
+                    update={"generation": self.revision.generation + 1}
+                )
                 if result.terminal_status is BackendTerminalStatus.COMPLETED and result.quiescent:
                     if accept is not None:
-                        handoff = await accept(result, invocation, self.revision)
+                        handoff = await accept(result, invocation, post)
                 await self._finish(invocation, result, handoff)
                 return invocation
         except (DispatchRevoked, WorkspaceClosedError):
