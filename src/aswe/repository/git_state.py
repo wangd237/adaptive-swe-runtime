@@ -125,6 +125,13 @@ def _temporary_index(root: Path, base_sha: str) -> Iterator[Path]:
         yield index
 
 
+def _reject_unsupported_materialized_tree(root: Path, tree_oid: str) -> None:
+    entries = _git(root, "ls-tree", "-r", tree_oid).splitlines()
+    for entry in entries:
+        if entry.startswith(b"160000 ") or entry.endswith(b"\t.gitmodules"):
+            raise GitFeatureUnsupported("UNSUPPORTED_GIT_SUBMODULES_P1")
+
+
 def _current_head(root: Path) -> str:
     head = _utf8(_git(root, "rev-parse", "--verify", "HEAD^{commit}"))
     if len(head) != 40:
@@ -180,6 +187,9 @@ def capture_repository_state(binding: RepositoryBinding) -> RepositoryStateDiges
     base_tree = _utf8(_git(root, "rev-parse", binding.resolved_base_sha + "^{tree}"))
     with _temporary_index(root, binding.resolved_base_sha) as index:
         working_tree = _utf8(_git(root, "write-tree", index=index))
+    _reject_unsupported_materialized_tree(root, working_tree)
+    if _current_head(root) != head:
+        raise GitCommandError("HEAD changed during repository state capture")
     fields = {
         "base_sha": binding.resolved_base_sha,
         "head_sha": head,
@@ -206,7 +216,7 @@ def materialize_repository_changeset(binding: RepositoryBinding) -> RepositoryCh
     state = capture_repository_state(binding)
     with _temporary_index(root, binding.resolved_base_sha) as index:
         tree = _utf8(_git(root, "write-tree", index=index))
-        if tree != state.working_tree_oid:
+        if tree != state.working_tree_oid or _current_head(root) != state.head_sha:
             raise GitCommandError("repository changed during changeset materialization")
         patch = _git(root, "diff", "--cached", "--binary", "--no-ext-diff",
                      binding.resolved_base_sha, index=index)

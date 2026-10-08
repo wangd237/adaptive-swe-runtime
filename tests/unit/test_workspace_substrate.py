@@ -136,3 +136,18 @@ def test_exact_snapshot_limit_is_not_false_truncation(tmp_path):
     (tmp_path / "c").write_text("c")
     too_many = capture_filesystem_snapshot(tmp_path, max_paths=2)
     assert not too_many.complete
+
+
+@pytest.mark.asyncio
+async def test_cancelled_lock_waiter_leaves_no_stale_writer_preference(tmp_path):
+    manager = WorkspaceAccessManager(lifecycle(tmp_path))
+    async with manager.access(WorkspaceAccess.READ):
+        waiter = asyncio.create_task(_try_writer(manager))
+        await asyncio.sleep(0)
+        assert not waiter.done()
+        waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+        async with manager.access(WorkspaceAccess.READ):
+            assert manager.active_accesses == 2
+    assert manager.active_accesses == 0

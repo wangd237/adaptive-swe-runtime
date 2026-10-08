@@ -107,3 +107,10 @@ def test_unsupported_git_submodule_is_rejected(tmp_path):
     git(source, "commit", "-m", "submodules")
     with pytest.raises(GitFeatureUnsupported, match="UNSUPPORTED_GIT_SUBMODULES_P1"):
         bootstrap_repository(source, tmp_path / "workspace", requested_ref="main")
+
+
+def test_new_gitmodules_in_worktree_is_unsupported(bound_repo):
+    root = Path(bound_repo.repository_root)
+    (root / ".gitmodules").write_text('[submodule "new"]\n    path = new\n    url = https://invalid.example/new\n')
+    with pytest.raises(GitFeatureUnsupported, match="UNSUPPORTED_GIT_SUBMODULES_P1"):
+        capture_repository_state(bound_repo)
