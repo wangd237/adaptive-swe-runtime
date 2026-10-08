@@ -162,3 +162,36 @@ async def test_r26_refresh_holds_never_dispatches_redundant_writer_repair(canoni
     assert core.failed
     assert "REPAIR_SUPERSEDED_REPLAN_REQUIRED" in core.failure_kinds
     assert core.states["writer"].accepted_handoff is None
+
+
+@pytest.mark.asyncio
+async def test_r25_refresh_replaces_typed_feedback_with_new_evidence_fingerprint(canonical_workspace):
+    from aswe.runtime.refresh import refresh_stale_verification
+    from aswe.runtime.dispatch import NodeDispatchTicketState
+    binding, rev, store, _ = canonical_workspace
+    policy = make_command_policy("check", (sys.executable, "-c",
+        "from pathlib import Path; import sys; "
+        "sys.exit(0 if 'FIXED' in Path('source.py').read_text() else 1)"))
+    core, old_proof, old_vref = await _initial_failure(binding, rev, store, policy)
+    initial = core._typed_repair_feedback["writer"]
+    _advance_physical_revision(core, binding, "NOT_FIXED = False\\n")
+    ticket = await core.claim("writer")
+    await core._advance(ticket.ticket_id, NodeDispatchTicketState.WAITING_WORKSPACE)
+    async with core.workspace.access(WorkspaceAccess.WRITE):
+        await core._advance(ticket.ticket_id, NodeDispatchTicketState.LOCKED_PRECOMMIT)
+        assert await refresh_stale_verification(core, ticket.ticket_id)
+        current = core._typed_repair_feedback["writer"]
+        assert current != initial
+        assert current.fingerprint != initial.fingerprint
+        assert current.verification_result != initial.verification_result
+        assert current.repair_attribution != initial.repair_attribution
+        assert current.observed_workspace_revision == core.revision
+        assert current.receipt_refs[0].ledger_evidence != old_proof
+        assert current.receipt_refs[0].ledger_evidence.source_attempt == 2
+        assert current.feedback_source_attempt == 2
+        fresh = VerificationResult.model_validate(store.get(current.verification_result))
+        assert fresh.observed_workspace_revision == core.revision
+        assert fresh.checks[0].status is VerificationCheckStatus.FAILED
+        await core.revoke(ticket.ticket_id)
+    assert core.states["writer"].accepted_attempt is None
+    assert len(core.states["writer"].attempts) == 1
