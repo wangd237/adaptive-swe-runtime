@@ -101,3 +101,25 @@ async def test_r24_own_acceptance_refresh_holds_blocks_redundant_repair(canonica
     newer = CanonicalAcceptanceVerdict.model_validate(store.get(verdict_refs[1]))
     assert newer.status == "holds"
     assert newer.observed_workspace_revision.generation == 2
+
+
+@pytest.mark.asyncio
+async def test_r24_own_stale_feedback_refresh_rotates_fingerprint_before_repair(canonical_workspace):
+    from aswe.runtime.dispatch import NodeDispatchTicketState
+    from aswe.runtime.own_acceptance import refresh_stale_own_acceptance
+    from aswe.core.contracts import WorkspaceAccess
+    core, binding, store, original = await _mutated_own_failure(canonical_workspace)
+    _change(core, binding, "UNSATISFIED = True\\n")
+    ticket = await core.claim("writer")
+    await core._advance(ticket.ticket_id, NodeDispatchTicketState.WAITING_WORKSPACE)
+    async with core.workspace.access(WorkspaceAccess.WRITE):
+        await core._advance(ticket.ticket_id, NodeDispatchTicketState.LOCKED_PRECOMMIT)
+        assert await refresh_stale_own_acceptance(core, ticket.ticket_id, original)
+        revised = core._typed_repair_feedback["writer"]
+        assert revised.fingerprint != original.fingerprint
+        assert revised.acceptance_verdict != original.acceptance_verdict
+        assert revised.receipt_refs[0].ledger_evidence != original.receipt_refs[0].ledger_evidence
+        assert revised.observed_workspace_revision == core.revision
+        assert revised.feedback_source_attempt == original.feedback_source_attempt
+        assert len(core.states["writer"].attempts) == 1
+        await core.revoke(ticket.ticket_id)
