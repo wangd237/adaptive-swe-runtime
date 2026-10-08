@@ -3,7 +3,7 @@
 **Audit is complete; implementation exit is NOT automatically passed.**
 
 - Total frozen PoCs audited: **65**
-- PASS: **32** · PARTIAL: **18** · GAP: **15**
+- PASS: **46** · PARTIAL: **14** · GAP: **5**
 - PASS is scenario-specific evidence, not proof of DeerFlow or all acceptance semantics.
 - Every PASS/PARTIAL maps to a real test symbol present on the audited branch.
 - PARTIAL/GAP are blocking for full Step-2 closeout; do not change Specs to remove them.
@@ -17,25 +17,25 @@
 | POC-R20 | PASS | `test_scheduler_step2_exit.py::test_r104_single_business_root_and_ten_blocked_consequences` | 多层阻塞与 root 独立聚合 |
 | POC-R21 | PASS | `test_scheduler_local_cancel.py::test_r21_running_local_cancel_joins_without_task_cancel` | 已实现 local cancel + join、下游 BLOCKED；precommit 撤销及 dirty-state failclose 均有测试 |
 | POC-R22 | PASS | `test_scheduler_step2_exit.py::test_r22_user_cancel_joins_running_and_cancels_unstarted` | Task user cancel + active join + 未启动节点 CANCELLED |
-| POC-R23 | PARTIAL | `test_scheduler_repair.py::test_repair_feedback_freshness_checked_under_workspace_lock` | 拒绝过期反馈已验证；refresh/reverify 或 REPAIR_FEEDBACK_STALE 规范处理未闭环 |
+| POC-R23 | PASS | `test_stale_refresh_canonical.py::test_r23_r25_stale_failure_gets_new_attempt_refs_revision_then_repairs` | 旧反馈不得调度，自动规范 refresh 或严格 fail-close；fresh canonical revision 绑定 |
 | POC-R24 | GAP | — | own AcceptanceFailure revision 改变后的确定性 acceptance 重评估未实现 |
-| POC-R25 | GAP | — | 过期反馈刷新后失败必须生成新 refs/fingerprint 的流程未实现 |
-| POC-R26 | GAP | — | 过期反馈刷新后已通过则取消 REPAIR 的分支未实现 |
+| POC-R25 | PASS | `test_stale_refresh_canonical.py::test_r25_refresh_replaces_typed_feedback_with_new_evidence_fingerprint` | 新 REVERIFY attempt、attested receipt / EvidenceRefs / AttributionRef / feedback fingerprint 全部换代 |
+| POC-R26 | PASS | `test_stale_refresh_canonical.py::test_r26_refresh_holds_never_dispatches_redundant_writer_repair` | 新 check HOLDS 时撤销旧反馈、零次额外 Writer 执行；不可凭旧 Handoff 假成功，转安全终态 |
 | POC-R75 | PASS | `test_strict_canonical_repair.py::test_runtime_canonical_receipt_authorizes_exact_single_writer_reopen` | canonical failure + singleton owner + current accepted attempt |
-| POC-R76 | GAP | — | 缺少多个 failed checks 同属唯一 Writer 的执行反例 |
-| POC-R77 | PARTIAL | `test_scheduler_repair.py::test_multi_owner_binding_does_not_pick_one_writer` | 多候选拒绝已测；尚缺两个实际 business Writer 场景 |
-| POC-R78 | PARTIAL | `test_scheduler_repair.py::test_multi_owner_binding_does_not_pick_one_writer` | 不选最后 Writer 的规则有结构性保护，缺实际最后执行序列 |
-| POC-R79 | GAP | — | 缺少伪造 changed_paths 交集来证明 authority 不被缩小 |
-| POC-R80 | PARTIAL | `test_scheduler_repair.py::test_verification_prose_cannot_provide_deterministic_check` | 禁止 prose 推断；尚缺带真实 self-report 的否定对照 |
-| POC-R81 | GAP | — | 多个 check 中一项无 owner 的全局 NO_OWNER 行为未单测 |
-| POC-R82 | GAP | — | 两个 checks 分属不同 Writer 的 MULTI_WRITER 未单测 |
-| POC-R83 | GAP | — | 同一 Writer 重试 attempt2 接受后归因指向 attempt2 未单测 |
+| POC-R76 | PASS | `test_multiwriter_adversarial.py::test_r76_multiple_failed_checks_same_actual_single_writer` | 两个 failed checks 都由同一实际 business Writer 负责 |
+| POC-R77 | PASS | `test_multiwriter_adversarial.py::test_r77_r78_r88_real_two_writers_same_provider_last_writer_not_selected` | 两个真实 business Writer，compiled candidate 非 singleton → MULTI_WRITER |
+| POC-R78 | PASS | `test_multiwriter_adversarial.py::test_r77_r78_r88_real_two_writers_same_provider_last_writer_not_selected` | 后执行 Writer B 不成为 last-writer heuristic |
+| POC-R79 | PASS | `test_multiwriter_adversarial.py::test_r79_r80_changed_path_or_tester_blame_do_not_override_compiled_owners` | 修改 accepted changed_paths 后仍不缩窄编译归因 scope |
+| POC-R80 | PASS | `test_multiwriter_adversarial.py::test_r79_r80_changed_path_or_tester_blame_do_not_override_compiled_owners` | 真实 FakeBackend 测试描述宣称 Writer A 负责，解析器无权采信 |
+| POC-R81 | PASS | `test_multiwriter_adversarial.py::test_r81_missing_one_owner_poison_entire_multi_check_verdict` | 一 check 无 owner 时全局 NO_OWNER |
+| POC-R82 | PASS | `test_multiwriter_adversarial.py::test_r82_two_checks_bound_to_distinct_actual_writers_remain_ambiguous` | 分属 A/B 的 failed checks 全局 MULTI_WRITER |
+| POC-R83 | PASS | `test_multiwriter_adversarial.py::test_r83_current_accepted_retry_attempt_not_historical_attempt_1` | writer retry accepted attempt2 优先于旧 attempt1 |
 | POC-R84 | PARTIAL | `test_scheduler_repair.py::test_declared_unchanged_repository_must_match_before_and_after` | 检出前后 Git 指纹不一致；未构建 Tester 实际改 tracked 源码复现 |
 | POC-R85 | PARTIAL | `test_scheduler_foundation.py::test_backend_exception_terminalizes_committed_attempt_and_quarantines` | backend crash 终态化已测；验证器无 deterministic verdict 的归因拒绝未串通 |
-| POC-R86 | PARTIAL | `test_scheduler_repair.py::test_verification_prose_cannot_provide_deterministic_check` | 非 deterministic 检查拒绝；UNVERIFIED-only 特例未单测 |
-| POC-R87 | GAP | — | physical WRITE 锁上的 semantic READ_ONLY Tester 不作为 business Writer 的专测缺失 |
-| POC-R88 | GAP | — | 同一 provider 两个 logical business writers 不合并的专测缺失 |
-| POC-R89 | GAP | — | 不同 Writer 中途改变 Git-visible state 的归因 scope invalidated 用例缺失 |
+| POC-R86 | PASS | `test_multiwriter_adversarial.py::test_r86_unverified_only_provides_no_deterministic_repair_owner` | 仅 UNVERIFIED 没有合法自动修复归因 |
+| POC-R87 | PASS | `test_multiwriter_adversarial.py::test_r87_physical_write_verifier_does_not_become_business_writer` | physical WRITE verifier 的 semantic WorkKind 不成为 business writer |
+| POC-R88 | PASS | `test_multiwriter_adversarial.py::test_r77_r78_r88_real_two_writers_same_provider_last_writer_not_selected` | 两个实际 Writer 共用 Provider 也不合并 |
+| POC-R89 | PARTIAL | `test_multiwriter_adversarial.py::test_r89_intervening_changed_business_writer_invalidates_singleton_scope` | 模拟可信 Writer post Git 指纹差异触发 invalidation；真实 Git 变更执行链尚缺 |
 | POC-R90 | PASS | `test_scheduler_repair.py::test_unique_writer_attribution_is_persisted_and_reopen_revokes_authority` | reopen authority revoke 先于 READY 重算 |
 | POC-R91 | PARTIAL | `test_finalization_extended.py::test_r97_ignored_cache_mutation_distinct_from_git_patch` | 稳定失败与 patch 维度已建；WRITE 已观察修改的完整结算链需单测 |
 | POC-R92 | PASS | `test_scheduler_foundation.py::test_explicit_transient_with_unknown_mutation_is_not_retryable` | UNKNOWN mutation 关闭 task dispatch |
@@ -76,6 +76,13 @@
 | POC-R127 | PASS | `test_task_finalization.py::test_user_cancel_keeps_residual_patch_but_not_business_success` | CANCELLED + residual patch 非 ACCEPTED |
 | POC-R128 | PARTIAL | `test_scheduler_step2_exit.py::test_r128_user_cancel_without_quiescence_keeps_quarantined` | cancel→QUARANTINED 已测；TaskResult 不读 Git 的取消联合测试待补 |
 
+## P0-A / P0-B incremental notes
+
+- R23/R25/R26 are scenario-specifically PASS with real temporary Git repos and Runtime canonical receipts, but R24 own AcceptanceFailure remains GAP.
+- If refreshed checks now HOLDS, outdated REPAIR is cancelled; revoked Writer authority is not resurrected. Runtime fail-closes `REPAIR_SUPERSEDED_REPLAN_REQUIRED` rather than manufacturing a successful Task.
+- R76–R83/R86–R88 now exercise actual logical Writers/check sets, except R84/R85/R89 remain PARTIAL for missing real-world mutation/crash chronology evidence.
+- Do not infer Step 2 stage acceptance from these incremental results.
+
 ## Current authorization
 
 - Runtime Canonical Verifier executes exact argv without shell and signs persisted receipts; this local verifier does not replace the pinned DeerFlow acceptance/command guard integration.
@@ -85,8 +92,8 @@
 
 ## Next remediation order
 
-1. R23–R26 — stale Feedback refresh/reverification (R21 local cancel is covered).
-2. R76–R89 — verification attribution ambiguity and chronology adversarial matrix.
+1. R24 — own AcceptanceFailure stale deterministic re-evaluation (still GAP); R23/R25/R26 verified.
+2. R84/R85/R89 — physical Git mutation, backend crash / attribution, and real intervening Writer chronology remain partial.
 3. R100–R103, R123 — Review/Acceptance/repair exhausted and cancelled-mutating consumer outcomes.
 4. R119–R121, R125–R126 — true adversarial concurrency barriers (not static claims).
 5. Re-run both Python CI versions; independent Step-2 implementation review, and only then close Step 2.

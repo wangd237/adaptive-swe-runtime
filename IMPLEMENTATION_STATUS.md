@@ -27,9 +27,9 @@
 ## Full frozen PoC exit audit
 
 - Audited cases: 65 (R16–R26, R75–R128)
-- PASS: 32
-- PARTIAL: 18
-- GAP: 15
+- PASS: 46
+- PARTIAL: 14
+- GAP: 5
 - **Step 2 CLOSED is forbidden while PARTIAL/GAP remains.**
 
 ## Step 2 latest CI
@@ -41,12 +41,20 @@
 ## High-priority remaining P0 blockers
 
 - [x] Local Node cancellation (R21), including running join and descendant propagation
-- [ ] Stale RepairFeedback automatic deterministic refresh (R23–R26); fail-closed R23 fallback is implemented, refresh remains pending
-- [ ] Multi-writer ambiguity/adversarial history cases R76–R89
+- [x] Verification-triggered stale RepairFeedback refresh (R23/R25/R26): canonical fresh check, fresh refs/fingerprint, no redundant repair on HOLDS
+- [ ] Own AcceptanceFailure stale deterministic recheck (R24) still requires acceptance gate authority
+- [x] Multi-writer ambiguity / non-attribution tests R76–R83, R86–R88
+- [ ] R84/R85/R89 deeper physical mutation / crash history PoCs
 - [ ] Reviewer/Acceptance repair and repair-budget termination R100–R103
 - [ ] Cancelled consumer mutating Workspace and disposition R123
 - [ ] True concurrent mutex / claim / accepted-publish race stresses R119–R121, R125–R126
 - [ ] Finish every audit PARTIAL/GAP with evidence and independent implementation review
+
+## P0-B incremental status
+
+- Verified with actual Scheduler Writer attempts: singleton multi-check, two business Writers, same Provider distinct writers, last-writer heuristic, changed_paths/prose non-attribution, no-owner poison, split-check attribution, retry accepted attempt2, physical WRITE verifier exclusion.
+- R89 still PARTIAL: trusted post-digest fixture proves policy; real intervening Git mutation not yet reproduced end-to-end.
+- R24 still GAP: no fake success for own AcceptanceFailure recheck. Newly green canonical verification does not authorize restoring an old revoked writer handoff.
 
 ## Strict limits
 

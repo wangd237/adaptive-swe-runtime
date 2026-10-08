@@ -8,9 +8,9 @@
     "GAP": "specific scenario has no direct executable regression; blocks Step 2 closure"
   },
   "counts": {
-    "PASS": 32,
-    "GAP": 15,
-    "PARTIAL": 18
+    "PASS": 46,
+    "PARTIAL": 14,
+    "GAP": 5
   },
   "entries": [
     {
@@ -73,9 +73,9 @@
       "id": "R23",
       "description": "Verification failure @ R5，Repair lock 时 Workspace=R6",
       "criterion": "不向 Coder注入旧 failure；先 refresh/reverify 或 REPAIR_FEEDBACK_STALE",
-      "status": "PARTIAL",
-      "test": "tests/unit/test_scheduler_repair.py::test_repair_feedback_freshness_checked_under_workspace_lock",
-      "assessment": "拒绝过期反馈已验证；refresh/reverify 或 REPAIR_FEEDBACK_STALE 规范处理未闭环"
+      "status": "PASS",
+      "test": "tests/unit/test_stale_refresh_canonical.py::test_r23_r25_stale_failure_gets_new_attempt_refs_revision_then_repairs",
+      "assessment": "旧反馈不得调度，自动规范 refresh 或严格 fail-close；fresh canonical revision 绑定"
     },
     {
       "id": "R24",
@@ -89,17 +89,17 @@
       "id": "R25",
       "description": "stale feedback refresh 后仍失败",
       "criterion": "创建新的 EvidenceRef / observed revision / fingerprint，再允许 REPAIR",
-      "status": "GAP",
-      "test": null,
-      "assessment": "过期反馈刷新后失败必须生成新 refs/fingerprint 的流程未实现"
+      "status": "PASS",
+      "test": "tests/unit/test_stale_refresh_canonical.py::test_r25_refresh_replaces_typed_feedback_with_new_evidence_fingerprint",
+      "assessment": "新 REVERIFY attempt、attested receipt / EvidenceRefs / AttributionRef / feedback fingerprint 全部换代"
     },
     {
       "id": "R26",
       "description": "stale feedback refresh 后已通过",
       "criterion": "旧 RepairFeedback 作废，不执行多余 repair",
-      "status": "GAP",
-      "test": null,
-      "assessment": "过期反馈刷新后已通过则取消 REPAIR 的分支未实现"
+      "status": "PASS",
+      "test": "tests/unit/test_stale_refresh_canonical.py::test_r26_refresh_holds_never_dispatches_redundant_writer_repair",
+      "assessment": "新 check HOLDS 时撤销旧反馈、零次额外 Writer 执行；不可凭旧 Handoff 假成功，转安全终态"
     },
     {
       "id": "R75",
@@ -113,65 +113,65 @@
       "id": "R76",
       "description": "single Writer + multiple deterministic failed checks",
       "criterion": "每个 check 都绑定同一 singleton Writer → UNIQUE_WRITER",
-      "status": "GAP",
-      "test": null,
-      "assessment": "缺少多个 failed checks 同属唯一 Writer 的执行反例"
+      "status": "PASS",
+      "test": "tests/unit/test_multiwriter_adversarial.py::test_r76_multiple_failed_checks_same_actual_single_writer",
+      "assessment": "两个 failed checks 都由同一实际 business Writer 负责"
     },
     {
       "id": "R77",
       "description": "two business Writers → global verification fail",
       "criterion": "candidate set >1 → MULTI_WRITER；不生成 automatic RepairFeedback",
-      "status": "PARTIAL",
-      "test": "tests/unit/test_scheduler_repair.py::test_multi_owner_binding_does_not_pick_one_writer",
-      "assessment": "多候选拒绝已测；尚缺两个实际 business Writer 场景"
+      "status": "PASS",
+      "test": "tests/unit/test_multiwriter_adversarial.py::test_r77_r78_r88_real_two_writers_same_provider_last_writer_not_selected",
+      "assessment": "两个真实 business Writer，compiled candidate 非 singleton → MULTI_WRITER"
     },
     {
       "id": "R78",
       "description": "Writer B 是最后执行者但 A/B 都是 candidates",
       "criterion": "禁止 last-writer heuristic；仍 MULTI_WRITER",
-      "status": "PARTIAL",
-      "test": "tests/unit/test_scheduler_repair.py::test_multi_owner_binding_does_not_pick_one_writer",
-      "assessment": "不选最后 Writer 的规则有结构性保护，缺实际最后执行序列"
+      "status": "PASS",
+      "test": "tests/unit/test_multiwriter_adversarial.py::test_r77_r78_r88_real_two_writers_same_provider_last_writer_not_selected",
+      "assessment": "后执行 Writer B 不成为 last-writer heuristic"
     },
     {
       "id": "R79",
       "description": "failed stack trace/path 只与 Writer A changed_paths 重合",
       "criterion": "path overlap 不缩小 authority candidate set",
-      "status": "GAP",
-      "test": null,
-      "assessment": "缺少伪造 changed_paths 交集来证明 authority 不被缩小"
+      "status": "PASS",
+      "test": "tests/unit/test_multiwriter_adversarial.py::test_r79_r80_changed_path_or_tester_blame_do_not_override_compiled_owners",
+      "assessment": "修改 accepted changed_paths 后仍不缩窄编译归因 scope"
     },
     {
       "id": "R80",
       "description": "Tester prose 声称“Writer A caused failure”",
       "criterion": "self-report 不影响 attribution",
-      "status": "PARTIAL",
-      "test": "tests/unit/test_scheduler_repair.py::test_verification_prose_cannot_provide_deterministic_check",
-      "assessment": "禁止 prose 推断；尚缺带真实 self-report 的否定对照"
+      "status": "PASS",
+      "test": "tests/unit/test_multiwriter_adversarial.py::test_r79_r80_changed_path_or_tester_blame_do_not_override_compiled_owners",
+      "assessment": "真实 FakeBackend 测试描述宣称 Writer A 负责，解析器无权采信"
     },
     {
       "id": "R81",
       "description": "一个 failed check 无 owner，另一个属于 Writer A",
       "criterion": "NO_OWNER / no automatic repair；不能只修可归因子集",
-      "status": "GAP",
-      "test": null,
-      "assessment": "多个 check 中一项无 owner 的全局 NO_OWNER 行为未单测"
+      "status": "PASS",
+      "test": "tests/unit/test_multiwriter_adversarial.py::test_r81_missing_one_owner_poison_entire_multi_check_verdict",
+      "assessment": "一 check 无 owner 时全局 NO_OWNER"
     },
     {
       "id": "R82",
       "description": "failed checks 分别绑定 Writer A / Writer B",
       "criterion": "MULTI_WRITER；不任选其一",
-      "status": "GAP",
-      "test": null,
-      "assessment": "两个 checks 分属不同 Writer 的 MULTI_WRITER 未单测"
+      "status": "PASS",
+      "test": "tests/unit/test_multiwriter_adversarial.py::test_r82_two_checks_bound_to_distinct_actual_writers_remain_ambiguous",
+      "assessment": "分属 A/B 的 failed checks 全局 MULTI_WRITER"
     },
     {
       "id": "R83",
       "description": "Writer attempt1 clean retry fail、attempt2 accepted，随后 verify fail",
       "criterion": "target_write_attempt=attempt2",
-      "status": "GAP",
-      "test": null,
-      "assessment": "同一 Writer 重试 attempt2 接受后归因指向 attempt2 未单测"
+      "status": "PASS",
+      "test": "tests/unit/test_multiwriter_adversarial.py::test_r83_current_accepted_retry_attempt_not_historical_attempt_1",
+      "assessment": "writer retry accepted attempt2 优先于旧 attempt1"
     },
     {
       "id": "R84",
@@ -193,33 +193,33 @@
       "id": "R86",
       "description": "verification only UNVERIFIED",
       "criterion": "不触发 repair attribution",
-      "status": "PARTIAL",
-      "test": "tests/unit/test_scheduler_repair.py::test_verification_prose_cannot_provide_deterministic_check",
-      "assessment": "非 deterministic 检查拒绝；UNVERIFIED-only 特例未单测"
+      "status": "PASS",
+      "test": "tests/unit/test_multiwriter_adversarial.py::test_r86_unverified_only_provides_no_deterministic_repair_owner",
+      "assessment": "仅 UNVERIFIED 没有合法自动修复归因"
     },
     {
       "id": "R87",
       "description": "semantic READ_ONLY Tester 有 physical WRITE lock",
       "criterion": "不进入 business writer candidate set",
-      "status": "GAP",
-      "test": null,
-      "assessment": "physical WRITE 锁上的 semantic READ_ONLY Tester 不作为 business Writer 的专测缺失"
+      "status": "PASS",
+      "test": "tests/unit/test_multiwriter_adversarial.py::test_r87_physical_write_verifier_does_not_become_business_writer",
+      "assessment": "physical WRITE verifier 的 semantic WorkKind 不成为 business writer"
     },
     {
       "id": "R88",
       "description": "same Provider 执行两个 IMPLEMENTATION logical nodes",
       "criterion": "仍是两个 candidates；Provider identity 不合并 ownership",
-      "status": "GAP",
-      "test": null,
-      "assessment": "同一 provider 两个 logical business writers 不合并的专测缺失"
+      "status": "PASS",
+      "test": "tests/unit/test_multiwriter_adversarial.py::test_r77_r78_r88_real_two_writers_same_provider_last_writer_not_selected",
+      "assessment": "两个实际 Writer 共用 Provider 也不合并"
     },
     {
       "id": "R89",
       "description": "singleton Writer accepted 后，另一个 business Writer 改 Git-visible state，再运行 verifier",
       "criterion": "SCOPE_INVALIDATED；不沿用旧 singleton attribution",
-      "status": "GAP",
-      "test": null,
-      "assessment": "不同 Writer 中途改变 Git-visible state 的归因 scope invalidated 用例缺失"
+      "status": "PARTIAL",
+      "test": "tests/unit/test_multiwriter_adversarial.py::test_r89_intervening_changed_business_writer_invalidates_singleton_scope",
+      "assessment": "中途 Writer 不同 digest 的 scope invalidated 已有测试；尚缺真实 Git-visible write 的运行链"
     },
     {
       "id": "R90",
