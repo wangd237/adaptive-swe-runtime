@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Awaitable
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from aswe.core.config import RuntimeBudgetConfig
@@ -48,6 +49,17 @@ class FakeBackendPort(Protocol):
 
 Acceptance = Callable[[Any, NodeExecutionInvocation, WorkspaceRevision], Awaitable[NodeHandoff | None]]
 EvidenceChecker = Callable[[NodeHandoff], bool]
+
+
+@dataclass
+class CommittedExecution:
+    """A committed execution remains registered until its Workspace lock is released."""
+    backend: FakeBackendPort | None
+    owner: asyncio.Task | None
+    done: asyncio.Event = field(default_factory=asyncio.Event)
+    quiescent: bool | None = None
+    cancel_error: str | None = None
+
 
 
 class SchedulerCore:
@@ -86,6 +98,9 @@ class SchedulerCore:
         self._repair_feedback_revision: dict[str, WorkspaceRevision] = {}
         self._repair_feedback_text: dict[str, str] = {}
         self._task_failed = False
+        self._committed: dict[str, CommittedExecution] = {}
+        self._terminal_mutex = asyncio.Lock()
+        self._quiescence_unknown = False
         self._recompute_locked()
 
     def _dependencies_locked(self, node_id: str) -> tuple[DependencyAcceptanceStamp, ...] | None:
@@ -218,6 +233,7 @@ class SchedulerCore:
 
     async def _commit(
         self, ticket_id: str, *, evidence_validated: bool,
+        backend: FakeBackendPort | None = None,
     ) -> NodeExecutionInvocation:
         """Linearization point; call only AFTER physical WorkspaceAccess granted."""
         async with self.state_mutex:
@@ -264,6 +280,9 @@ class SchedulerCore:
             self.tickets[ticket_id] = ticket.model_copy(update={
                 "state": NodeDispatchTicketState.COMMITTED,
             })
+            self._committed[invocation.execution_id] = CommittedExecution(
+                backend=backend, owner=asyncio.current_task(),
+            )
             self._pending_attempt_kinds.pop(ticket.node_id, None)
             if kind is NodeAttemptKind.REPAIR:
                 self._repair_feedback_revision.pop(ticket.node_id, None)
@@ -310,8 +329,10 @@ class SchedulerCore:
                 handoff = None
                 self._fail_close_locked("READ_WORKSPACE_MUTATION", root_node=invocation.node_id)
                 close_dispatch = True
+            cancelled = getattr(result, "terminal_status", None) is BackendTerminalStatus.CANCELLED
             record = running.model_copy(update={
-                "status": NodeAttemptStatus.ACCEPTED if success else NodeAttemptStatus.FAILED,
+                "status": (NodeAttemptStatus.ACCEPTED if success else
+                           NodeAttemptStatus.CANCELLED if cancelled else NodeAttemptStatus.FAILED),
                 "post_workspace_revision": post,
                 "failure_kind": None if success else (
                     getattr(result, "failure_kind", None) or "ACCEPTANCE_OR_EXECUTION_FAILED"
@@ -538,13 +559,70 @@ class SchedulerCore:
                 self._fail_close_locked(fail_reason, root_node=source_id)
         if fail_reason is not None:
             await self.workspace.close_dispatch()
+            await self.drain_committed()
             raise RepairScopeInvalidated(fail_reason)
         return attribution
 
     async def fail_closed(self, reason: str, *, root_node: str | None = None) -> None:
         async with self.state_mutex:
             self._fail_close_locked(reason, root_node=root_node)
+        await self.drain_committed()
+
+
+    async def _settle_if_drained(self) -> None:
+        """Never mark FROZEN while a committed runner or workspace holder remains."""
+        from aswe.workspace.session import WorkspaceSessionStatus
+        async with self._terminal_mutex:
+            if self.gate.state is not TaskDispatchGateState.CLOSED:
+                return
+            if self.workspace.lifecycle.current.status in (
+                WorkspaceSessionStatus.FROZEN, WorkspaceSessionStatus.QUARANTINED,
+                WorkspaceSessionStatus.CLOSED,
+            ):
+                return
+            if self.workspace.active_accesses or any(
+                not item.done.is_set() for item in self._committed.values()
+            ):
+                return
+            proven = not self._quiescence_unknown and all(
+                item.quiescent is True and item.cancel_error is None
+                for item in self._committed.values()
+            )
+            await self.workspace.terminalize(quiescence_proven=proven)
+
+    async def drain_committed(self, *, timeout: float = 2.0) -> None:
+        """Cancel and JOIN executions; cancel acknowledgement is not quiescence."""
+        if timeout <= 0:
+            raise ValueError("join timeout must be positive")
         await self.workspace.close_dispatch()
+        owner = asyncio.current_task()
+        async with self.state_mutex:
+            active = [(eid, item) for eid, item in self._committed.items()
+                      if not item.done.is_set() and item.owner is not owner]
+
+        async def cancel_join(eid: str, item: CommittedExecution) -> None:
+            if item.backend is None:
+                self._quiescence_unknown = True
+                return
+            try:
+                await asyncio.wait_for(item.backend.cancel_node(eid), timeout)
+                await asyncio.wait_for(item.done.wait(), timeout)
+            except (Exception, asyncio.CancelledError) as exc:
+                item.cancel_error = type(exc).__name__
+                self._quiescence_unknown = True
+
+        if active:
+            await asyncio.gather(*(cancel_join(eid, item) for eid, item in active))
+        if self._quiescence_unknown:
+            from aswe.workspace.session import WorkspaceSessionStatus
+            if self.workspace.lifecycle.current.status not in (
+                WorkspaceSessionStatus.QUARANTINED, WorkspaceSessionStatus.FROZEN,
+                WorkspaceSessionStatus.CLOSED,
+            ):
+                await self.workspace.terminalize(quiescence_proven=False)
+        await self._settle_if_drained()
+
+
 
     async def _abort_committed(
         self, invocation: NodeExecutionInvocation, *, failure_kind: str,
@@ -593,6 +671,7 @@ class SchedulerCore:
         """
         current_id = ticket.ticket_id
         invocation: NodeExecutionInvocation | None = None
+        completed_quiescent = False
         try:
             preparation = await backend.prepare_node(self.nodes[ticket.node_id])
             await self._advance(current_id, NodeDispatchTicketState.WAITING_WORKSPACE)
@@ -606,7 +685,7 @@ class SchedulerCore:
                     if h is None or not self._evidence_checker(h):
                         refs_ok = False
                         break
-                invocation = await self._commit(current_id, evidence_validated=refs_ok)
+                invocation = await self._commit(current_id, evidence_validated=refs_ok, backend=backend)
                 try:
                     result = await backend.execute_prepared(preparation, invocation)
                 except BaseException:
@@ -619,6 +698,7 @@ class SchedulerCore:
                             quiescence_proven=False,
                         )
                     raise
+                completed_quiescent = bool(getattr(result, "quiescent", False))
                 try:
                     handoff = None
                     observed = MutationEvidence(getattr(result, "mutation_evidence", "unknown"))
@@ -653,6 +733,12 @@ class SchedulerCore:
             if invocation is None:
                 await self.revoke(current_id)
             raise
+        finally:
+            if invocation is not None:
+                item = self._committed[invocation.execution_id]
+                item.quiescent = completed_quiescent
+                item.done.set()
+                await self._settle_if_drained()
 
     @property
     def failed(self) -> bool:
