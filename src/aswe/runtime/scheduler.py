@@ -268,6 +268,11 @@ class SchedulerCore:
                 self._fail_close_locked("HANDOFF_AUTHORITY_INVALID", root_node=invocation.node_id)
                 close_dispatch = True
                 handoff = None
+            if success and self.nodes[invocation.node_id].workspace_access.value == "read" and mutation is not MutationEvidence.PROVEN_NONE:
+                success = False
+                handoff = None
+                self._fail_close_locked("READ_WORKSPACE_MUTATION", root_node=invocation.node_id)
+                close_dispatch = True
             record = running.model_copy(update={
                 "status": NodeAttemptStatus.ACCEPTED if success else NodeAttemptStatus.FAILED,
                 "post_workspace_revision": post,
@@ -278,8 +283,6 @@ class SchedulerCore:
                 "attempts": state.attempts[:-1] + (record,),
                 "active_dispatch_ticket_id": None,
             }
-            if success and self.nodes[invocation.node_id].workspace_access.value == "read" and mutation is not MutationEvidence.PROVEN_NONE:
-                success = False
             if success:
                 changes.update(
                     logical_status=NodeLogicalStatus.SUCCEEDED,
