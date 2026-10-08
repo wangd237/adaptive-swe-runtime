@@ -497,3 +497,37 @@ async def test_declared_unchanged_repository_must_match_before_and_after(tmp_pat
         node_states=states, evidence_store=store,
     )
     assert decision.kind is RepairAttributionKind.SOURCE_INELIGIBLE
+
+
+@pytest.mark.asyncio
+async def test_r109_ready_descendant_without_ticket_becomes_pending(tmp_path):
+    core, _, store, ref, _, attr = await fixture(tmp_path, consumer=True)
+    assert core.states["reviewer"].logical_status is NodeLogicalStatus.READY
+    await core.reopen_writer_from_verification(
+        verification_ref=ref, attribution_ref=attr, evidence_store=store
+    )
+    assert core.states["reviewer"].logical_status is NodeLogicalStatus.PENDING
+    assert core.states["reviewer"].attempts == ()
+
+@pytest.mark.asyncio
+async def test_r118_old_epoch_ticket_never_reauthorizes_after_repair(tmp_path):
+    core, _, store, ref, _, attr = await fixture(tmp_path, consumer=True)
+    old_ticket = await core.claim("reviewer")
+    assert old_ticket.dependency_acceptance_stamps[0].acceptance_epoch == 1
+    await core.reopen_writer_from_verification(
+        verification_ref=ref, attribution_ref=attr, evidence_store=store
+    )
+    assert core.states["writer"].acceptance_epoch == 2
+    await core.run_claim(
+        await core.claim("writer"),
+        FakeExecutionBackend([FakeExecutionScenario(
+            mutation_evidence=MutationEvidence.OBSERVED
+        )]), accept=accept,
+    )
+    assert core.states["writer"].acceptance_epoch == 3
+    assert core.tickets[old_ticket.ticket_id].state is NodeDispatchTicketState.REVOKED
+    with pytest.raises(DispatchRevoked):
+        await core._commit(old_ticket.ticket_id, evidence_validated=True)
+    new_ticket = await core.claim("reviewer")
+    assert new_ticket.dependency_acceptance_stamps[0].acceptance_epoch == 3
+    assert new_ticket.dependency_acceptance_stamps[0].handoff_fingerprint == "h-writer-2"
