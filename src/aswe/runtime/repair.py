@@ -167,7 +167,9 @@ def resolve_verification_repair_attribution(
                 or proof.source_execution_id != source_attempt.execution_id
                 or proof.source_attempt != source_attempt.attempt
                 or proof.workspace_revision_generation !=
-                   result.observed_workspace_revision.generation):
+                   result.observed_workspace_revision.generation
+                or proof.workspace_state_fingerprint !=
+                   result.observed_workspace_revision.repository_state_fingerprint):
                 check_proofs_complete = False
                 break
             # A failed-check claim cannot substitute a nonexistent or tampered
@@ -191,6 +193,12 @@ def resolve_verification_repair_attribution(
             or not source_state.attempts
             or source_state.attempts[-1] != source_attempt
             or not result.repository_state_unchanged
+            or source_attempt.pre_workspace_revision.repository_state_fingerprint !=
+               result.observed_workspace_revision.repository_state_fingerprint
+            or source_attempt.pre_workspace_revision.head_sha !=
+               result.observed_workspace_revision.head_sha
+            or source_attempt.pre_workspace_revision.base_sha !=
+               result.observed_workspace_revision.base_sha
             or result.observed_repository_state_fingerprint !=
                result.observed_workspace_revision.repository_state_fingerprint
             or source_attempt.post_workspace_revision != result.observed_workspace_revision
