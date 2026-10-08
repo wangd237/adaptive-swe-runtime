@@ -79,6 +79,7 @@ class SchedulerCore:
         budget: RuntimeBudgetConfig | None = None,
         canonical_verifier: CanonicalVerifier | None = None,
         canonical_check_policies: dict[str, CanonicalCommandPolicy] | None = None,
+        canonical_acceptance_policies: dict[str, CanonicalCommandPolicy] | None = None,
         test_only_allow_fixture_receipts: bool = False,
     ) -> None:
         if not task_id or not callable(evidence_checker):
@@ -94,6 +95,7 @@ class SchedulerCore:
         self._evidence_checker = evidence_checker
         self._canonical_verifier = canonical_verifier
         self._canonical_check_policies = dict(canonical_check_policies or {})
+        self._canonical_acceptance_policies = dict(canonical_acceptance_policies or {})
         self._test_only_allow_fixture_receipts = test_only_allow_fixture_receipts
         self.states = {
             node_id: NodeRuntimeState(
@@ -304,7 +306,10 @@ class SchedulerCore:
             return invocation
 
     async def _finish(self, invocation: NodeExecutionInvocation, result: Any,
-                      handoff: NodeHandoff | None) -> None:
+                      handoff: NodeHandoff | None, *,
+                      certified_post: WorkspaceRevision | None = None,
+                      own_acceptance_feedback: RepairFeedback | None = None,
+                      own_evidence_refs: tuple[EvidenceRef, ...] = ()) -> None:
         close_dispatch = False
         async with self.state_mutex:
             state = self.states[invocation.node_id]
@@ -320,7 +325,31 @@ class SchedulerCore:
             post = self.revision
             if mutation is not MutationEvidence.PROVEN_NONE:
                 post = post.model_copy(update={"generation": post.generation + 1})
+            if certified_post is not None:
+                if (certified_post.generation != post.generation
+                        or certified_post.base_sha != post.base_sha
+                        or not certified_post.head_matches_baseline):
+                    raise ValueError("invalid canonical acceptance post-revision")
+                post = certified_post
             self.revision = post
+            own_repair = (
+                own_acceptance_feedback is not None
+                and own_acceptance_feedback.trigger_kind.value == "node_acceptance"
+                and own_acceptance_feedback.feedback_source_node_id == invocation.node_id
+                and own_acceptance_feedback.feedback_source_execution_id == invocation.execution_id
+                and own_acceptance_feedback.feedback_source_attempt == invocation.attempt
+                and own_acceptance_feedback.target_write_node_id == invocation.node_id
+                and own_acceptance_feedback.target_write_attempt == invocation.attempt
+                and own_acceptance_feedback.observed_workspace_revision == post
+                and len(own_evidence_refs) >= 2
+                and mutation is MutationEvidence.OBSERVED
+                and getattr(result, "terminal_status", None) is BackendTerminalStatus.COMPLETED
+                and getattr(result, "quiescent", False)
+                and self.nodes[invocation.node_id].work_kind is WorkKind.IMPLEMENTATION
+                and self.nodes[invocation.node_id].workspace_access.value == "write"
+                and state.repair_count < self.budget.max_repairs_per_write
+                and self.gate.state is TaskDispatchGateState.OPEN
+            )
             success = (
                 self.gate.state is TaskDispatchGateState.OPEN
                 and getattr(result, "terminal_status", None) is BackendTerminalStatus.COMPLETED
@@ -352,9 +381,11 @@ class SchedulerCore:
                            NodeAttemptStatus.CANCELLED if cancelled else NodeAttemptStatus.FAILED),
                 "post_workspace_revision": post,
                 "failure_kind": None if success else (
+                    "ACCEPTANCE_FAILED" if own_repair else
                     getattr(result, "failure_kind", None) or "ACCEPTANCE_OR_EXECUTION_FAILED"
                 ),
                 "handoff": handoff if success else None,
+                "evidence_refs": own_evidence_refs if own_repair else running.evidence_refs,
             })
             changes: dict[str, Any] = {
                 "attempts": state.attempts[:-1] + (record,),
@@ -372,6 +403,18 @@ class SchedulerCore:
                     accepted_handoff=handoff,
                     acceptance_epoch=state.acceptance_epoch + 1,
                 )
+            elif own_repair:
+                # A changed WRITE is repairable ONLY when Runtime has already
+                # executed and attested the exact deterministic Acceptance check.
+                changes.update(
+                    logical_status=NodeLogicalStatus.REMEDIATION_PENDING,
+                    repair_count=state.repair_count + 1,
+                    terminal_failure_kind=None,
+                )
+                self._pending_attempt_kinds[invocation.node_id] = NodeAttemptKind.REPAIR
+                self._typed_repair_feedback[invocation.node_id] = own_acceptance_feedback
+                self._repair_feedback_revision[invocation.node_id] = post
+                self._repair_feedback_text[invocation.node_id] = own_acceptance_feedback.bounded_projection()
             elif self.gate.state is TaskDispatchGateState.OPEN and self._retry_eligible(
                 invocation, result, mutation
             ):
@@ -869,10 +912,44 @@ class SchedulerCore:
                     post = self.revision if observed is MutationEvidence.PROVEN_NONE else self.revision.model_copy(
                         update={"generation": self.revision.generation + 1}
                     )
+                    certified_post = None
+                    own_fb = None
+                    own_refs = ()
+                    policy = self._canonical_acceptance_policies.get(invocation.node_id)
+                    if (observed is MutationEvidence.OBSERVED
+                            and policy is not None
+                            and self._canonical_verifier is not None
+                            and self.nodes[invocation.node_id].work_kind is WorkKind.IMPLEMENTATION
+                            and self.nodes[invocation.node_id].workspace_access.value == "write"):
+                        from aswe.repository import capture_repository_state
+                        state = await asyncio.to_thread(
+                            capture_repository_state, self._canonical_verifier.binding,
+                        )
+                        if not state.head_matches_baseline or state.base_sha != self.revision.base_sha:
+                            raise RuntimeError("own acceptance repository baseline invariant broken")
+                        post = post.model_copy(update={
+                            "repository_state_fingerprint": state.fingerprint,
+                            "head_sha": state.head_sha,
+                            "dirty": state.dirty_vs_base,
+                            "head_matches_baseline": state.head_matches_baseline,
+                        })
+                        certified_post = post
                     if result.terminal_status is BackendTerminalStatus.COMPLETED and result.quiescent:
                         if accept is not None:
                             handoff = await accept(result, invocation, post)
-                    await self._finish(invocation, result, handoff)
+                        if (handoff is None and accept is not None
+                                and certified_post is not None
+                                and policy is not None):
+                            from aswe.runtime.own_acceptance import certify_mutated_own_failure
+                            own_fb, own_refs = await certify_mutated_own_failure(
+                                self, invocation, post, policy,
+                            )
+                    await self._finish(
+                        invocation, result, handoff,
+                        certified_post=certified_post,
+                        own_acceptance_feedback=own_fb,
+                        own_evidence_refs=own_refs,
+                    )
                 except BaseException:
                     await self._abort_committed(
                         invocation, failure_kind="EVIDENCE_FINALIZATION_FAILURE",
