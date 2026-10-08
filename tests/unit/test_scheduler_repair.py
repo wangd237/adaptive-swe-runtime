@@ -439,3 +439,61 @@ async def test_failed_check_with_foreign_execution_proof_is_ineligible(tmp_path)
         verification_ref=fake_ref, node_states=core.states, evidence_store=store,
     )
     assert decision.kind is RepairAttributionKind.SOURCE_INELIGIBLE
+
+
+@pytest.mark.asyncio
+async def test_deterministic_proof_with_wrong_workspace_fingerprint_is_ineligible(tmp_path):
+    core, _, store, _, _, _ = await fixture(tmp_path)
+    source = core.states["verify"].attempts[-1]
+    altered = source.post_workspace_revision.model_copy(
+        update={"repository_state_fingerprint": "wrong-git-state"}
+    )
+    mismatched_proof = store.put_attempt(
+        task_id=core.task_id, node_id="verify", execution_id=source.execution_id,
+        attempt=source.attempt, kind=AttemptEvidenceKind.TOOL_RECEIPT_LEDGER,
+        payload={"exit_code": 1}, workspace_revision=altered,
+    )
+    result = make_verification_result(
+        verification_node_id="verify",
+        verification_execution_id=source.execution_id,
+        verification_attempt=source.attempt,
+        observed_workspace_revision=source.post_workspace_revision,
+        observed_repository_state_fingerprint=source.post_workspace_revision.repository_state_fingerprint,
+        checks=(VerificationCheckResult(
+            check_id="unit-tests", status=VerificationCheckStatus.FAILED,
+            deterministic=True, evidence_refs=(mismatched_proof,),
+        ),),
+        repository_state_unchanged=True,
+    )
+    result_ref = store.put_attempt(
+        task_id=core.task_id, node_id="verify", execution_id=source.execution_id,
+        attempt=source.attempt, kind=AttemptEvidenceKind.VERIFICATION_RESULT,
+        payload=result, workspace_revision=source.post_workspace_revision,
+    )
+    await core.attach_attempt_evidence(
+        node_id="verify", evidence_ref=result_ref, evidence_store=store,
+    )
+    decision = resolve_verification_repair_attribution(
+        dag=core.dag, source_attempt=core.states["verify"].attempts[-1],
+        verification_ref=result_ref, node_states=core.states, evidence_store=store,
+    )
+    assert decision.kind is RepairAttributionKind.SOURCE_INELIGIBLE
+
+
+@pytest.mark.asyncio
+async def test_declared_unchanged_repository_must_match_before_and_after(tmp_path):
+    core, _, store, ref, _, _ = await fixture(tmp_path)
+    prior = core.states["verify"]
+    attempt = prior.attempts[-1]
+    invalid_pre = attempt.pre_workspace_revision.model_copy(
+        update={"repository_state_fingerprint": "before-is-different"}
+    )
+    invalid_attempt = attempt.model_copy(update={"pre_workspace_revision": invalid_pre})
+    forged_state = prior.model_copy(update={"attempts": prior.attempts[:-1] + (invalid_attempt,)})
+    states = dict(core.states)
+    states["verify"] = forged_state
+    decision = resolve_verification_repair_attribution(
+        dag=core.dag, source_attempt=invalid_attempt, verification_ref=ref,
+        node_states=states, evidence_store=store,
+    )
+    assert decision.kind is RepairAttributionKind.SOURCE_INELIGIBLE
