@@ -174,7 +174,7 @@ async def test_r25_refresh_replaces_typed_feedback_with_new_evidence_fingerprint
         "sys.exit(0 if 'FIXED' in Path('source.py').read_text() else 1)"))
     core, old_proof, old_vref = await _initial_failure(binding, rev, store, policy)
     initial = core._typed_repair_feedback["writer"]
-    _advance_physical_revision(core, binding, "NOT_FIXED = False\\n")
+    _advance_physical_revision(core, binding, "BROKEN = False\\n")
     ticket = await core.claim("writer")
     await core._advance(ticket.ticket_id, NodeDispatchTicketState.WAITING_WORKSPACE)
     async with core.workspace.access(WorkspaceAccess.WRITE):
