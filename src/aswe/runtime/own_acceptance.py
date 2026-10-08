@@ -139,7 +139,7 @@ async def refresh_stale_own_acceptance(core, ticket_id, fb):
         initial = CanonicalAcceptanceVerdict.model_validate(
             verifier.store.get(fb.acceptance_verdict)
         )
-        policy = core._canonical_check_policies.get(initial.check_id)
+        policy = core._canonical_acceptance_policies.get(node_id)
         if policy is None or policy.fingerprint != initial.command_policy_fingerprint:
             raise ValueError("no authoritative acceptance recheck command")
         old_receipt = verifier.validate(
