@@ -6,43 +6,36 @@ Implementation repository for **Adaptive Agent Runtime for Software Engineering 
 
 ## Current phase
 
-```text
-P0 Design: FROZEN (integration PoCs remain gated)
-Coding Step 0: CLOSED — validated / merged
-Next: Step 1 — EvidenceStore + Workspace / Git substrate
-DeerFlow integration: NOT STARTED
-```
+P0 Design: FROZEN (DeerFlow integration PoCs pending)
+Coding Step 0: CLOSED / ACCEPTED
+Coding Step 1: CLOSED / ACCEPTED
+Next: Step 2 — Scheduler State Machine on FakeBackend
+DeerFlow / LLM integration: NOT STARTED
 
-Coding Step 0 was reviewed in [PR #1](https://github.com/wangd237/adaptive-swe-runtime/pull/1).
-Python 3.11 and 3.13 CI: **53 passed / 0 skipped** on the reviewed PR head.
+## Accepted implementation
 
-## Architecture
+- Provider-neutral frozen contracts and two-stage deterministic TaskDAG identity (Step 0).
+- Local immutable attempt/task EvidenceStore and minimal trace events.
+- Git bootstrap to pinned SHA; isolated temporary-index working tree digest and per-attempt patch attribution.
+- Workspace snapshots/revision evidence, reader/writer access, quiescence-gated FROZEN vs QUARANTINED lifecycle.
 
-```text
-Frozen Specs + AGENTS.md
-        ↓
-Provider-neutral contracts
-        ↓
-Evidence / Workspace / Git           ← Coding Step 1 (next)
-        ↓
-Deterministic Scheduler + FakeBackend ← Step 2
-        ↓
-Planning / Capability / DAG
-        ↓
-DeerFlow ExecutionBackend adapter     ← later Go/No-Go gated
-```
+Step 1 reviewed in [PR #2](https://github.com/wangd237/adaptive-swe-runtime/pull/2).
+Python 3.11 / 3.13: **84 passed, 0 skipped** on reviewed PR head.
 
-No DeerFlow dependency or LLM has been added.
+## Architecture and design authority
 
-## Design authority
-
-The frozen design snapshot is copied from `wangd237/adaptive_swe_plan`.
-The exact bootstrap pin is recorded in `design/PLAN_SOURCE.md`.
-Implementation rules live in `AGENTS.md`; see `audits/step0-implementation-review.md` for Step 0 evidence.
+- [AGENTS.md](AGENTS.md): coding constitution / no silent design drift.
+- [Master Plan](plan/master-plan.md): mandatory Coding Step 0–8 order.
+- [Frozen Specs](specs/): implementation contracts.
+- [Step 0 Review](audits/step0-implementation-review.md) / [Step 1 Review](audits/step1-implementation-review.md).
+- [Implementation Status](IMPLEMENTATION_STATUS.md): current progress and next gate.
+- Frozen design pin: [PLAN_SOURCE](design/PLAN_SOURCE.md).
 
 ## Tests
 
-```bash
-python -m pip install -e ".[dev]"
-python -m pytest
-```
+Install dev requirements and run:
+
+    python -m pip install -e ".[dev]"
+    python -m pytest
+
+No DeerFlow dependency or LLM integration has been added.

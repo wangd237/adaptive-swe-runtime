@@ -53,3 +53,13 @@ ACCEPTABLE FOR CODING STEP 1, subject to PR CI and merge.
 - Single-process EvidenceStore does not claim distributed multiwriter transactional guarantees.
 
 No frozen P0 Spec was changed to make the code pass. Do not claim real DeerFlow execution is validated.
+
+## Accepted closeout
+
+- PR: https://github.com/wangd237/adaptive-swe-runtime/pull/2
+- Reviewed head: caf18ca06db37c4ba79a97e7e53f2ef1a9ae3b5b
+- Python 3.11: 84 passed, 0 skipped
+- Python 3.13: 84 passed, 0 skipped
+- Squash merge commit: 7252dbf3b667a7ac5bf6569dfe2b2c4425d2f4a0
+- Verdict: **Coding Step 1 CLOSED / ACCEPTED**
+- Next: Coding Step 2 Scheduler on deterministic FakeBackend.
