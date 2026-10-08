@@ -109,6 +109,7 @@ class SchedulerCore:
         self._committed: dict[str, CommittedExecution] = {}
         self._terminal_mutex = asyncio.Lock()
         self._quiescence_unknown = False
+        self._locally_cancelled_nodes: set[str] = set()
         self._recompute_locked()
 
     def _dependencies_locked(self, node_id: str) -> tuple[DependencyAcceptanceStamp, ...] | None:
@@ -323,6 +324,7 @@ class SchedulerCore:
                 and getattr(result, "terminal_status", None) is BackendTerminalStatus.COMPLETED
                 and getattr(result, "quiescent", False)
                 and handoff is not None
+                and invocation.node_id not in self._locally_cancelled_nodes
                 and handoff.source_node_id == invocation.node_id
                 and handoff.source_execution_id == invocation.execution_id
                 and handoff.source_attempt == invocation.attempt
@@ -340,7 +342,9 @@ class SchedulerCore:
                 handoff = None
                 self._fail_close_locked("READ_WORKSPACE_MUTATION", root_node=invocation.node_id)
                 close_dispatch = True
-            cancelled = getattr(result, "terminal_status", None) is BackendTerminalStatus.CANCELLED
+            local_cancel = invocation.node_id in self._locally_cancelled_nodes
+            cancelled = (local_cancel or
+                         getattr(result, "terminal_status", None) is BackendTerminalStatus.CANCELLED)
             record = running.model_copy(update={
                 "status": (NodeAttemptStatus.ACCEPTED if success else
                            NodeAttemptStatus.CANCELLED if cancelled else NodeAttemptStatus.FAILED),
@@ -354,7 +358,7 @@ class SchedulerCore:
                 "attempts": state.attempts[:-1] + (record,),
                 "active_dispatch_ticket_id": None,
             }
-            if cancelled and self.cancelled:
+            if cancelled and (self.cancelled or local_cancel):
                 changes.update(
                     logical_status=NodeLogicalStatus.CANCELLED,
                     terminal_failure_kind=None,
@@ -383,6 +387,13 @@ class SchedulerCore:
                     self._fail_close_locked("DIRTY_WRITE_FAILURE", root_node=invocation.node_id)
                     close_dispatch = True
             self.states[invocation.node_id] = state.model_copy(update=changes)
+            if local_cancel:
+                self._locally_cancelled_nodes.discard(invocation.node_id)
+                if mutation is not MutationEvidence.PROVEN_NONE:
+                    # Shared Workspace changed during a cancelled attempt: unrelated
+                    # branches cannot safely continue without a clean baseline.
+                    self._fail_close_locked("LOCAL_CANCEL_MUTATION", root_node=invocation.node_id)
+                    close_dispatch = True
             self.tickets[invocation.dispatch_ticket_id] = self.tickets[
                 invocation.dispatch_ticket_id
             ].model_copy(update={"state": NodeDispatchTicketState.FINISHED})
@@ -603,6 +614,67 @@ class SchedulerCore:
                 raise RuntimeError("task still has pending dispatch")
             self.gate = TaskDispatchGate(state=TaskDispatchGateState.CLOSED, epoch=self.gate.epoch + 1)
         await self.drain_committed()
+
+    async def cancel_node(self, node_id: str, *, timeout: float = 2.0) -> None:
+        """Cancel only one logical node and BLOCK its ordinary descendants.
+
+        A precommit ticket is revoked without manufacturing an attempt.
+        For committed nodes, request backend cancellation and JOIN its owner
+        before returning. Unknown quiescence fails the whole shared task closed.
+        """
+        if timeout <= 0:
+            raise ValueError("join timeout must be positive")
+        async with self.state_mutex:
+            if self.gate.state is not TaskDispatchGateState.OPEN:
+                raise DispatchRevoked("task dispatch gate closed")
+            if node_id not in self.states:
+                raise KeyError(node_id)
+            state = self.states[node_id]
+            if state.logical_status is NodeLogicalStatus.CANCELLED:
+                return
+            if state.logical_status not in (
+                NodeLogicalStatus.PENDING, NodeLogicalStatus.READY,
+                NodeLogicalStatus.REMEDIATION_PENDING, NodeLogicalStatus.RUNNING,
+            ):
+                raise DispatchRevoked("node already terminal")
+            if state.logical_status is NodeLogicalStatus.RUNNING:
+                active = state.attempts[-1]
+                item = self._committed.get(active.execution_id)
+                if item is None:
+                    raise RuntimeError("RUNNING node missing committed execution")
+                self._locally_cancelled_nodes.add(node_id)
+                execution_id = active.execution_id
+            else:
+                if state.active_dispatch_ticket_id:
+                    ticket_id = state.active_dispatch_ticket_id
+                    ticket = self.tickets[ticket_id]
+                    if ticket.state in (NodeDispatchTicketState.COMMITTED,
+                                        NodeDispatchTicketState.FINISHED):
+                        raise DispatchRevoked("committed attempt cannot be revoked")
+                    self.tickets[ticket_id] = ticket.model_copy(
+                        update={"state": NodeDispatchTicketState.REVOKED}
+                    )
+                self.states[node_id] = state.model_copy(update={
+                    "logical_status": NodeLogicalStatus.CANCELLED,
+                    "active_dispatch_ticket_id": None,
+                    "block_reason": None, "blocked_by": (),
+                    "terminal_failure_kind": None,
+                })
+                self._recompute_locked()
+                return
+
+        # Do not hold SchedulerStateMutex while invoking backend or joining.
+        try:
+            if item.backend is None or item.owner is asyncio.current_task():
+                raise RuntimeError("committed local cancellation cannot be joined")
+            await asyncio.wait_for(item.backend.cancel_node(execution_id), timeout)
+            await asyncio.wait_for(item.done.wait(), timeout)
+            if item.quiescent is not True or item.cancel_error is not None:
+                raise RuntimeError("local cancellation quiescence not proven")
+        except (Exception, asyncio.CancelledError):
+            self._quiescence_unknown = True
+            await self.fail_closed("LOCAL_CANCEL_QUIESCENCE_UNKNOWN", root_node=node_id)
+            raise
 
     async def cancel_task(self) -> None:
         """Cancellation is not a business failure; residual patches stay unaccepted."""
