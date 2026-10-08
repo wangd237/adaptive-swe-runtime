@@ -4,38 +4,39 @@
 
 - Coding Step 0 — CLOSED / ACCEPTED
 - Coding Step 1 — CLOSED / ACCEPTED
-- **Coding Step 2 — IN PROGRESS: FOUNDATION PR #3 / NOT ACCEPTED**
+- **Coding Step 2 — IN PROGRESS / PR #3 OPEN / NOT ACCEPTED**
 
-## Step 2 foundation implemented on PR #3
+## Step 2: Scheduler foundation (reviewed incremental scope)
 
-- [x] Scheduler-owned NodeDispatchTicket & TaskDispatchGate typed immutable contracts
-- [x] SchedulerStateMutex linearizes READY predicate, claim and dependency acceptance stamps
-- [x] PREPARING → WAITING_WORKSPACE → LOCKED_PRECOMMIT → COMMITTED ticket phases
-- [x] pre-commit revoke consumes no attempt / execution identity / retry budget
-- [x] Workspace lock precedes final commit; gate epoch and all dependency stamps rechecked
-- [x] attempt/run/execution identity allocated only at dispatch commit
-- [x] trusted acceptance callback required for a successful Handoff; backend COMPLETED alone never suffices
-- [x] accepted_attempt/Handoff and acceptance_epoch atomically publish dependent READY
-- [x] bounded Retry only for explicitly classified transient failures with PROVEN_NONE mutation
-- [x] task-wide dirty fail-close blocks unrelated READY/PENDING nodes and revokes tickets
-- [x] committed execution error/cancellation never silently retracts the attempt
-- [x] unknown backend quiescence conservatively QUARANTINES Workspace
-- [x] deterministic concurrency and negative FakeBackend tests
-- [x] PR head CI: Python 3.11 101 passed / 0 skipped
-- [x] PR head CI: Python 3.13 101 passed / 0 skipped
+- [x] atomic READY claim, accepted-dependency stamps and SchedulerStateMutex
+- [x] revocable PREPARING / WAITING_WORKSPACE / LOCKED_PRECOMMIT tickets
+- [x] post-lock final dispatch commit, attempt identities and gate epoch checks
+- [x] typed clean-transient Retry and accepted Handoff/acceptance_epoch publication
+- [x] task fail-close on dirty/unknown mutation and committed backend exception
+- [x] persisted VerificationResult, VerificationCheckResult and typed RepairAttributionEvidence
+- [x] provenance-checked source and per-failed-check attempt-scoped tool evidence
+- [x] exact VerificationRepairBinding singleton ownership, no last-writer/prose heuristic
+- [x] conservative distinct Writer / freshness checks and no automatic multiwriter repair
+- [x] evidence-attached reopen with mutex-linearized revoke of pre-commit descendants
+- [x] reopen forbidden after COMMITTED/PRE_START or non-verification downstream SUCCEEDED
+- [x] acceptance_epoch H1 publish 1 → revoke 2 → H2 publish 3
+- [x] same logical Writer REPAIR attempt and fresh same Verification REVERIFY attempt
+- [x] RepairFeedback revision gate at post-workspace-lock dispatch commit
+- [x] deterministic negative tests for stale/unattached/cross-execution proof, dirty tests, and races
+- [x] Python 3.11: 122 passed / 0 skipped on reviewed incremental head
+- [x] Python 3.13: 122 passed / 0 skipped on reviewed incremental head
 
-## Blocking Step 2 completion
+## Open blockers — PR #3 must NOT merge as a final Step-2 solution
 
-- [ ] Complete deterministic VerificationResult / RepairAttributionResolver
-- [ ] Writer reopen race transaction (READY, PREPARING, WAITING, LOCKED, COMMITTED)
-- [ ] REPAIR and REVERIFY attempt policy and RepairFeedback revision freshness
-- [ ] Cancel/join committed downstream consumers and classify quiescence; FROZEN vs QUARANTINED drain
-- [ ] Node status propagation, root failure aggregation and terminal TaskResult state
-- [ ] Add full POC-R16–R26 and POC-R75–R128 execution coverage
-- [ ] Full implementation audit, all CI gates, PR merge, then close Step 2
+- [ ] Authenticated Runtime-owned canonical verification checker and typed persisted RepairFeedback (currently controlled fixture gate)
+- [ ] Cancel/join all COMMITTED downstream executions on task fail-close; classify mutation and prove quiescence
+- [ ] Prove whole-Task drain, FROZEN vs QUARANTINED, including external cancellation outcomes
+- [ ] Aggregate roots/secondary failures and terminal TaskResult semantics; residual patch not accepted
+- [ ] Full POC-R16–R26 and R75–R128 deterministic exit coverage (especially R116–117, R123, R127–128)
+- [ ] Full architectural audit and eventual Step-2 acceptance/PR merge
 
-## Deliberate safety boundary
+## Boundary
 
-PR #3 contains a FAKE-only execution integration for deterministic tests; it is not a production ExecutionBackend, a general acceptance implementation, or a verified repair system. Core does not import DeerFlow or any LLM.
+No DeerFlow or LLM. A stored tool receipt plus deterministic flag is necessary but not by itself final proof that a canonical Runtime checker executed. This remains an integration blocker, not implicit permission for production autonomous repair.
 
-See AGENTS.md, specs/03-execution-runtime.md and plan/master-plan.md for frozen authority.
+See audits/step2-repair-reopen-review.md and AGENTS.md.
