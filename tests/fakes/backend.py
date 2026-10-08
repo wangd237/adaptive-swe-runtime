@@ -41,6 +41,7 @@ class FakeExecutionBackend:
         self.preparations:list[NodeExecutionPreparation]=[]
         self.records:list[FakeExecutionRecord]=[]
         self.cancelled_execution_ids:set[str]=set()
+        self._cancel_events:dict[str,asyncio.Event]={}
 
     def push(self,scenario:FakeExecutionScenario)->None:
         self._scenarios.append(scenario)
@@ -67,8 +68,19 @@ class FakeExecutionBackend:
         if not self._scenarios:
             raise RuntimeError("no FakeExecutionScenario queued")
         scenario=self._scenarios.popleft()
-        if scenario.release_event is not None:
-            await scenario.release_event.wait()
+        cancel_event=self._cancel_events.setdefault(invocation.execution_id,asyncio.Event())
+        if invocation.execution_id in self.cancelled_execution_ids:
+            cancel_event.set()
+        if scenario.release_event is not None and not cancel_event.is_set():
+            release_wait=asyncio.create_task(scenario.release_event.wait())
+            cancel_wait=asyncio.create_task(cancel_event.wait())
+            try:
+                await asyncio.wait({release_wait,cancel_wait},return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                for pending in (release_wait,cancel_wait):
+                    if not pending.done():
+                        pending.cancel()
+                await asyncio.gather(release_wait,cancel_wait,return_exceptions=True)
         status=BackendTerminalStatus.CANCELLED if invocation.execution_id in self.cancelled_execution_ids else scenario.terminal_status
         record=FakeExecutionRecord(
             execution_id=invocation.execution_id,
@@ -82,7 +94,11 @@ class FakeExecutionBackend:
             quiescent=scenario.quiescent,
         )
         self.records.append(record)
+        self._cancel_events.pop(invocation.execution_id,None)
         return record
 
     async def cancel_node(self,execution_id:str)->None:
         self.cancelled_execution_ids.add(execution_id)
+        event=self._cancel_events.get(execution_id)
+        if event is not None:
+            event.set()

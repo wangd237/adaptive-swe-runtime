@@ -46,6 +46,12 @@ class TaskDAG(FrozenModel):
         for node in self.nodes:
             unknown=set(node.dependencies)-known
             if unknown: raise ValueError(f"unknown dependencies for {node.id}: {sorted(unknown)}")
+        position = {node_id: index for index, node_id in enumerate(self.topological_order)}
+        for node in self.nodes:
+            if len(set(node.dependencies)) != len(node.dependencies):
+                raise ValueError(f"duplicate dependencies on {node.id}")
+            if any(position[upstream] >= position[node.id] for upstream in node.dependencies):
+                raise ValueError("topological_order violates a dependency")
         for binding in self.verification_repair_bindings:
             if binding.dag_structure_fingerprint!=self.structure_fingerprint:
                 raise ValueError("VerificationRepairBinding must bind TaskDAG.structure_fingerprint")

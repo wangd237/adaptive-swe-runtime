@@ -3,34 +3,30 @@
 ## Current phase
 
 ```text
-Coding Step 0 — IN PROGRESS
+Coding Step 0 — IMPLEMENTATION REVIEW / PR GATE
 ```
 
-## Completed in bootstrap
+## Implemented
 
-- [x] Python package skeleton (`src/aswe`)
-- [x] `AGENTS.md` coding constraints
-- [x] frozen design snapshot copied into repository
-- [x] safe runtime ID helpers
-- [x] canonical SHA-256 fingerprint helper
-- [x] `RuntimeBudgetConfig`
-- [x] shared Workspace/Evidence/Handoff contracts
-- [x] `TaskNode / VerificationRepairBinding / TaskDAG`
-- [x] `NodeExecutionPreparation / NodeExecutionInvocation`
-- [x] deterministic `FakeExecutionBackend` harness
-- [x] architecture conformance bootstrap tests
-- [x] GitHub Actions CI
+- [x] Python package skeleton, frozen copied design and AGENTS.md
+- [x] safe IDs, canonical SHA-256 fingerprint, RuntimeBudgetConfig
+- [x] shared Workspace / Evidence / Handoff / TaskDAG contracts
+- [x] NodeAttemptRecord / NodeRuntimeState *data contracts* (Scheduler transitions are Step 2)
+- [x] deterministic TaskDAG two-stage fingerprint construction and topological validation
+- [x] FakeBackend cancellation barrier (cancel unblocks controlled execution)
+- [x] executable architecture checks for POC-F01..F06
+- [x] architecture import boundaries, pytest, Python 3.11/3.13 GitHub Actions
 
-## Still required before Coding Step 0 exit
+## Gate
 
-- [ ] implement/confirm remaining Step-0 shared contracts needed by Step 1
-- [ ] convert POC-F01 ~ F06 into complete executable conformance coverage
-- [ ] review first implementation against frozen Specs before starting Step 1
+- [ ] PR CI green on both supported Python versions
+- [ ] POC-F01 full design scan completed in CI (local bootstrap docs may be placeholders)
+- [ ] implementation review accepted, then Coding Step 0 can be marked complete
 
-## Explicitly not started
+## Intentionally deferred
 
-- Workspace/Git substrate
-- Scheduler
-- Planning compiler
-- DeerFlow integration
-- LLM / prompts / Skills
+- Step 1 EvidenceStore / Workspace / Git substrate
+- Step 2 Scheduler state transitions / mutex / dispatch commit
+- Step 3+ Planning compiler, Agent/LLM, DeerFlow adapter
+
+See `AGENTS.md` and `plan/master-plan.md` for Exit Criteria.

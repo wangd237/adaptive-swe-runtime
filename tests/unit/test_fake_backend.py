@@ -40,3 +40,17 @@ async def test_fake_backend_has_controlled_barrier()->None:
     release.set()
     record=await task
     assert record.quiescent is True
+
+@pytest.mark.asyncio
+async def test_cancel_node_unblocks_waiting_fake_without_release() -> None:
+    release = asyncio.Event()
+    backend = FakeExecutionBackend([FakeExecutionScenario(release_event=release)])
+    prep = await backend.prepare_node(_node())
+    execution_id = new_execution_id()
+    task = asyncio.create_task(backend.execute_prepared(prep, _invocation(execution_id)))
+    await asyncio.sleep(0)
+    assert not task.done()
+    await backend.cancel_node(execution_id)
+    record = await asyncio.wait_for(task, timeout=1)
+    assert record.terminal_status is BackendTerminalStatus.CANCELLED
+    assert not release.is_set()
