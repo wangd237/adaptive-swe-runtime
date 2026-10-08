@@ -93,3 +93,34 @@ async def test_idempotent_failclose_after_proven_drain(tmp_path):
     await core.fail_closed("SECOND")
     assert manager.lifecycle.current.status is WorkspaceSessionStatus.FROZEN
     assert core.failure_kinds == ["FIRST"]
+
+
+@pytest.mark.asyncio
+async def test_cancelled_drain_coordinator_quarantines_instead_of_assuming_join(tmp_path):
+    core, manager = scheduler(tmp_path, node("reader", access=WorkspaceAccess.READ))
+    execution_release = asyncio.Event()
+    cancel_entered = asyncio.Event()
+    cancel_release = asyncio.Event()
+
+    class SlowCancellationBackend(FakeExecutionBackend):
+        async def cancel_node(self, execution_id):
+            cancel_entered.set()
+            await cancel_release.wait()
+            await super().cancel_node(execution_id)
+
+    backend = SlowCancellationBackend([
+        FakeExecutionScenario(release_event=execution_release)
+    ])
+    runner = await running_reader(core, backend, "reader")
+    drainer = asyncio.create_task(core.drain_committed(timeout=1.0))
+    await asyncio.wait_for(cancel_entered.wait(), 1)
+    drainer.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await drainer
+
+    assert core.failed and manager.dispatch_closed
+    assert manager.lifecycle.current.status is WorkspaceSessionStatus.QUARANTINED
+    assert not runner.done()
+    execution_release.set()
+    await runner
+    assert manager.lifecycle.current.status is WorkspaceSessionStatus.QUARANTINED
