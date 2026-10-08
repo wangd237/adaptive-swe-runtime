@@ -354,7 +354,12 @@ class SchedulerCore:
                 "attempts": state.attempts[:-1] + (record,),
                 "active_dispatch_ticket_id": None,
             }
-            if success:
+            if cancelled and self.cancelled:
+                changes.update(
+                    logical_status=NodeLogicalStatus.CANCELLED,
+                    terminal_failure_kind=None,
+                )
+            elif success:
                 changes.update(
                     logical_status=NodeLogicalStatus.SUCCEEDED,
                     accepted_attempt=invocation.attempt,

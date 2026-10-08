@@ -61,7 +61,8 @@ async def test_normal_completed_task_requires_valid_contract_verdict(terminal_fi
     await core.complete_task()
     assert manager.lifecycle.current.status is WorkspaceSessionStatus.FROZEN
     result = finalize_task(scheduler=core, binding=binding, evidence_store=store,
-                           contract_verdict=verdict())
+                           contract_verdict=verdict(),
+                           expected_contract_fingerprint="contract-authority")
     assert result.status is TaskLogicalStatus.SUCCEEDED
     assert result.repository_disposition is RepositoryDisposition.BASELINE_CLEAN
     assert result.patch_disposition is PatchDisposition.NONE
