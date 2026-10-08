@@ -96,6 +96,22 @@ class SchedulerCore:
             ))
         return tuple(stamps)
 
+    _TRANSIENT_FAILURES = frozenset({
+        "EXECUTION_TRANSIENT_FAILURE", "EXECUTION_TIMEOUT", "EXECUTION_CAPPED_PARTIAL",
+    })
+
+    def _retry_eligible(self, invocation: NodeExecutionInvocation, result: Any,
+                        mutation: MutationEvidence) -> bool:
+        """Policy/backend/acceptance failures are never retried merely because clean."""
+        return (
+            mutation is MutationEvidence.PROVEN_NONE
+            and getattr(result, "terminal_status", None) in (
+                BackendTerminalStatus.FAILED, BackendTerminalStatus.TIMED_OUT,
+            )
+            and getattr(result, "failure_kind", None) in self._TRANSIENT_FAILURES
+            and invocation.attempt - 1 < self.budget.max_retries_per_node
+        )
+
     def _recompute_locked(self) -> None:
         """READY is a property of current accepted authority, not old attempt history."""
         if self.gate.state is TaskDispatchGateState.CLOSED:
@@ -276,7 +292,9 @@ class SchedulerCore:
             record = running.model_copy(update={
                 "status": NodeAttemptStatus.ACCEPTED if success else NodeAttemptStatus.FAILED,
                 "post_workspace_revision": post,
-                "failure_kind": None if success else "ACCEPTANCE_OR_EXECUTION_FAILED",
+                "failure_kind": None if success else (
+                    getattr(result, "failure_kind", None) or "ACCEPTANCE_OR_EXECUTION_FAILED"
+                ),
                 "handoff": handoff if success else None,
             })
             changes: dict[str, Any] = {
@@ -290,9 +308,9 @@ class SchedulerCore:
                     accepted_handoff=handoff,
                     acceptance_epoch=state.acceptance_epoch + 1,
                 )
-            elif mutation is MutationEvidence.PROVEN_NONE and (
-                invocation.attempt - 1 < self.budget.max_retries_per_node
-            ) and self.gate.state is TaskDispatchGateState.OPEN:
+            elif self.gate.state is TaskDispatchGateState.OPEN and self._retry_eligible(
+                invocation, result, mutation
+            ):
                 changes["logical_status"] = NodeLogicalStatus.REMEDIATION_PENDING
             else:
                 changes.update(

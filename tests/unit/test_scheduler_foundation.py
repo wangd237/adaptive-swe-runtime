@@ -114,7 +114,8 @@ async def test_clean_transient_failure_uses_same_node_for_retry(tmp_path):
     core, _ = scheduler(tmp_path, node("writer"))
     backend = FakeExecutionBackend([
         FakeExecutionScenario(terminal_status=BackendTerminalStatus.FAILED,
-                              mutation_evidence=MutationEvidence.PROVEN_NONE),
+                              mutation_evidence=MutationEvidence.PROVEN_NONE,
+                              failure_kind="EXECUTION_TRANSIENT_FAILURE"),
         FakeExecutionScenario(),
     ])
     first = await core.run_claim(await core.claim("writer"), backend)
@@ -173,7 +174,7 @@ async def test_task_failclose_revokes_unrelated_ticket_and_blocks_ready_nodes(tm
 async def test_backend_completed_without_acceptance_is_not_success(tmp_path):
     core, _ = scheduler(tmp_path, node("writer"))
     await core.run_claim(await core.claim("writer"), FakeExecutionBackend([FakeExecutionScenario()]))
-    assert core.states["writer"].logical_status is NodeLogicalStatus.REMEDIATION_PENDING
+    assert core.states["writer"].logical_status is NodeLogicalStatus.FAILED
     assert core.states["writer"].accepted_handoff is None
 
 
@@ -209,7 +210,7 @@ async def test_success_callback_does_not_override_a_failed_backend(tmp_path):
         accept=accept,
     )
     assert core.states["writer"].accepted_handoff is None
-    assert core.states["writer"].logical_status is NodeLogicalStatus.REMEDIATION_PENDING
+    assert core.states["writer"].logical_status is NodeLogicalStatus.FAILED
 
 
 @pytest.mark.asyncio
@@ -293,3 +294,33 @@ async def test_unquiescent_result_quarantines_even_with_completed_backend_status
     assert manager.lifecycle.current.status is WorkspaceSessionStatus.QUARANTINED
     with pytest.raises(RuntimeError, match="requires proven FROZEN"):
         manager.lifecycle.assert_can_finalize()
+
+
+@pytest.mark.asyncio
+async def test_clean_policy_denial_never_consumes_retry_budget(tmp_path):
+    core, _ = scheduler(tmp_path, node("writer"))
+    backend = FakeExecutionBackend([FakeExecutionScenario(
+        terminal_status=BackendTerminalStatus.FAILED,
+        mutation_evidence=MutationEvidence.PROVEN_NONE,
+        failure_kind="POLICY_DENIED",
+    )])
+    await core.run_claim(await core.claim("writer"), backend)
+    assert core.states["writer"].logical_status is NodeLogicalStatus.FAILED
+    assert core.states["writer"].next_attempt == 2
+    with pytest.raises(DispatchRevoked):
+        await core.claim("writer")
+
+
+@pytest.mark.asyncio
+async def test_explicit_transient_with_unknown_mutation_is_not_retryable(tmp_path):
+    core, _ = scheduler(tmp_path, node("writer"))
+    await core.run_claim(
+        await core.claim("writer"),
+        FakeExecutionBackend([FakeExecutionScenario(
+            terminal_status=BackendTerminalStatus.FAILED,
+            mutation_evidence=MutationEvidence.UNKNOWN,
+            failure_kind="EXECUTION_TRANSIENT_FAILURE",
+        )]),
+    )
+    assert core.states["writer"].logical_status is NodeLogicalStatus.FAILED
+    assert core.failed

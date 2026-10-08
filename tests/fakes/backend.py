@@ -19,6 +19,8 @@ class FakeExecutionScenario(BaseModel):
     mutation_evidence: MutationEvidence=MutationEvidence.PROVEN_NONE
     result: str|None="ok"
     error: str|None=None
+    # Fake-only normalized Runtime failure classification (not model prose).
+    failure_kind: str|None=None
     quiescent: bool=True
     release_event: asyncio.Event|None=None
 
@@ -32,6 +34,7 @@ class FakeExecutionRecord(BaseModel):
     mutation_evidence:MutationEvidence
     result:str|None
     error:str|None
+    failure_kind:str|None
     quiescent:bool
 
 class FakeExecutionBackend:
@@ -110,6 +113,7 @@ class FakeExecutionBackend:
                 mutation_evidence=scenario.mutation_evidence,
                 result=scenario.result,
                 error=scenario.error,
+                failure_kind=scenario.failure_kind,
                 quiescent=scenario.quiescent,
             )
             self.records.append(record)
