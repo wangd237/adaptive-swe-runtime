@@ -52,6 +52,13 @@ async def fixture(tmp_path, *, consumer: bool = False, candidates=("writer",)):
         )]),
     )
     source = core.states["verify"].attempts[-1]
+    check_proof = store.put_attempt(
+        task_id=core.task_id, node_id="verify",
+        execution_id=source.execution_id, attempt=source.attempt,
+        kind=AttemptEvidenceKind.TOOL_RECEIPT_LEDGER,
+        payload={"check_id": "unit-tests", "exit_code": 1, "checker": "fixture"},
+        workspace_revision=source.post_workspace_revision,
+    )
     result = make_verification_result(
         verification_node_id="verify",
         verification_execution_id=source.execution_id,
@@ -60,7 +67,7 @@ async def fixture(tmp_path, *, consumer: bool = False, candidates=("writer",)):
         observed_repository_state_fingerprint=source.post_workspace_revision.repository_state_fingerprint,
         checks=(VerificationCheckResult(
             check_id="unit-tests", status=VerificationCheckStatus.FAILED,
-            deterministic=True,
+            deterministic=True, evidence_refs=(check_proof,),
         ),),
         repository_state_unchanged=True,
     )
@@ -364,3 +371,71 @@ async def test_repair_feedback_freshness_checked_under_workspace_lock(tmp_path):
     with pytest.raises(DispatchRevoked, match="RepairFeedback stale"):
         await core._commit(ticket.ticket_id, evidence_validated=True)
     assert core.states["writer"].attempts[-1].attempt == 1
+
+
+@pytest.mark.asyncio
+async def test_failed_check_with_no_runtime_tool_proof_is_ineligible(tmp_path):
+    core, _, store, _, _, _ = await fixture(tmp_path)
+    source = core.states["verify"].attempts[-1]
+    fake_result = make_verification_result(
+        verification_node_id="verify",
+        verification_execution_id=source.execution_id,
+        verification_attempt=source.attempt,
+        observed_workspace_revision=source.post_workspace_revision,
+        observed_repository_state_fingerprint=source.post_workspace_revision.repository_state_fingerprint,
+        checks=(VerificationCheckResult(
+            check_id="unit-tests", status=VerificationCheckStatus.FAILED,
+            deterministic=True, evidence_refs=(),
+        ),),
+        repository_state_unchanged=True,
+    )
+    fake_ref = store.put_attempt(
+        task_id=core.task_id, node_id="verify", execution_id=source.execution_id,
+        attempt=source.attempt, kind=AttemptEvidenceKind.VERIFICATION_RESULT,
+        payload=fake_result, workspace_revision=source.post_workspace_revision,
+    )
+    await core.attach_attempt_evidence(
+        node_id="verify", evidence_ref=fake_ref, evidence_store=store,
+    )
+    decision = resolve_verification_repair_attribution(
+        dag=core.dag, source_attempt=core.states["verify"].attempts[-1],
+        verification_ref=fake_ref, node_states=core.states, evidence_store=store,
+    )
+    assert decision.kind is RepairAttributionKind.SOURCE_INELIGIBLE
+    assert decision.target_write_node_id is None
+
+
+@pytest.mark.asyncio
+async def test_failed_check_with_foreign_execution_proof_is_ineligible(tmp_path):
+    core, _, store, _, _, _ = await fixture(tmp_path)
+    source = core.states["verify"].attempts[-1]
+    foreign = store.put_attempt(
+        task_id=core.task_id, node_id="verify", execution_id="unrelated-execution",
+        attempt=source.attempt, kind=AttemptEvidenceKind.TOOL_RECEIPT_LEDGER,
+        payload={"exit_code": 1}, workspace_revision=source.post_workspace_revision,
+    )
+    fake_result = make_verification_result(
+        verification_node_id="verify",
+        verification_execution_id=source.execution_id,
+        verification_attempt=source.attempt,
+        observed_workspace_revision=source.post_workspace_revision,
+        observed_repository_state_fingerprint=source.post_workspace_revision.repository_state_fingerprint,
+        checks=(VerificationCheckResult(
+            check_id="unit-tests", status=VerificationCheckStatus.FAILED,
+            deterministic=True, evidence_refs=(foreign,),
+        ),),
+        repository_state_unchanged=True,
+    )
+    fake_ref = store.put_attempt(
+        task_id=core.task_id, node_id="verify", execution_id=source.execution_id,
+        attempt=source.attempt, kind=AttemptEvidenceKind.VERIFICATION_RESULT,
+        payload=fake_result, workspace_revision=source.post_workspace_revision,
+    )
+    await core.attach_attempt_evidence(
+        node_id="verify", evidence_ref=fake_ref, evidence_store=store,
+    )
+    decision = resolve_verification_repair_attribution(
+        dag=core.dag, source_attempt=core.states["verify"].attempts[-1],
+        verification_ref=fake_ref, node_states=core.states, evidence_store=store,
+    )
+    assert decision.kind is RepairAttributionKind.SOURCE_INELIGIBLE
