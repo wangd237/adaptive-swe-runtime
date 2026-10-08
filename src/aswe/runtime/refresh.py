@@ -194,6 +194,17 @@ async def refresh_stale_verification(core, ticket_id: str) -> bool:
         await _close_refresh(core, source_id, run, proofs, "REPAIR_FEEDBACK_STALE")
         return False
 
+    # Evidence is not fresh if Git changes *after* the checker but before
+    # the Scheduler makes its final state transaction.
+    from aswe.repository import capture_repository_state
+    physical = await asyncio.to_thread(capture_repository_state, verifier.binding)
+    if (physical.fingerprint != revision.repository_state_fingerprint
+            or physical.head_sha != revision.head_sha
+            or physical.base_sha != revision.base_sha):
+        core._quiescence_unknown = True
+        await _close_refresh(core, source_id, run, proofs, "REPAIR_REFRESH_POSTCHECK_DRIFT")
+        return False
+
     async with core.state_mutex:
         if (core.gate.state is not TaskDispatchGateState.OPEN
                 or core.revision != revision
