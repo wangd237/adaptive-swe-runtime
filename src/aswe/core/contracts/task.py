@@ -38,6 +38,12 @@ class TaskDAG(FrozenModel):
 
     @model_validator(mode="after")
     def _validate_identity_and_binding_scope(self) -> "TaskDAG":
+        from aswe.core.dag_fingerprint import (
+            deterministic_topological_order,
+            final_dag_fingerprint,
+            structure_fingerprint,
+        )
+
         node_ids=tuple(node.id for node in self.nodes)
         if len(set(node_ids))!=len(node_ids): raise ValueError("TaskDAG node ids must be unique")
         if len(set(self.topological_order))!=len(self.topological_order): raise ValueError("TaskDAG topological_order must not contain duplicates")
@@ -52,7 +58,26 @@ class TaskDAG(FrozenModel):
                 raise ValueError(f"duplicate dependencies on {node.id}")
             if any(position[upstream] >= position[node.id] for upstream in node.dependencies):
                 raise ValueError("topological_order violates a dependency")
+        if self.topological_order != deterministic_topological_order(self.nodes):
+            raise ValueError("TaskDAG topological_order is not deterministic canonical order")
+        if self.structure_fingerprint != structure_fingerprint(self.nodes):
+            raise ValueError("TaskDAG structure_fingerprint does not match nodes and edges")
+        binding_keys: set[tuple[str, str]] = set()
         for binding in self.verification_repair_bindings:
-            if binding.dag_structure_fingerprint!=self.structure_fingerprint:
+            if binding.dag_structure_fingerprint != self.structure_fingerprint:
                 raise ValueError("VerificationRepairBinding must bind TaskDAG.structure_fingerprint")
+            key = (binding.verification_node_id, binding.verification_check_id)
+            if key in binding_keys:
+                raise ValueError("duplicate verification-check repair binding")
+            binding_keys.add(key)
+            if binding.verification_node_id not in known:
+                raise ValueError("unknown verification node in repair binding")
+            if any(w not in known for w in binding.candidate_write_node_ids):
+                raise ValueError("unknown candidate writer in repair binding")
+            if len(set(binding.candidate_write_node_ids)) != len(binding.candidate_write_node_ids):
+                raise ValueError("duplicate writer candidate in repair binding")
+        if self.fingerprint != final_dag_fingerprint(
+            self.structure_fingerprint, self.verification_repair_bindings
+        ):
+            raise ValueError("TaskDAG fingerprint does not match structure and bindings")
         return self

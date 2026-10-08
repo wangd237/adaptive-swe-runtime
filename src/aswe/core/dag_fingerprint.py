@@ -2,13 +2,22 @@
 from __future__ import annotations
 import heapq
 from collections.abc import Sequence
-from aswe.core.contracts.task import TaskDAG, TaskNode, VerificationRepairBinding
+from typing import TYPE_CHECKING
 from aswe.core.fingerprint import fingerprint
+
+if TYPE_CHECKING:
+    from aswe.core.contracts.task import TaskDAG, TaskNode, VerificationRepairBinding
 
 def structure_fingerprint(nodes: Sequence[TaskNode]) -> str:
     ordered = sorted(nodes, key=lambda n: n.id)
+    normalized_nodes = []
+    for node in ordered:
+        payload = node.model_dump(mode="json")
+        # Dependency tuples represent graph edges, not a semantic order.
+        payload["dependencies"] = sorted(payload["dependencies"])
+        normalized_nodes.append(payload)
     return fingerprint({
-        "nodes": [node.model_dump(mode="json") for node in ordered],
+        "nodes": normalized_nodes,
         "edges": sorted((upstream, node.id) for node in ordered for upstream in node.dependencies),
     })
 
@@ -54,6 +63,8 @@ def build_task_dag(
     nodes: Sequence[TaskNode],
     bindings: Sequence[VerificationRepairBinding] = (),
 ) -> TaskDAG:
+    from aswe.core.contracts.task import TaskDAG
+
     order = deterministic_topological_order(nodes)
     sfp = structure_fingerprint(nodes)
     if any(b.dag_structure_fingerprint != sfp for b in bindings):

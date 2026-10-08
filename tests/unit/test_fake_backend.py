@@ -54,3 +54,55 @@ async def test_cancel_node_unblocks_waiting_fake_without_release() -> None:
     record = await asyncio.wait_for(task, timeout=1)
     assert record.terminal_status is BackendTerminalStatus.CANCELLED
     assert not release.is_set()
+
+
+@pytest.mark.asyncio
+async def test_external_asyncio_cancellation_cleans_fake_wait_registry() -> None:
+    release = asyncio.Event()
+    backend = FakeExecutionBackend([FakeExecutionScenario(release_event=release)])
+    prep = await backend.prepare_node(_node())
+    execution_id = new_execution_id()
+    task = asyncio.create_task(backend.execute_prepared(prep, _invocation(execution_id)))
+    await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert execution_id not in backend._cancel_events
+    assert execution_id not in backend.cancelled_execution_ids
+    assert backend.records == []
+    assert not release.is_set()
+
+@pytest.mark.asyncio
+async def test_fake_cancellation_is_idempotent_and_does_not_poison_later_execution() -> None:
+    backend = FakeExecutionBackend([FakeExecutionScenario(), FakeExecutionScenario()])
+    first = await backend.prepare_node(_node())
+    execution_id = new_execution_id()
+    await backend.cancel_node(execution_id)
+    await backend.cancel_node(execution_id)
+    cancelled = await backend.execute_prepared(first, _invocation(execution_id))
+    assert cancelled.terminal_status is BackendTerminalStatus.CANCELLED
+    assert backend.cancelled_execution_ids == set()
+    normal = await backend.execute_prepared(
+        await backend.prepare_node(_node()), _invocation(new_execution_id())
+    )
+    assert normal.terminal_status is BackendTerminalStatus.COMPLETED
+
+@pytest.mark.asyncio
+async def test_fake_backend_preparation_cannot_be_replayed() -> None:
+    backend = FakeExecutionBackend([FakeExecutionScenario(), FakeExecutionScenario()])
+    prep = await backend.prepare_node(_node())
+    await backend.execute_prepared(prep, _invocation(new_execution_id()))
+    with pytest.raises(ValueError, match="already been used"):
+        await backend.execute_prepared(prep, _invocation(new_execution_id()))
+
+@pytest.mark.asyncio
+async def test_fake_backend_rejects_duplicate_execution_identity_across_preparations() -> None:
+    backend = FakeExecutionBackend([FakeExecutionScenario(), FakeExecutionScenario()])
+    execution_id = new_execution_id()
+    await backend.execute_prepared(
+        await backend.prepare_node(_node()), _invocation(execution_id)
+    )
+    with pytest.raises(ValueError, match="execution identity has already been used"):
+        await backend.execute_prepared(
+            await backend.prepare_node(_node()), _invocation(execution_id)
+        )
