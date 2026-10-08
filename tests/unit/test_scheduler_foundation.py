@@ -219,3 +219,77 @@ async def test_concurrent_claims_linearize_at_mutex(tmp_path):
     assert sum(isinstance(x, DispatchRevoked) for x in out) == 1
     assert sum(isinstance(x, Exception) is False for x in out) == 1
     assert core.states["writer"].attempts == ()
+
+
+@pytest.mark.asyncio
+async def test_backend_exception_terminalizes_committed_attempt_and_quarantines(tmp_path):
+    core, manager = scheduler(tmp_path, node("writer"))
+    class RaisingBackend(FakeExecutionBackend):
+        async def execute_prepared(self, preparation, invocation):
+            raise RuntimeError("backend lost executor completion signal")
+
+    with pytest.raises(RuntimeError, match="backend lost"):
+        await core.run_claim(await core.claim("writer"), RaisingBackend())
+    state = core.states["writer"]
+    assert state.logical_status is NodeLogicalStatus.FAILED
+    assert state.attempts[0].status is NodeAttemptStatus.FAILED
+    assert state.attempts[0].failure_kind == "BACKEND_QUIESCENCE_UNKNOWN"
+    assert core.failed and manager.dispatch_closed
+    assert manager.lifecycle.current.status is WorkspaceSessionStatus.QUARANTINED
+
+
+@pytest.mark.asyncio
+async def test_acceptance_exception_terminalizes_attempt_without_fake_success(tmp_path):
+    core, manager = scheduler(tmp_path, node("writer"))
+
+    async def failed_acceptance(_result, _invocation, _revision):
+        raise ValueError("evidence store unavailable")
+
+    with pytest.raises(ValueError, match="evidence store"):
+        await core.run_claim(
+            await core.claim("writer"),
+            FakeExecutionBackend([FakeExecutionScenario()]),
+            accept=failed_acceptance,
+        )
+    state = core.states["writer"]
+    assert state.logical_status is NodeLogicalStatus.FAILED
+    assert state.attempts[0].failure_kind == "EVIDENCE_FINALIZATION_FAILURE"
+    assert state.accepted_handoff is None and core.failed
+    assert manager.dispatch_closed
+
+
+@pytest.mark.asyncio
+async def test_unexpected_physical_read_mutation_never_unlocks_dependent(tmp_path):
+    core, _ = scheduler(
+        tmp_path,
+        node("reader", access=WorkspaceAccess.READ, kind=WorkKind.DISCOVERY),
+        node("consumer", deps=("reader",), ordinal=1),
+    )
+    await core.run_claim(
+        await core.claim("reader"),
+        FakeExecutionBackend([FakeExecutionScenario(
+            terminal_status=BackendTerminalStatus.COMPLETED,
+            mutation_evidence=MutationEvidence.OBSERVED,
+        )]),
+        accept=accept,
+    )
+    state = core.states["reader"]
+    assert state.logical_status is NodeLogicalStatus.FAILED
+    assert state.accepted_handoff is None
+    assert core.failed
+    assert core.states["consumer"].logical_status is NodeLogicalStatus.BLOCKED
+
+
+@pytest.mark.asyncio
+async def test_unquiescent_result_quarantines_even_with_completed_backend_status(tmp_path):
+    core, manager = scheduler(tmp_path, node("writer"))
+    await core.run_claim(
+        await core.claim("writer"),
+        FakeExecutionBackend([FakeExecutionScenario(quiescent=False)]),
+        accept=accept,
+    )
+    assert core.states["writer"].logical_status is NodeLogicalStatus.FAILED
+    assert core.failed
+    assert manager.lifecycle.current.status is WorkspaceSessionStatus.QUARANTINED
+    with pytest.raises(RuntimeError, match="requires proven FROZEN"):
+        manager.lifecycle.assert_can_finalize()
