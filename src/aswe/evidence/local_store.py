@@ -145,6 +145,8 @@ class LocalEvidenceStore:
                 data = json.loads(path.read_bytes())
             except (OSError, ValueError) as exc:
                 raise EvidenceIntegrityError("evidence missing or malformed") from exc
+            if not isinstance(data, dict):
+                raise EvidenceIntegrityError("evidence record must be an object")
             expected_scope = "attempt" if isinstance(ref, EvidenceRef) else "task"
             if data.get("scope") != expected_scope or data.get("ref") != ref.model_dump(mode="json"):
                 raise EvidenceIntegrityError("evidence provenance mismatch")

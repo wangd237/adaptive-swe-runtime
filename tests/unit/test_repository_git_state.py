@@ -40,7 +40,9 @@ def test_poc13_14_15_bootstrap_exact_clean_base(bound_repo):
     root = Path(binding.repository_root)
     baseline = capture_repository_state(binding)
     assert git(root, "rev-parse", "HEAD") == binding.resolved_base_sha
-    assert git(root, "symbolic-ref", "-q", "HEAD") == "" if False else True
+    detached = subprocess.run(["git", "-C", str(root), "symbolic-ref", "-q", "HEAD"],
+                              stdout=subprocess.PIPE, check=False)
+    assert detached.returncode != 0
     assert baseline.working_tree_oid == baseline.base_tree_oid
     assert baseline.head_matches_baseline and not baseline.dirty_vs_base
     assert binding.clean_at_bootstrap
@@ -59,6 +61,7 @@ def test_temp_index_captures_tracked_untracked_deleted_and_does_not_mutate_real_
     assert state.dirty_vs_base
     assert changeset.working_tree_oid == state.working_tree_oid
     assert {"original.txt", "new file.txt"}.issubset(changeset.changed_files)
+    assert changeset.untracked_files == ("new file.txt",)
     assert b"diff --git a/new file.txt" in changeset.tracked_diff.encode()
     assert (root / ".git" / "index").read_bytes() == orig_index
     assert git(root, "diff", "--cached", "--name-only") == ""

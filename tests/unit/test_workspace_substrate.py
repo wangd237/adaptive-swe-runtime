@@ -126,3 +126,13 @@ def test_workspace_session_rejects_unsafe_backend_identity(tmp_path):
     with pytest.raises((ValidationError, ValueError)):
         WorkspaceSession(task_id="../../bad", thread_id="thread", user_id="user",
             workspace_root=str(tmp_path.resolve()), status=WorkspaceSessionStatus.BOOTSTRAPPING)
+
+
+def test_exact_snapshot_limit_is_not_false_truncation(tmp_path):
+    (tmp_path / "a").write_text("a")
+    (tmp_path / "b").write_text("b")
+    exact = capture_filesystem_snapshot(tmp_path, max_paths=2)
+    assert exact.complete
+    (tmp_path / "c").write_text("c")
+    too_many = capture_filesystem_snapshot(tmp_path, max_paths=2)
+    assert not too_many.complete

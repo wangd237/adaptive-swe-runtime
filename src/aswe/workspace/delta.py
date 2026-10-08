@@ -44,6 +44,10 @@ def derive_node_workspace_delta(
     repository_root: str,
     mutating_tool_admitted: bool | None,
 ) -> tuple[NodeWorkspaceDelta, WorkspaceRevision]:
+    if before_revision.repository_state_fingerprint != before_repository.fingerprint:
+        raise ValueError("pre-revision repository evidence mismatch")
+    if before_revision.base_sha != before_repository.base_sha:
+        raise ValueError("pre-revision baseline mismatch")
     repo_paths = compare_repository_states(before_repository, after_repository, repository_root)
     physical_paths = changed_snapshot_paths(before_filesystem, after_filesystem)
     complete = before_filesystem.complete and after_filesystem.complete

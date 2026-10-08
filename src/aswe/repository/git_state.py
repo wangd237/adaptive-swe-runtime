@@ -212,7 +212,11 @@ def materialize_repository_changeset(binding: RepositoryBinding) -> RepositoryCh
                      binding.resolved_base_sha, index=index)
         paths = _git(root, "diff", "--cached", "--name-only", "--no-renames", "-z",
                      binding.resolved_base_sha, index=index)
-        untracked = _git(root, "ls-files", "--others", "--exclude-standard", "-z", index=index)
+        # The temporary index has staged every new file, so ls-files --others
+        # would be empty. Newly introduced paths relative to the immutable
+        # baseline are obtained from the same materialized index.
+        untracked = _git(root, "diff", "--cached", "--diff-filter=A", "--no-renames",
+                         "--name-only", "-z", binding.resolved_base_sha, index=index)
     return RepositoryChangeSet(
         base_sha=binding.resolved_base_sha, head_sha=state.head_sha,
         head_matches_baseline=state.head_matches_baseline,

@@ -61,9 +61,6 @@ def capture_filesystem_snapshot(root: str | Path, *, max_paths: int = 10000,
                 complete = False
                 entries.append(SnapshotEntry(path=rel, content_sha256=None,
                                              kind="unobserved", mode=0))
-        if len(entries) >= max_paths:
-            complete = False
-            break
     result = tuple(sorted(entries, key=lambda x: x.path))
     return FilesystemSnapshot(entries=result, complete=complete, fingerprint=fingerprint({
         "entries": [entry.model_dump(mode="json") for entry in result],
