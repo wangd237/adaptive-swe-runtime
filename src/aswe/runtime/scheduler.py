@@ -917,9 +917,7 @@ class SchedulerCore:
                     own_refs = ()
                     policy = self._canonical_acceptance_policies.get(invocation.node_id)
                     if (observed is MutationEvidence.OBSERVED
-                            and policy is not None
                             and self._canonical_verifier is not None
-                            and self.nodes[invocation.node_id].work_kind is WorkKind.IMPLEMENTATION
                             and self.nodes[invocation.node_id].workspace_access.value == "write"):
                         from aswe.repository import capture_repository_state
                         state = await asyncio.to_thread(
