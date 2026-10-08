@@ -236,3 +236,131 @@ async def test_verification_prose_cannot_provide_deterministic_check(tmp_path):
         verification_ref=spoof_ref, node_states=core.states, evidence_store=store,
     )
     assert decision.kind is RepairAttributionKind.SOURCE_INELIGIBLE
+
+
+@pytest.mark.asyncio
+async def test_multi_owner_binding_does_not_pick_one_writer(tmp_path):
+    core, _, store, ref, decision, attribution_ref = await fixture(
+        tmp_path, candidates=("writer", "verify"),
+    )
+    assert decision.kind is RepairAttributionKind.MULTI_WRITER
+    assert decision.target_write_node_id is None
+    with pytest.raises(RepairScopeInvalidated, match="no unique"):
+        await core.reopen_writer_from_verification(
+            verification_ref=ref, attribution_ref=attribution_ref, evidence_store=store,
+        )
+    assert core.states["writer"].acceptance_epoch == 1
+
+
+@pytest.mark.asyncio
+async def test_waiting_workspace_ticket_revoked_without_cancel_backend(tmp_path):
+    core, manager, store, ref, _, attribution_ref = await fixture(tmp_path, consumer=True)
+    backend = FakeExecutionBackend([FakeExecutionScenario()])
+    async with manager.access(WorkspaceAccess.WRITE):
+        ticket = await core.claim("reviewer")
+        running = asyncio.create_task(core.run_claim(ticket, backend, accept=accept))
+        for _ in range(40):
+            if core.tickets[ticket.ticket_id].state is NodeDispatchTicketState.WAITING_WORKSPACE:
+                break
+            await asyncio.sleep(0)
+        assert core.tickets[ticket.ticket_id].state is NodeDispatchTicketState.WAITING_WORKSPACE
+        await core.reopen_writer_from_verification(
+            verification_ref=ref, attribution_ref=attribution_ref, evidence_store=store,
+        )
+    assert await running is None
+    assert core.states["reviewer"].attempts == ()
+    assert backend.cancelled_execution_ids == set()
+    assert backend.records == []
+
+
+@pytest.mark.asyncio
+async def test_locked_precommit_ticket_revoked_before_atomic_commit(tmp_path):
+    core, manager, store, ref, _, attribution_ref = await fixture(tmp_path, consumer=True)
+    ticket = await core.claim("reviewer")
+    await core._advance(ticket.ticket_id, NodeDispatchTicketState.WAITING_WORKSPACE)
+    async with manager.access(WorkspaceAccess.READ):
+        await core._advance(ticket.ticket_id, NodeDispatchTicketState.LOCKED_PRECOMMIT)
+        await core.reopen_writer_from_verification(
+            verification_ref=ref, attribution_ref=attribution_ref, evidence_store=store,
+        )
+        with pytest.raises(DispatchRevoked):
+            await core._commit(ticket.ticket_id, evidence_validated=True)
+    assert core.states["reviewer"].attempts == ()
+    assert core.revision.generation == 0
+    assert core.states["writer"].acceptance_epoch == 2
+
+
+@pytest.mark.asyncio
+async def test_successful_nonverification_consumer_forbids_reopen(tmp_path):
+    core, manager, store, ref, _, attribution_ref = await fixture(tmp_path, consumer=True)
+    await core.run_claim(
+        await core.claim("reviewer"),
+        FakeExecutionBackend([FakeExecutionScenario()]), accept=accept,
+    )
+    assert core.states["reviewer"].logical_status is NodeLogicalStatus.SUCCEEDED
+    with pytest.raises(RepairScopeInvalidated, match="COMMITTED_DOWNSTREAM_SUCCESS"):
+        await core.reopen_writer_from_verification(
+            verification_ref=ref, attribution_ref=attribution_ref, evidence_store=store,
+        )
+    assert core.failed and manager.dispatch_closed
+    assert core.states["writer"].accepted_attempt == 1
+
+
+@pytest.mark.asyncio
+async def test_unattached_valid_attribution_ref_not_usable_as_authority(tmp_path):
+    core, _, store, ref, decision, attribution_ref = await fixture(tmp_path)
+    # A separate, correctly sealed ref is still not a trusted Runtime attachment.
+    extra_ref = store.put_attempt(
+        task_id=core.task_id, node_id="verify",
+        execution_id=core.states["verify"].attempts[-1].execution_id,
+        attempt=1, kind=AttemptEvidenceKind.REPAIR_ATTRIBUTION,
+        payload=decision, workspace_revision=core.revision,
+    )
+    assert extra_ref != attribution_ref
+    with pytest.raises(ValueError, match="attached"):
+        await core.reopen_writer_from_verification(
+            verification_ref=ref, attribution_ref=extra_ref, evidence_store=store,
+        )
+    assert core.states["writer"].acceptance_epoch == 1
+
+
+@pytest.mark.asyncio
+async def test_stale_reopen_revision_fails_closed_without_rewriting_writer(tmp_path):
+    core, manager, store, ref, _, attribution_ref = await fixture(tmp_path)
+    core.revision = core.revision.model_copy(update={"generation": 1})
+    with pytest.raises(RepairScopeInvalidated, match="STALE"):
+        await core.reopen_writer_from_verification(
+            verification_ref=ref, attribution_ref=attribution_ref, evidence_store=store,
+        )
+    assert manager.dispatch_closed and core.failed
+    assert core.states["writer"].accepted_attempt == 1
+
+
+@pytest.mark.asyncio
+async def test_reopen_does_not_allocate_repair_execution_before_lock(tmp_path):
+    core, manager, store, ref, _, attribution_ref = await fixture(tmp_path)
+    await core.reopen_writer_from_verification(
+        verification_ref=ref, attribution_ref=attribution_ref, evidence_store=store,
+    )
+    claim = await core.claim("writer")
+    assert core.states["writer"].next_attempt == 2
+    assert len(core.states["writer"].attempts) == 1
+    assert claim.dependency_acceptance_stamps == ()
+    await core.revoke(claim.ticket_id)
+    assert core.states["writer"].attempts[0].status.value == "accepted"
+    assert core.states["writer"].accepted_handoff is None
+
+
+@pytest.mark.asyncio
+async def test_repair_feedback_freshness_checked_under_workspace_lock(tmp_path):
+    core, _, store, ref, _, attribution_ref = await fixture(tmp_path)
+    await core.reopen_writer_from_verification(
+        verification_ref=ref, attribution_ref=attribution_ref, evidence_store=store,
+    )
+    ticket = await core.claim("writer")
+    await core._advance(ticket.ticket_id, NodeDispatchTicketState.WAITING_WORKSPACE)
+    await core._advance(ticket.ticket_id, NodeDispatchTicketState.LOCKED_PRECOMMIT)
+    core.revision = core.revision.model_copy(update={"generation": core.revision.generation + 1})
+    with pytest.raises(DispatchRevoked, match="RepairFeedback stale"):
+        await core._commit(ticket.ticket_id, evidence_validated=True)
+    assert core.states["writer"].attempts[-1].attempt == 1
