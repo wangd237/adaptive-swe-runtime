@@ -440,6 +440,9 @@ class SchedulerCore:
             source_attempt = source.attempts[-1] if source.attempts else None
             if source_attempt is None:
                 raise ValueError("missing verification attempt")
+            if (attribution_ref not in source_attempt.evidence_refs
+                or not attribution_ref.evidence_id.startswith(self.task_id + "__")):
+                raise ValueError("repair attribution must be attached to current source attempt")
             # Capture only immutable snapshots; do integrity I/O outside mutex.
             state_snapshot = dict(self.states)
         resolved = resolve_verification_repair_attribution(
