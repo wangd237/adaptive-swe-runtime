@@ -8,9 +8,9 @@
     "GAP": "specific scenario has no direct executable regression; blocks Step 2 closure"
   },
   "counts": {
-    "PASS": 46,
-    "PARTIAL": 14,
-    "GAP": 5
+    "PASS": 49,
+    "PARTIAL": 12,
+    "GAP": 4
   },
   "entries": [
     {
@@ -81,9 +81,9 @@
       "id": "R24",
       "description": "own AcceptanceFailure 后 current revision 改变",
       "criterion": "重跑 deterministic acceptance；旧 Feedback 不原地复用",
-      "status": "GAP",
-      "test": null,
-      "assessment": "own AcceptanceFailure revision 改变后的确定性 acceptance 重评估未实现"
+      "status": "PASS",
+      "test": "tests/unit/test_own_acceptance_refresh.py::test_r24_stale_own_acceptance_failure_reruns_new_attested_check",
+      "assessment": "实际发生写入的 Writer own AcceptanceFailure 经独立 canonical verdict 认证；R+1 stale 后重评估并重新生成 verdict/ref，HOLDS 时不执行多余 Repair"
     },
     {
       "id": "R25",
@@ -177,17 +177,17 @@
       "id": "R84",
       "description": "Tester 修改 tracked repo 后测试失败",
       "criterion": "repository_state_unchanged=false → SOURCE_INELIGIBLE；不归因 Writer",
-      "status": "PARTIAL",
-      "test": "tests/unit/test_scheduler_repair.py::test_declared_unchanged_repository_must_match_before_and_after",
-      "assessment": "检出前后 Git 指纹不一致；未构建 Tester 实际改 tracked 源码复现"
+      "status": "PASS",
+      "test": "tests/unit/test_attribution_physical_negative.py::test_r84_real_verifier_tracked_mutation_invalidates_stable_git_attribution",
+      "assessment": "真实临时 Git 库 Tester 修改 tracked source 后，Git digest 变化，旧 revision 的 canonical check 被拒且任务 fail-closed"
     },
     {
       "id": "R85",
       "description": "verifier backend crash / test command 未形成 deterministic result",
       "criterion": "SOURCE_INELIGIBLE；不把 execution failure 当 verification failure",
-      "status": "PARTIAL",
-      "test": "tests/unit/test_scheduler_foundation.py::test_backend_exception_terminalizes_committed_attempt_and_quarantines",
-      "assessment": "backend crash 终态化已测；验证器无 deterministic verdict 的归因拒绝未串通"
+      "status": "PASS",
+      "test": "tests/unit/test_attribution_physical_negative.py::test_r85_backend_crash_cannot_manufacture_a_verification_repair_owner",
+      "assessment": "实际 Verifier backend crash 导致 QUARANTINED；即使伪造 deterministic tool proof 亦无法取得 REPAIR owner"
     },
     {
       "id": "R86",

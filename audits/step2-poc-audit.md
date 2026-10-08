@@ -3,7 +3,7 @@
 **Audit is complete; implementation exit is NOT automatically passed.**
 
 - Total frozen PoCs audited: **65**
-- PASS: **46** · PARTIAL: **14** · GAP: **5**
+- PASS: **49** · PARTIAL: **12** · GAP: **4**
 - PASS is scenario-specific evidence, not proof of DeerFlow or all acceptance semantics.
 - Every PASS/PARTIAL maps to a real test symbol present on the audited branch.
 - PARTIAL/GAP are blocking for full Step-2 closeout; do not change Specs to remove them.
@@ -18,7 +18,7 @@
 | POC-R21 | PASS | `test_scheduler_local_cancel.py::test_r21_running_local_cancel_joins_without_task_cancel` | 已实现 local cancel + join、下游 BLOCKED；precommit 撤销及 dirty-state failclose 均有测试 |
 | POC-R22 | PASS | `test_scheduler_step2_exit.py::test_r22_user_cancel_joins_running_and_cancels_unstarted` | Task user cancel + active join + 未启动节点 CANCELLED |
 | POC-R23 | PASS | `test_stale_refresh_canonical.py::test_r23_r25_stale_failure_gets_new_attempt_refs_revision_then_repairs` | 旧反馈不得调度，自动规范 refresh 或严格 fail-close；fresh canonical revision 绑定 |
-| POC-R24 | GAP | — | own AcceptanceFailure revision 改变后的确定性 acceptance 重评估未实现 |
+| POC-R24 | PASS | `test_own_acceptance_refresh.py::test_r24_stale_own_acceptance_failure_reruns_new_attested_check` | 实际发生写入的 Writer own AcceptanceFailure 经独立 canonical verdict 认证；R+1 stale 后重评估并重新生成 verdict/ref，HOLDS 时不执行多余 Repair |
 | POC-R25 | PASS | `test_stale_refresh_canonical.py::test_r25_refresh_replaces_typed_feedback_with_new_evidence_fingerprint` | 新 REVERIFY attempt、attested receipt / EvidenceRefs / AttributionRef / feedback fingerprint 全部换代 |
 | POC-R26 | PASS | `test_stale_refresh_canonical.py::test_r26_refresh_holds_never_dispatches_redundant_writer_repair` | 新 check HOLDS 时撤销旧反馈、零次额外 Writer 执行；不可凭旧 Handoff 假成功，转安全终态 |
 | POC-R75 | PASS | `test_strict_canonical_repair.py::test_runtime_canonical_receipt_authorizes_exact_single_writer_reopen` | canonical failure + singleton owner + current accepted attempt |
@@ -30,8 +30,8 @@
 | POC-R81 | PASS | `test_multiwriter_adversarial.py::test_r81_missing_one_owner_poison_entire_multi_check_verdict` | 一 check 无 owner 时全局 NO_OWNER |
 | POC-R82 | PASS | `test_multiwriter_adversarial.py::test_r82_two_checks_bound_to_distinct_actual_writers_remain_ambiguous` | 分属 A/B 的 failed checks 全局 MULTI_WRITER |
 | POC-R83 | PASS | `test_multiwriter_adversarial.py::test_r83_current_accepted_retry_attempt_not_historical_attempt_1` | writer retry accepted attempt2 优先于旧 attempt1 |
-| POC-R84 | PARTIAL | `test_scheduler_repair.py::test_declared_unchanged_repository_must_match_before_and_after` | 检出前后 Git 指纹不一致；未构建 Tester 实际改 tracked 源码复现 |
-| POC-R85 | PARTIAL | `test_scheduler_foundation.py::test_backend_exception_terminalizes_committed_attempt_and_quarantines` | backend crash 终态化已测；验证器无 deterministic verdict 的归因拒绝未串通 |
+| POC-R84 | PASS | `test_attribution_physical_negative.py::test_r84_real_verifier_tracked_mutation_invalidates_stable_git_attribution` | 真实临时 Git 库 Tester 修改 tracked source 后，Git digest 变化，旧 revision 的 canonical check 被拒且任务 fail-closed |
+| POC-R85 | PASS | `test_attribution_physical_negative.py::test_r85_backend_crash_cannot_manufacture_a_verification_repair_owner` | 实际 Verifier backend crash 导致 QUARANTINED；即使伪造 deterministic tool proof 亦无法取得 REPAIR owner |
 | POC-R86 | PASS | `test_multiwriter_adversarial.py::test_r86_unverified_only_provides_no_deterministic_repair_owner` | 仅 UNVERIFIED 没有合法自动修复归因 |
 | POC-R87 | PASS | `test_multiwriter_adversarial.py::test_r87_physical_write_verifier_does_not_become_business_writer` | physical WRITE verifier 的 semantic WorkKind 不成为 business writer |
 | POC-R88 | PASS | `test_multiwriter_adversarial.py::test_r77_r78_r88_real_two_writers_same_provider_last_writer_not_selected` | 两个实际 Writer 共用 Provider 也不合并 |
@@ -78,9 +78,9 @@
 
 ## P0-A / P0-B incremental notes
 
-- R23/R25/R26 are scenario-specifically PASS with real temporary Git repos and Runtime canonical receipts, but R24 own AcceptanceFailure remains GAP.
+- R23–R26 all have direct executable acceptance, including *actual mutating WRITE* own AcceptanceFailure (R24) via separate canonical acceptance policy. Clean generic failure does not authorize own Repair.
 - If refreshed checks now HOLDS, outdated REPAIR is cancelled; revoked Writer authority is not resurrected. Runtime fail-closes `REPAIR_SUPERSEDED_REPLAN_REQUIRED` rather than manufacturing a successful Task.
-- R76–R83/R86–R88 now exercise actual logical Writers/check sets, except R84/R85/R89 remain PARTIAL for missing real-world mutation/crash chronology evidence.
+- R76–R88 now have scenario-level executables including actual tracked mutation and backend crash; R89 remains PARTIAL for missing full real-Git chronology with trusted Runtime-projected digest.
 - Do not infer Step 2 stage acceptance from these incremental results.
 
 ## Current authorization
@@ -92,8 +92,8 @@
 
 ## Next remediation order
 
-1. R24 — own AcceptanceFailure stale deterministic re-evaluation (still GAP); R23/R25/R26 verified.
-2. R84/R85/R89 — physical Git mutation, backend crash / attribution, and real intervening Writer chronology remain partial.
+1. R23–R26 verified at scenario level; strengthen cancellation/drift contention before stage exit.
+2. R89 — full end-to-end changed business Writer chronology (real Git + trusted scheduler revision projection) still partial.
 3. R100–R103, R123 — Review/Acceptance/repair exhausted and cancelled-mutating consumer outcomes.
 4. R119–R121, R125–R126 — true adversarial concurrency barriers (not static claims).
 5. Re-run both Python CI versions; independent Step-2 implementation review, and only then close Step 2.
