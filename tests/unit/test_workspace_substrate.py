@@ -151,3 +151,20 @@ async def test_cancelled_lock_waiter_leaves_no_stale_writer_preference(tmp_path)
         async with manager.access(WorkspaceAccess.READ):
             assert manager.active_accesses == 2
     assert manager.active_accesses == 0
+
+
+def test_public_lifecycle_transition_cannot_bypass_quiescence_gate(tmp_path):
+    state = lifecycle(tmp_path)
+    with pytest.raises(RuntimeError, match="requires WorkspaceAccessManager"):
+        state.transition(WorkspaceSessionStatus.FROZEN)
+    with pytest.raises(RuntimeError, match="requires WorkspaceAccessManager"):
+        state.transition(WorkspaceSessionStatus.QUARANTINED)
+    assert state.current.status is WorkspaceSessionStatus.ACTIVE
+
+
+def test_terminal_initial_state_cannot_be_forged(tmp_path):
+    with pytest.raises(ValueError, match="cannot be forged"):
+        WorkspaceLifecycle(WorkspaceSession(
+            task_id="task", thread_id="thread", user_id="user",
+            workspace_root=str(tmp_path.resolve()), status=WorkspaceSessionStatus.FROZEN,
+        ))

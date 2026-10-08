@@ -57,6 +57,10 @@ class WorkspaceLifecycle:
     }
 
     def __init__(self, session: WorkspaceSession):
+        if session.status in (WorkspaceSessionStatus.FROZEN,
+                              WorkspaceSessionStatus.QUARANTINED,
+                              WorkspaceSessionStatus.CLOSED):
+            raise ValueError("terminal WorkspaceSession cannot be forged as initial state")
         self._current = session
         self._lock = RLock()
 
@@ -66,6 +70,17 @@ class WorkspaceLifecycle:
             return self._current
 
     def transition(self, target: WorkspaceSessionStatus) -> WorkspaceSession:
+        if target in (WorkspaceSessionStatus.FROZEN, WorkspaceSessionStatus.QUARANTINED):
+            raise RuntimeError("terminal transition requires WorkspaceAccessManager quiescence gate")
+        with self._lock:
+            if target not in self._allowed[self._current.status]:
+                raise ValueError(f"invalid WorkspaceSession transition: {self._current.status} -> {target}")
+            self._current = self._current.model_copy(update={"status": target})
+            return self._current
+
+    def _terminalize_from_manager(self, target: WorkspaceSessionStatus) -> WorkspaceSession:
+        if target not in (WorkspaceSessionStatus.FROZEN, WorkspaceSessionStatus.QUARANTINED):
+            raise ValueError("unsupported terminal status")
         with self._lock:
             if target not in self._allowed[self._current.status]:
                 raise ValueError(f"invalid WorkspaceSession transition: {self._current.status} -> {target}")

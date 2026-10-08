@@ -92,6 +92,6 @@ class WorkspaceAccessManager:
                 raise RuntimeError("cannot freeze while workspace access holders are active")
             target = (WorkspaceSessionStatus.FROZEN if quiescence_proven
                       else WorkspaceSessionStatus.QUARANTINED)
-            self.lifecycle.transition(target)
+            self.lifecycle._terminalize_from_manager(target)
             self._condition.notify_all()
             return target
