@@ -186,7 +186,15 @@ async def test_consumer_commit_wins_then_reopen_fails_closed_even_prestart(tmp_p
 @pytest.mark.asyncio
 async def test_forged_stored_attribution_is_rejected_before_reopen(tmp_path):
     core, _, store, ref, decision, _ = await fixture(tmp_path)
-    forged = decision.model_copy(update={"reason_codes": ("trust-the-model",)})
+    # Internally valid seal but inconsistent with deterministic resolver: tests
+    # the actual provenance/ownership gate rather than frozen-model validation.
+    from aswe.core.fingerprint import fingerprint
+    from aswe.runtime.repair import RepairAttributionEvidence
+    forged_body = decision.model_dump(mode="json", exclude={"fingerprint"})
+    forged_body["reason_codes"] = ["trust-the-model"]
+    forged = RepairAttributionEvidence(
+        **forged_body, fingerprint=fingerprint(forged_body)
+    )
     forged_ref = store.put_attempt(
         task_id=core.task_id, node_id="verify",
         execution_id=core.states["verify"].attempts[-1].execution_id,
