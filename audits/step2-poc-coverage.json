@@ -8,8 +8,8 @@
     "GAP": "specific scenario has no direct executable regression; blocks Step 2 closure"
   },
   "counts": {
-    "PASS": 49,
-    "PARTIAL": 12,
+    "PASS": 50,
+    "PARTIAL": 11,
     "GAP": 4
   },
   "entries": [
@@ -217,9 +217,9 @@
       "id": "R89",
       "description": "singleton Writer accepted 后，另一个 business Writer 改 Git-visible state，再运行 verifier",
       "criterion": "SCOPE_INVALIDATED；不沿用旧 singleton attribution",
-      "status": "PARTIAL",
-      "test": "tests/unit/test_multiwriter_adversarial.py::test_r89_intervening_changed_business_writer_invalidates_singleton_scope",
-      "assessment": "中途 Writer 不同 digest 的 scope invalidated 已有测试；尚缺真实 Git-visible write 的运行链"
+      "status": "PASS",
+      "test": "tests/unit/test_r89_git_chronology.py::test_r89_actual_intervening_business_writer_changes_git_and_invalidates_attribution",
+      "assessment": "真实 Git repo Writer B 修改 tracked 文件，Runtime 捕获 post digest；Canonical 归因 SCOPE_INVALIDATED"
     },
     {
       "id": "R90",

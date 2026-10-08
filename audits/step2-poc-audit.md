@@ -3,7 +3,7 @@
 **Audit is complete; implementation exit is NOT automatically passed.**
 
 - Total frozen PoCs audited: **65**
-- PASS: **49** · PARTIAL: **12** · GAP: **4**
+- PASS: **50** · PARTIAL: **11** · GAP: **4**
 - PASS is scenario-specific evidence, not proof of DeerFlow or all acceptance semantics.
 - Every PASS/PARTIAL maps to a real test symbol present on the audited branch.
 - PARTIAL/GAP are blocking for full Step-2 closeout; do not change Specs to remove them.
@@ -35,7 +35,7 @@
 | POC-R86 | PASS | `test_multiwriter_adversarial.py::test_r86_unverified_only_provides_no_deterministic_repair_owner` | 仅 UNVERIFIED 没有合法自动修复归因 |
 | POC-R87 | PASS | `test_multiwriter_adversarial.py::test_r87_physical_write_verifier_does_not_become_business_writer` | physical WRITE verifier 的 semantic WorkKind 不成为 business writer |
 | POC-R88 | PASS | `test_multiwriter_adversarial.py::test_r77_r78_r88_real_two_writers_same_provider_last_writer_not_selected` | 两个实际 Writer 共用 Provider 也不合并 |
-| POC-R89 | PARTIAL | `test_multiwriter_adversarial.py::test_r89_intervening_changed_business_writer_invalidates_singleton_scope` | 模拟可信 Writer post Git 指纹差异触发 invalidation；真实 Git 变更执行链尚缺 |
+| POC-R89 | PASS | `test_r89_git_chronology.py::test_r89_actual_intervening_business_writer_changes_git_and_invalidates_attribution` | Writer B 真实改变 tracked Git 文件、Runtime post 指纹刷新；verification attribution SCOPE_INVALIDATED |
 | POC-R90 | PASS | `test_scheduler_repair.py::test_unique_writer_attribution_is_persisted_and_reopen_revokes_authority` | reopen authority revoke 先于 READY 重算 |
 | POC-R91 | PARTIAL | `test_finalization_extended.py::test_r97_ignored_cache_mutation_distinct_from_git_patch` | 稳定失败与 patch 维度已建；WRITE 已观察修改的完整结算链需单测 |
 | POC-R92 | PASS | `test_scheduler_foundation.py::test_explicit_transient_with_unknown_mutation_is_not_retryable` | UNKNOWN mutation 关闭 task dispatch |
@@ -80,7 +80,7 @@
 
 - R23–R26 all have direct executable acceptance, including *actual mutating WRITE* own AcceptanceFailure (R24) via separate canonical acceptance policy. Clean generic failure does not authorize own Repair.
 - If refreshed checks now HOLDS, outdated REPAIR is cancelled; revoked Writer authority is not resurrected. Runtime fail-closes `REPAIR_SUPERSEDED_REPLAN_REQUIRED` rather than manufacturing a successful Task.
-- R76–R88 now have scenario-level executables including actual tracked mutation and backend crash; R89 remains PARTIAL for missing full real-Git chronology with trusted Runtime-projected digest.
+- R76–R88 now have scenario-level executables including actual tracked mutation and backend crash; R89 now PASS with actual Writer B tracked mutation, Runtime-captured post digest and attested verification evidence.
 - Do not infer Step 2 stage acceptance from these incremental results.
 
 ## Current authorization
@@ -93,7 +93,7 @@
 ## Next remediation order
 
 1. R23–R26 verified at scenario level; strengthen cancellation/drift contention before stage exit.
-2. R89 — full end-to-end changed business Writer chronology (real Git + trusted scheduler revision projection) still partial.
+2. R76–R89 attribution adversarial matrix now PASS at scenario level; independent implementation review remains required.
 3. R100–R103, R123 — Review/Acceptance/repair exhausted and cancelled-mutating consumer outcomes.
 4. R119–R121, R125–R126 — true adversarial concurrency barriers (not static claims).
 5. Re-run both Python CI versions; independent Step-2 implementation review, and only then close Step 2.

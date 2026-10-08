@@ -27,8 +27,8 @@
 ## Full frozen PoC exit audit
 
 - Audited cases: 65 (R16–R26, R75–R128)
-- PASS: 49
-- PARTIAL: 12
+- PASS: 50
+- PARTIAL: 11
 - GAP: 4
 - **Step 2 CLOSED is forbidden while PARTIAL/GAP remains.**
 
@@ -45,7 +45,7 @@
 - [x] Own AcceptanceFailure stale deterministic recheck R24: Runtime canonical check + typed acceptance verdict, restricted to mutated WRITE and bounded repair
 - [x] Multi-writer ambiguity / non-attribution tests R76–R83, R86–R88
 - [x] R84/R85 physical tracked mutation and real backend crash refusal tests
-- [ ] R89 full physical intervening Writer and trusted chronology projection
+- [x] R89 real Git intervening Writer and Runtime-owned post-digest capture
 - [ ] Reviewer/Acceptance repair and repair-budget termination R100–R103
 - [ ] Cancelled consumer mutating Workspace and disposition R123
 - [ ] True concurrent mutex / claim / accepted-publish race stresses R119–R121, R125–R126
@@ -54,7 +54,7 @@
 ## P0-B incremental status
 
 - Verified with actual Scheduler Writer attempts: singleton multi-check, two business Writers, same Provider distinct writers, last-writer heuristic, changed_paths/prose non-attribution, no-owner poison, split-check attribution, retry accepted attempt2, physical WRITE verifier exclusion.
-- R89 still PARTIAL: trusted post-digest fixture proves policy; real intervening Git mutation and authority publication not yet reproduced end-to-end.
+- R89 now PASS: physical Writer B tracked mutation + Scheduler actual Git digest + attested Verification Result give SCOPE_INVALIDATED.
 - R24 now PASS in mutated WRITE, canonical-check-proven own AcceptanceFailure with stale revision; no clean failed execution can silently become own Repair. HOLDS suppresses redundant repair, without fabricating success.
 
 ## Strict limits
