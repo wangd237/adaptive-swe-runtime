@@ -110,3 +110,20 @@ def test_stale_revision_denies_command_before_execution(canonical_workspace):
         verifier.run(node_id="verify", execution_id="e", attempt=1,
                      policy=make_command_policy("check", (sys.executable, "-c", "pass")),
                      revision=stale)
+
+
+def test_tampered_or_forged_hmac_cannot_authenticate_tool_failure(canonical_workspace):
+    _, rev, store, verifier = canonical_workspace
+    ref, receipt = verifier.run(
+        node_id="verify", execution_id="exec", attempt=1,
+        policy=make_command_policy("case", (sys.executable, "-c", "raise SystemExit(1)")),
+        revision=rev,
+    )
+    forged = receipt.model_copy(update={"attestation_hmac": "0" * 64})
+    forged_ref = store.put_attempt(
+        task_id=verifier.task_id, node_id="verify", execution_id="exec",
+        attempt=1, kind=ref.kind, payload=forged, workspace_revision=rev,
+    )
+    with pytest.raises(ValueError, match="invalid Runtime canonical tool attestation"):
+        verifier.validate(forged_ref, node_id="verify", execution_id="exec",
+                          attempt=1, revision=rev, check_id="case")

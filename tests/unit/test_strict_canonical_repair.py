@@ -133,3 +133,15 @@ async def test_fake_attribution_without_runtime_canonical_verifier_denied(tmp_pa
     )
     assert core._canonical_verifier is None
     assert core._test_only_allow_fixture_receipts is False
+
+
+@pytest.mark.asyncio
+async def test_repair_gate_rejects_fixture_receipts_when_test_override_disabled(tmp_path):
+    from tests.unit.test_scheduler_repair import fixture
+    core, _, store, vref, _, aref = await fixture(tmp_path)
+    core._test_only_allow_fixture_receipts = False
+    with pytest.raises(ValueError, match="Runtime Canonical Verifier required"):
+        await core.reopen_writer_from_verification(
+            verification_ref=vref, attribution_ref=aref, evidence_store=store
+        )
+    assert core.states["writer"].accepted_attempt == 1
