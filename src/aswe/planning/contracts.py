@@ -12,6 +12,7 @@ from typing import Any, Literal
 from pydantic import Field, model_validator
 
 from aswe.core.contracts._base import FrozenModel
+from aswe.core.contracts.constraint import ConstraintEnforcement
 
 
 class TaskRequestEnvelope(FrozenModel):
@@ -53,12 +54,6 @@ class ConstraintOrigin(str, Enum):
     USER_EXPLICIT = "user_explicit"
     REPOSITORY_GUIDANCE = "repository_guidance"
     RUNTIME_DERIVED = "runtime_derived"
-
-
-class ConstraintEnforcement(str, Enum):
-    LOCKED = "locked"
-    HARD = "hard"
-    SOFT = "soft"
 
 
 class ConstraintEvidenceRef(FrozenModel):
