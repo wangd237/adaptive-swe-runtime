@@ -168,3 +168,57 @@ def test_p0d_deep_immutable_authority_and_repair_payload():
     with pytest.raises(TypeError):
         w.details["deep"]["x"]=("write",)
     assert fingerprint(p)==fingerprint(p.model_copy())
+
+
+def test_design_freeze_natural_language_effect_flows_into_validated_workplan():
+    from aswe.core.contracts.task import WorkKind
+    from aswe.planning.planner import WorkItemProposal,WorkPlanProposal
+    from aswe.planning.validator import SemanticPlanValidator,PlanValidationError
+    c,a=contract_for("Fix the connection leak.")
+    grant=next(x.id for x in c.constraints if x.key=="deliverables.required")
+    p=SemanticPlanValidator().validate(
+        proposal=WorkPlanProposal(items=(WorkItemProposal(
+            id="fix",objective="Fix leak",work_kind=WorkKind.IMPLEMENTATION,
+            capability_hints=("code_modification",),
+            coverage_claims=(grant,),
+        ),),rationale="bounded fix"),
+        contract=c,authority=a,
+    )
+    assert len(p.items)==1 and p.items[0].coverage_claims==(grant,)
+    c2,a2=contract_for("Analyze why the connection leaks.",
+                      hints=("code_modification",))
+    with pytest.raises(PlanValidationError) as err:
+        SemanticPlanValidator().validate(
+            proposal=WorkPlanProposal(items=(WorkItemProposal(
+                id="bad_writer",objective="Edit files",work_kind=WorkKind.IMPLEMENTATION,
+                capability_hints=("code_modification",),
+            ),),rationale="invalid inference"),
+            contract=c2,authority=a2,
+        )
+    assert err.value.code=="CAPABILITY_AUTHORITY_VIOLATION"
+
+
+def test_design_freeze_compiled_repair_records_and_warning_are_deeply_immutable():
+    from aswe.planning.compiler import RuntimePolicyRule
+    from aswe.planning.contracts import ConstraintCandidate
+    request=make_task_request(request_id="p0-d",
+        raw_text="repo.paths.allowed: src/auth/**")
+    c,_=ConstraintCompiler(RuntimePolicyConfig(
+        policy_id="p",rules=(
+            RuntimePolicyRule(key="repo.paths.allowed",value=("src/**",)),
+        ),
+    )).compile(
+        request=request,repository_base_sha="a"*40,
+        user_candidates=(ConstraintCandidate(
+            key="repo.paths.allowed",operator="equals",
+            value=("src/auth/**",),evidence_quote=request.raw_text,
+        ),),
+    )
+    assert c.compiler_repairs
+    expected=c.fingerprint
+    with pytest.raises(TypeError):
+        c.compiler_repairs[0]["code"]="FORGED"
+    with pytest.raises(TypeError):
+        c.compiler_repairs[0]["contributor_ids"]=("forged",)
+    assert c.fingerprint==expected
+    assert fingerprint(c.model_dump(mode="json",exclude={"fingerprint"}))==expected
