@@ -20,6 +20,7 @@ from aswe.planning.acceptance import CompiledAcceptancePlan, VerificationCommand
 from aswe.providers.policy import NodeExecutionPolicy
 from aswe.core.fingerprint import fingerprint
 from aswe.repository import RepositoryBinding, capture_repository_state
+from aswe.core.ids import validate_safe_id
 
 
 class ForegroundExecutionError(RuntimeError):
@@ -66,12 +67,14 @@ class ManagedForegroundVerifier:
     concurrent.futures.Future handles in upstream DeerFlow.
     """
 
-    def __init__(self, *, plan: CompiledAcceptancePlan,
+    def __init__(self, *, task_id: str, plan: CompiledAcceptancePlan,
                  policy: NodeExecutionPolicy, repository: RepositoryBinding,
                  execution_live_checker: Callable[[NodeExecutionInvocation], bool],
                  allow_inline_python_in_tests: bool = False):
         if not isinstance(plan, CompiledAcceptancePlan) or not isinstance(policy, NodeExecutionPolicy):
             raise ForegroundExecutionError("FOREGROUND_COMPILED_AUTHORITY_REQUIRED")
+        validate_safe_id(task_id)
+        self.task_id = task_id
         self.plan, self.policy, self.repository = plan, policy, repository
         self.execution_live_checker = execution_live_checker
         self.allow_inline_python_in_tests = allow_inline_python_in_tests
@@ -98,7 +101,7 @@ class ManagedForegroundVerifier:
 
     def _command(self, invocation, *, command_id: str, command: str) -> VerificationCommand:
         if (not self._trusted(invocation) or invocation.node_id != self.policy.node_id
-                or invocation.task_id not in (self.repository.task_id,)):
+                or invocation.task_id != self.task_id):
             raise ForegroundExecutionError("FOREGROUND_SCHEDULER_COMMIT_REQUIRED")
         selected = next((c for c in self.plan.commands if c.id == command_id), None)
         if (selected is None or selected.command != command
