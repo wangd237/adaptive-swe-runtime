@@ -41,3 +41,8 @@ Go/No-Go **all still pending** for actual DeerFlow: POC-02/03/05/09, POC-R34/R35
 ### Freeze boundary
 
 No frozen spec or `tests/poc-matrix.md` changed. No model or external service called. No DeerFlow fork. No PR merge or Step 5 closure authorized by 5A.
+
+
+## Step 5B source-bound reasoning substage
+
+The added `model_invoker.py` is independently reviewed in [Step 5B model invocation audit](step5b-model-invocation-review.md). Its structured TaskAnalyzer / SemanticPlanner boundary and model authorization API-shaped tests are deterministic; actual installed DeerFlow/model/identity integration and all Step-5 production Go/No-Go scenarios remain pending. A model-only request never allocates Scheduler execution attempts or tool permissions.

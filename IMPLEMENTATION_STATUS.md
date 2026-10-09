@@ -1,3 +1,12 @@
+## Step 5B deterministic reasoning adapter checkpoint (2026-10-09)
+
+- PR #7 Draft / OPEN: `DeerFlowReasoningBackend` and `ModelInvoker` implemented under `src/aswe/integrations/deerflow/model_invoker.py`.
+- Operator-specified role→model mapping, pinned source checked on each call, explicit `create_chat_model` args, current model-use Authz, config drift, strict local-only JSON Schema, error/timeout/cancel are covered by deterministic tests.
+- Analyzer/Planner output remains non-authoritative. Unauthorized code-modification proposal is rejected by the existing Validator in a model-adapter cross-chain test.
+- Current scope: **Step 5B Core contract implemented, actual DeerFlow import/API/credential/model smoke still PENDING**; no real managed ExecutionBackend/Workspace GO.
+- Next: 5C pinned `NodeExecutionPreparation` + AppConfig/Tool/Model/Extensions snapshot.
+- Audit: `audits/step5b-model-invocation-review.md`.
+
 ## Coding Step 5 — DeerFlow Adapter (2026-10-09)
 
 - **IN PROGRESS**, Stage 5A pinned source/Inventory Adapter code in `coding/step5-deerflow-adapter`; actual DeerFlow execution remains **NO-GO**.
