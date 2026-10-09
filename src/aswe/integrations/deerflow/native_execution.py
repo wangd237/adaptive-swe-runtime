@@ -18,6 +18,7 @@ from typing import Any, Callable, Mapping
 from aswe.core.contracts import EvidenceRef
 from aswe.capabilities.effects import STANDARD_EFFECTS, ToolEffect
 from aswe.integrations.deerflow.execution_evidence import ExecutionEvidenceCollector
+from aswe.integrations.deerflow.native_lease_supervisor import native_lease_task_id
 from aswe.core.contracts.backend import (
     BackendTerminalStatus, BackendExecutionPhase, NodeExecutionInvocation,
     NodeExecutionPreparation,
@@ -155,6 +156,8 @@ class NativeAssemblySeams:
     tool_node_cls: type
     tool_middleware_factory: Callable[[NodeExecutionBinding], Any]
     source_verifier: Callable[[], None]
+    native_result_cls: type | None = None
+    native_pending_status: Any = None
 
 
 class NativeSubagentAssembler:
@@ -166,7 +169,7 @@ class NativeSubagentAssembler:
     @classmethod
     def from_deerflow(cls):
         try:
-            from deerflow.subagents.executor import SubagentExecutor
+            from deerflow.subagents.executor import SubagentExecutor, SubagentResult, SubagentStatus
             from deerflow.subagents import executor as executor_module
             from deerflow.models import create_chat_model
             from deerflow.models import factory as factory_module
@@ -189,6 +192,8 @@ class NativeSubagentAssembler:
             tool_node_cls=ToolNode,
             tool_middleware_factory=make_langchain_tool_policy_middleware,
             source_verifier=verify,
+            native_result_cls=SubagentResult,
+            native_pending_status=SubagentStatus.PENDING,
         ))
 
     def build(self, binding: NodeExecutionBinding) -> Any:
@@ -220,6 +225,23 @@ class NativeSubagentAssembler:
             raise NativeExecutionError("NATIVE_ASSEMBLY_FACTORY_UNATTESTED")
 
         class BoundedNativeExecutor(NativeClass):
+            async def _aexecute(self, task: str, result_holder=None):
+                # Upstream's normal path generates an unrelated random
+                # SubagentResult.task_id, then lease owner=subagent:<task_id>.
+                # Mint the result holder *before* admission from the Scheduler
+                # invocation; this binds the actual vendor lease owner to 5D.
+                if seams.native_result_cls is not None:
+                    if result_holder is not None:
+                        raise NativeExecutionError("NATIVE_RESULT_HOLDER_OVERRIDE_FORBIDDEN")
+                    holder = seams.native_result_cls(
+                        task_id=native_lease_task_id(binding.invocation),
+                        trace_id=self.trace_id,
+                        status=seams.native_pending_status,
+                    )
+                    return await super()._aexecute(task, holder)
+                # 5E-A deterministic fake exposes no real result-holder API.
+                return await super()._aexecute(task)
+
             async def _build_initial_state(self, task: str):
                 # No second native Skill/Tool Search/MCP/Extension discovery.
                 _assert_owner(binding)
@@ -374,6 +396,19 @@ class NativeDeerFlowExecutionBackend:
                     # Only after the native coroutine's outermost finally/unwind.
                     completion.set()
 
+            supervisor = (self.evidence_collector.supervisor
+                          if self.evidence_collector is not None else None)
+            register_scope = getattr(supervisor, "register_execution", None)
+            if callable(register_scope):
+                try:
+                    actual_owner = register_scope(
+                        invocation, native_finished=completion.is_set)
+                    if actual_owner != "subagent:" + native_lease_task_id(invocation):
+                        raise NativeExecutionError("NATIVE_LEASE_OWNER_MISMATCH")
+                except NativeExecutionError:
+                    raise
+                except Exception:
+                    raise NativeExecutionError("NATIVE_LEASE_SCOPE_REGISTRATION_FAILED") from None
             child = asyncio.create_task(run_native())
             self._tasks[invocation.execution_id] = child
             try:
@@ -439,6 +474,16 @@ class NativeDeerFlowExecutionBackend:
             # exceptions; a missing report must never count as quiescence.
             binding.guard.close()
             self.store.release(invocation.execution_id)
+            supervisor = (self.evidence_collector.supervisor
+                          if self.evidence_collector is not None else None)
+            unregister = getattr(supervisor, "release_execution", None)
+            if callable(unregister):
+                try:
+                    unregister(invocation.execution_id)
+                except Exception:
+                    # Untrusted cleanup outcome cannot retroactively prove
+                    # quiescence or resurrect a released binding.
+                    pass
             self._completion_events.pop(invocation.execution_id, None)
 
     async def cancel_node(self, execution_id: str) -> None:
