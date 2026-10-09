@@ -1,34 +1,87 @@
 # Implementation Status
 
-## Accepted previous stages
+## Stage status
 
-- Coding Step 0 — CLOSED / ACCEPTED
-- Coding Step 1 — CLOSED / ACCEPTED
+- Step 0 — CLOSED / ACCEPTED
+- Step 1 — CLOSED / ACCEPTED
+- Step 2 — EXIT GATE SATISFIED / PR #4 MERGE PENDING (FakeBackend PoCs; final CI required)
+- Step 3 — NOT STARTED (will commence after Step 2 merge)
+- Step 4 and later — NOT STARTED
 
-## Coding Step 2 — IN PROGRESS (PR #3 increment MERGED / ACCEPTED)
+## PR #4 new functionality (subject to review and merge)
 
-Implemented in the current Step 2 incremental branch:
+- [x] Runtime CanonicalVerifier: exact compiled argv as foreground subprocess, no shell, bounded timeout
+- [x] Before/after exact Git state comparison; nonzero -> deterministic FAIL, zero -> HOLDS, mutation/timeout -> UNVERIFIED
+- [x] Persist attempt-scoped canonical command receipt with signed checksum outside Agent Workspace
+- [x] Strict Repair Attribution refuses untrusted fixture receipts by default; fake-only test bypass requires explicit opt-in
+- [x] Typed RepairFeedback with frozen source, target, revision, failed checks, VerificationResult/Attribution EvidenceRefs and ReceiptRefs
+- [x] Writer repair dispatch validates typed feedback freshness while holding Workspace lock
+- [x] ContractLeafVerdict/ContractVerdict with HARD/LOCKED blocking invariants and compiler fingerprint expectation
+- [x] RootFailureRecord/TaskResult with four independent axes: status, Workspace, Repository and Patch
+- [x] Deterministic FROZEN Git state / patch materialization through task-scoped TaskEvidenceRefs
+- [x] QUARANTINED terminal path never inspects current Workspace, retains only validated historical attempt evidence
+- [x] Residual unaccepted patch on failed/cancelled task; no success without full contract authority
+- [x] LocalTaskResultStore durable exactly-once terminal publication, restart recovery and tamper detection
+- [x] Task normal-completion gate and distinct task-wide user cancellation handling
+- [x] Full 65-case PoC inventory with direct test-symbol links and honesty guard
 
-- [x] SchedulerStateMutex, gate epochs, READY claim and revocable precommit tickets
-- [x] post-lock dispatch commit and attempt/execution identity
-- [x] deterministic clean transient Retry, strict Handoff authority and acceptance epochs
-- [x] persistence-gated VerificationRepairBinding resolution, single Writer reopen and REVERIFY
-- [x] reopen vs COMMITTED/PRE_START downstream dispatch fail-close race guard
-- [x] registry for committed executions and task-wide cancel/join
-- [x] FROZEN only after backend quiescence plus all Workspace locks released
-- [x] QUARANTINED on missing join, timeout or interrupted drain coordinator
-- [x] CI Python 3.11: 127 passed / 0 skipped
-- [x] CI Python 3.13: 127 passed / 0 skipped
-- [x] PR #3 merged after both CI gates and implementation review
+## Full frozen PoC exit audit
 
-## Remaining before Step 2 can be CLOSED
+- Audited cases: 65 (R16–R26, R75–R128)
+- PASS: 65
+- PARTIAL: 0
+- GAP: 0
+- **Step 2 may be CLOSED only after latest-head CI + final source review + merge into main.**
 
-- [ ] Runtime-owned canonical verification checker and full tool admission proof
-- [ ] typed RepairFeedback and negative freshness/attribution integration coverage
-- [ ] root failure aggregation, task-level cancellation outcomes, terminal TaskResult bridge and residual patch integrity
-- [ ] exhaustive POC-R16–R26 and R75–R128 exit matrix
-- [ ] independent Step 2 completion audit and final acceptance
+## Step 2 final acceptance evidence
 
-PR #3 merged as a reviewed **incremental implementation** at `943a9228cc5f09ae1a9448196f2262a3bc9800f6`. Step 2 is NOT CLOSED; no real DeerFlow shared Workspace execution is claimed.
+- Frozen inventory: 65 PASS / 0 PARTIAL / 0 GAP; exact one-row-per-PoC Markdown audit is built from machine-readable manifest.
+- Final source review: `audits/step2-finalization-review.md`. Race condition in cancellation-versus-COMPLETED addressed with regression tests.
+- Latest PR implementation CI (including new race tests and audit consistency guard) must be green on Python 3.11/3.13 before merge.
 
-Related reviews: audits/step2-foundation-review.md, audits/step2-repair-reopen-review.md, audits/step2-cancel-drain-review.md.
+## High-priority remaining P0 blockers
+
+- [x] Local Node cancellation (R21), including running join and descendant propagation
+- [x] Verification-triggered stale RepairFeedback refresh (R23/R25/R26): canonical fresh check, fresh refs/fingerprint, no redundant repair on HOLDS
+- [x] Own AcceptanceFailure stale deterministic recheck R24: Runtime canonical check + typed acceptance verdict, restricted to mutated WRITE and bounded repair
+- [x] Multi-writer ambiguity / non-attribution tests R76–R83, R86–R88
+- [x] R84/R85 physical tracked mutation and real backend crash refusal tests
+- [x] R89 real Git intervening Writer and Runtime-owned post-digest capture
+- [x] R101/R102 actual mutated WRITE acceptance → bounded repair → repair budget exhausted, residual patch terminal proof
+- [x] R91/R94/R95/R99/R123/R128 physical dirty-failure, quarantine and fail-close cancellation result integration
+- [x] R100 trusted typed ReviewGate REQUEST_CHANGES callback + persisted attempt REVIEW_VERDICT; FakeBackend-only API, integration with DeerFlow remains Step 5
+- [x] R103 typed TaskLogicalStatus FAILED/CANCELLED publication within Scheduler mutex transaction
+- [x] P0-D deterministic concurrency barriers R119–R121/R125–R126, including noncommitted physical Workspace join and timeout quarantine
+- [x] All 65 audit PoCs have test evidence and independent source/Design Freeze consistency sweep is documented
+- [ ] GitHub latest-head CI and PR #4 merge/Step 2 CLOSED publication
+
+## P0-B incremental status
+
+- Verified with actual Scheduler Writer attempts: singleton multi-check, two business Writers, same Provider distinct writers, last-writer heuristic, changed_paths/prose non-attribution, no-owner poison, split-check attribution, retry accepted attempt2, physical WRITE verifier exclusion.
+- R89 now PASS: physical Writer B tracked mutation + Scheduler actual Git digest + attested Verification Result give SCOPE_INVALIDATED.
+- R24 now PASS in mutated WRITE, canonical-check-proven own AcceptanceFailure with stale revision; no clean failed execution can silently become own Repair. HOLDS suppresses redundant repair, without fabricating success.
+
+## P0-C terminal closeout (2026-10-09)
+
+- Repair exhausted Writer final status: FAILED, FROZEN with proven quiescence; real tracked modifications become RESIDUAL_UNACCEPTED, never ACCEPTED.
+- Runtime preserves the **new attested AcceptanceVerdict EvidenceRef on exhausted attempt**, not just its predecessor.
+- Fail-close cancelled Consumer is CANCELLED rather than another business FAILED root; its observed mutation is a secondary diagnostic and appears in final repository patch.
+- Unsafe/quiescence-unknown consumer or user cancellation causes QUARANTINED, so terminalizer does not probe current Git.
+- R100 and R103 now PASS for deterministic Step-2 FakeBackend scenarios; real DeerFlow reviewer adapter remains out of scope.
+
+## P0-D concurrency closeout (2026-10-09)
+
+- Deterministic asyncio.Event/physical-lock interleaving tests now cover R119/R120/R121/R125/R126.
+- Real bug repaired: fail-close now joins active physical Workspace holders as well as committed backend attempts before declaring FROZEN. Timeout quarantines safely.
+- Slow synchronous EvidenceChecker is dispatched via asyncio.to_thread instead of blocking Scheduler's event loop, with final ticket authority rechecked before dispatch.
+- Implementation HEAD `2b4061d`: Python 3.11 and 3.13 each 199 passed. Frozen PoC matrix 65 PASS / 0 PARTIAL / 0 GAP.
+- **No merge/Step 2 CLOSED:** independent implementation audit, frozen design consistency sweep, and PR merge authorization still pending.
+
+## Strict limits
+
+- CanonicalVerifier is a **local, Runtime-owned foreground checker**, not the DeerFlow native acceptance/checker/CommandPolicy adapter (Step 5).
+- The persisted HMAC deters accidental forgery/tamper inside the Runtime trust boundary; it is not protection against a process with arbitrary Runtime-data access.
+- P1 Runtime is still FakeBackend-first. No autonomous LLM/Agent/DeerFlow path is certified.
+- Future finalization must consume the compiled contract fingerprint from the authoritative planner/compiler; it may not be inferred from model prose.
+
+See audits/step2-poc-audit.md, audits/step2-poc-coverage.json and audits/step2-finalization-review.md.

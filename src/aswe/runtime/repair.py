@@ -7,7 +7,10 @@ the matching attempt by the Runtime; model prose has no authority here.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Mapping
+from typing import Mapping, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from aswe.runtime.canonical_verifier import CanonicalVerifier
 
 from pydantic import Field, model_validator
 
@@ -128,6 +131,7 @@ def resolve_verification_repair_attribution(
     verification_ref: EvidenceRef,
     node_states: Mapping[str, NodeRuntimeState],
     evidence_store: LocalEvidenceStore,
+    canonical_verifier: "CanonicalVerifier | None" = None,
 ) -> RepairAttributionEvidence:
     """Resolve exactly one compiler-owned repair target; no heuristic fallback.
 
@@ -175,6 +179,17 @@ def resolve_verification_repair_attribution(
             # A failed-check claim cannot substitute a nonexistent or tampered
             # Runtime-owned tool receipt; no guessing from free-text reports.
             evidence_store.get(proof)
+            if canonical_verifier is not None:
+                parsed = canonical_verifier.validate(
+                    proof, node_id=source_attempt.node_id,
+                    execution_id=source_attempt.execution_id,
+                    attempt=source_attempt.attempt,
+                    revision=result.observed_workspace_revision,
+                    check_id=check.check_id,
+                )
+                if parsed.status != "failed":
+                    check_proofs_complete = False
+                    break
         if not check_proofs_complete:
             break
     def report(kind: RepairAttributionKind, reason: str, candidates: tuple[str, ...] = (),

@@ -32,6 +32,10 @@ from aswe.runtime.repair import (
     resolve_verification_repair_attribution,
 )
 from aswe.evidence import LocalEvidenceStore
+from aswe.runtime.canonical_verifier import CanonicalVerifier, CanonicalCommandPolicy
+from aswe.runtime.feedback import RepairFeedback, build_verification_repair_feedback
+from aswe.runtime.finalization import TaskLogicalStatus
+from aswe.runtime.repair import VerificationResult
 from aswe.runtime.state import (
     NodeAttemptRecord, NodeAttemptStatus, NodeBlockReason,
     NodeLogicalStatus, NodeRuntimeState,
@@ -48,6 +52,8 @@ class FakeBackendPort(Protocol):
 
 
 Acceptance = Callable[[Any, NodeExecutionInvocation, WorkspaceRevision], Awaitable[NodeHandoff | None]]
+# Runtime-injected semantic gate; fake-only in Step 2, never backend prose.
+ReviewGate = Callable[[Any, NodeExecutionInvocation, WorkspaceRevision], Awaitable[Any]]
 EvidenceChecker = Callable[[NodeHandoff], bool]
 
 
@@ -74,6 +80,10 @@ class SchedulerCore:
         self, *, task_id: str, dag: TaskDAG, workspace: WorkspaceAccessManager,
         initial_revision: WorkspaceRevision, evidence_checker: EvidenceChecker,
         budget: RuntimeBudgetConfig | None = None,
+        canonical_verifier: CanonicalVerifier | None = None,
+        canonical_check_policies: dict[str, CanonicalCommandPolicy] | None = None,
+        canonical_acceptance_policies: dict[str, CanonicalCommandPolicy] | None = None,
+        test_only_allow_fixture_receipts: bool = False,
     ) -> None:
         if not task_id or not callable(evidence_checker):
             raise ValueError("task identity and trusted evidence checker required")
@@ -86,6 +96,10 @@ class SchedulerCore:
         self.gate = TaskDispatchGate()
         self.revision = initial_revision
         self._evidence_checker = evidence_checker
+        self._canonical_verifier = canonical_verifier
+        self._canonical_check_policies = dict(canonical_check_policies or {})
+        self._canonical_acceptance_policies = dict(canonical_acceptance_policies or {})
+        self._test_only_allow_fixture_receipts = test_only_allow_fixture_receipts
         self.states = {
             node_id: NodeRuntimeState(
                 node_id=node_id, logical_status=NodeLogicalStatus.PENDING,
@@ -94,13 +108,18 @@ class SchedulerCore:
         }
         self.tickets: dict[str, NodeDispatchTicket] = {}
         self.failure_kinds: list[str] = []
+        # Secondary cancellation side effects never create business root failures.
+        self.secondary_runtime_diagnostics: list[str] = []
         self._pending_attempt_kinds: dict[str, NodeAttemptKind] = {}
         self._repair_feedback_revision: dict[str, WorkspaceRevision] = {}
         self._repair_feedback_text: dict[str, str] = {}
+        self._typed_repair_feedback: dict[str, RepairFeedback] = {}
         self._task_failed = False
+        self.task_logical_status = TaskLogicalStatus.RUNNING
         self._committed: dict[str, CommittedExecution] = {}
         self._terminal_mutex = asyncio.Lock()
         self._quiescence_unknown = False
+        self._locally_cancelled_nodes: set[str] = set()
         self._recompute_locked()
 
     def _dependencies_locked(self, node_id: str) -> tuple[DependencyAcceptanceStamp, ...] | None:
@@ -247,6 +266,8 @@ class SchedulerCore:
             )
             if kind is NodeAttemptKind.REPAIR and (
                 self._repair_feedback_revision.get(ticket.node_id) != self.revision
+                or ticket.node_id not in self._typed_repair_feedback
+                or self._typed_repair_feedback[ticket.node_id].observed_workspace_revision != self.revision
             ):
                 raise DispatchRevoked("RepairFeedback stale against current locked WorkspaceRevision")
             invocation = NodeExecutionInvocation(
@@ -287,10 +308,15 @@ class SchedulerCore:
             if kind is NodeAttemptKind.REPAIR:
                 self._repair_feedback_revision.pop(ticket.node_id, None)
                 self._repair_feedback_text.pop(ticket.node_id, None)
+                self._typed_repair_feedback.pop(ticket.node_id, None)
             return invocation
 
     async def _finish(self, invocation: NodeExecutionInvocation, result: Any,
-                      handoff: NodeHandoff | None) -> None:
+                      handoff: NodeHandoff | None, *,
+                      certified_post: WorkspaceRevision | None = None,
+                      own_acceptance_feedback: RepairFeedback | None = None,
+                      own_evidence_refs: tuple[EvidenceRef, ...] = (),
+                      review_verdict_ref: EvidenceRef | None = None) -> None:
         close_dispatch = False
         async with self.state_mutex:
             state = self.states[invocation.node_id]
@@ -306,67 +332,176 @@ class SchedulerCore:
             post = self.revision
             if mutation is not MutationEvidence.PROVEN_NONE:
                 post = post.model_copy(update={"generation": post.generation + 1})
+            if certified_post is not None:
+                if (certified_post.generation != post.generation
+                        or certified_post.base_sha != post.base_sha
+                        or not certified_post.head_matches_baseline):
+                    raise ValueError("invalid canonical acceptance post-revision")
+                post = certified_post
             self.revision = post
+            own_repair = (
+                own_acceptance_feedback is not None
+                and own_acceptance_feedback.trigger_kind.value == "node_acceptance"
+                and own_acceptance_feedback.feedback_source_node_id == invocation.node_id
+                and own_acceptance_feedback.feedback_source_execution_id == invocation.execution_id
+                and own_acceptance_feedback.feedback_source_attempt == invocation.attempt
+                and own_acceptance_feedback.target_write_node_id == invocation.node_id
+                and own_acceptance_feedback.target_write_attempt == invocation.attempt
+                and own_acceptance_feedback.observed_workspace_revision == post
+                and len(own_evidence_refs) >= 2
+                and mutation is MutationEvidence.OBSERVED
+                and getattr(result, "terminal_status", None) is BackendTerminalStatus.COMPLETED
+                and getattr(result, "quiescent", False)
+                and self.nodes[invocation.node_id].work_kind is WorkKind.IMPLEMENTATION
+                and self.nodes[invocation.node_id].workspace_access.value == "write"
+                and self.gate.state is TaskDispatchGateState.OPEN
+            )
+            # Canonical evidence remains trusted even when the authorization
+            # budget is already exhausted; only the new REPAIR is forbidden.
+            own_certified_failure = own_repair
+            own_repair = own_certified_failure and state.repair_count < self.budget.max_repairs_per_write
+            # Snapshot the gate *before* this attempt can fail itself closed.
+            # A task which was already CLOSED cancels this consumer; a running
+            # node which itself violates authority remains a FAILED root.
+            gate_preclosed = self.gate.state is TaskDispatchGateState.CLOSED
             success = (
                 self.gate.state is TaskDispatchGateState.OPEN
                 and getattr(result, "terminal_status", None) is BackendTerminalStatus.COMPLETED
                 and getattr(result, "quiescent", False)
                 and handoff is not None
+                and invocation.node_id not in self._locally_cancelled_nodes
                 and handoff.source_node_id == invocation.node_id
                 and handoff.source_execution_id == invocation.execution_id
                 and handoff.source_attempt == invocation.attempt
                 and handoff.observed_workspace_revision == post
             )
+            # An already closed task gate or a local cancel wins against a
+            # completed-but-too-late backend response. A handoff produced by
+            # a racing acceptance callback is inert, not a second failure root.
+            cancel_consequence = (
+                invocation.node_id in self._locally_cancelled_nodes
+                or gate_preclosed
+            )
             if handoff is not None and not success:
-                # A forged/stale success artifact must never be accepted.
-                # Turn it into a terminal fail-closed outcome, not a thrown
-                # exception leaving a RUNNING attempt indefinitely.
-                self._fail_close_locked("HANDOFF_AUTHORITY_INVALID", root_node=invocation.node_id)
-                close_dispatch = True
+                if not cancel_consequence:
+                    # Only forged/stale handoffs while authority is OPEN are
+                    # independent trust violations.
+                    self._fail_close_locked("HANDOFF_AUTHORITY_INVALID", root_node=invocation.node_id)
+                    close_dispatch = True
                 handoff = None
             if success and self.nodes[invocation.node_id].workspace_access.value == "read" and mutation is not MutationEvidence.PROVEN_NONE:
                 success = False
                 handoff = None
                 self._fail_close_locked("READ_WORKSPACE_MUTATION", root_node=invocation.node_id)
                 close_dispatch = True
-            cancelled = getattr(result, "terminal_status", None) is BackendTerminalStatus.CANCELLED
+            local_cancel = invocation.node_id in self._locally_cancelled_nodes
+            cancelled = (
+                local_cancel
+                or gate_preclosed
+                or getattr(result, "terminal_status", None) is BackendTerminalStatus.CANCELLED
+            )
+            if review_verdict_ref is not None and (
+                self.nodes[invocation.node_id].work_kind is not WorkKind.REVIEW
+                or review_verdict_ref.kind is not AttemptEvidenceKind.REVIEW_VERDICT
+                or review_verdict_ref.source_node_id != invocation.node_id
+                or review_verdict_ref.source_execution_id != invocation.execution_id
+                or review_verdict_ref.source_attempt != invocation.attempt
+                or review_verdict_ref.workspace_revision_generation != post.generation
+                or review_verdict_ref.workspace_state_fingerprint != post.repository_state_fingerprint
+            ):
+                raise ValueError("review verdict evidence provenance invalid")
             record = running.model_copy(update={
                 "status": (NodeAttemptStatus.ACCEPTED if success else
                            NodeAttemptStatus.CANCELLED if cancelled else NodeAttemptStatus.FAILED),
                 "post_workspace_revision": post,
                 "failure_kind": None if success else (
+                    "FAIL_CLOSED_CONSUMER_CANCELLED"
+                    if (cancelled and gate_preclosed
+                        and not self.cancelled and not local_cancel) else
+                    "REPAIR_BUDGET_EXHAUSTED"
+                    if own_certified_failure and not own_repair else
+                    "ACCEPTANCE_FAILED" if own_repair else
                     getattr(result, "failure_kind", None) or "ACCEPTANCE_OR_EXECUTION_FAILED"
                 ),
                 "handoff": handoff if success else None,
+                "evidence_refs": (
+                    own_evidence_refs if own_certified_failure else
+                    running.evidence_refs + ((review_verdict_ref,) if review_verdict_ref else ())
+                ),
             })
             changes: dict[str, Any] = {
                 "attempts": state.attempts[:-1] + (record,),
                 "active_dispatch_ticket_id": None,
             }
-            if success:
+            if cancelled and (self.cancelled or local_cancel or gate_preclosed):
+                # A task-fail-close cancelled consumer is a consequence of the
+                # original business failure, not another independent root.
+                changes.update(
+                    logical_status=NodeLogicalStatus.CANCELLED,
+                    terminal_failure_kind=None,
+                )
+                if (not self.cancelled and not local_cancel and gate_preclosed):
+                    if mutation is not MutationEvidence.PROVEN_NONE:
+                        self.secondary_runtime_diagnostics.append(
+                            "FAIL_CLOSED_CONSUMER_MUTATION:" + invocation.node_id
+                        )
+                    if not getattr(result, "quiescent", False):
+                        self.secondary_runtime_diagnostics.append(
+                            "FAIL_CLOSED_CONSUMER_QUIESCENCE_UNKNOWN:" + invocation.node_id
+                        )
+            elif success:
                 changes.update(
                     logical_status=NodeLogicalStatus.SUCCEEDED,
                     accepted_attempt=invocation.attempt,
                     accepted_handoff=handoff,
                     acceptance_epoch=state.acceptance_epoch + 1,
                 )
+            elif own_repair:
+                # A changed WRITE is repairable ONLY when Runtime has already
+                # executed and attested the exact deterministic Acceptance check.
+                changes.update(
+                    logical_status=NodeLogicalStatus.REMEDIATION_PENDING,
+                    repair_count=state.repair_count + 1,
+                    terminal_failure_kind=None,
+                )
+                self._pending_attempt_kinds[invocation.node_id] = NodeAttemptKind.REPAIR
+                self._typed_repair_feedback[invocation.node_id] = own_acceptance_feedback
+                self._repair_feedback_revision[invocation.node_id] = post
+                self._repair_feedback_text[invocation.node_id] = own_acceptance_feedback.bounded_projection()
             elif self.gate.state is TaskDispatchGateState.OPEN and self._retry_eligible(
                 invocation, result, mutation
             ):
                 changes["logical_status"] = NodeLogicalStatus.REMEDIATION_PENDING
                 self._pending_attempt_kinds[invocation.node_id] = NodeAttemptKind.RETRY
             else:
+                budget_exhausted = own_certified_failure and not own_repair
+                review_rejected = (
+                    self.nodes[invocation.node_id].work_kind is WorkKind.REVIEW
+                    and getattr(result, "failure_kind", None) == "REVIEW_GATE_REJECTED"
+                    and mutation is MutationEvidence.PROVEN_NONE
+                )
+                terminal_reason = (
+                    "REPAIR_BUDGET_EXHAUSTED" if budget_exhausted else
+                    "REVIEW_GATE_REJECTED" if review_rejected else
+                    "DIRTY_WRITE_FAILURE" if mutation is not MutationEvidence.PROVEN_NONE else
+                    "ATTEMPT_FAILED"
+                )
                 changes.update(
                     logical_status=NodeLogicalStatus.FAILED,
-                    terminal_failure_kind=(
-                        "DIRTY_WRITE_FAILURE" if mutation is not MutationEvidence.PROVEN_NONE
-                        else "ATTEMPT_FAILED"
-                    ),
+                    terminal_failure_kind=terminal_reason,
                 )
-                if mutation is not MutationEvidence.PROVEN_NONE or self.gate.state is TaskDispatchGateState.CLOSED:
-                    self._fail_close_locked("DIRTY_WRITE_FAILURE", root_node=invocation.node_id)
+                if (mutation is not MutationEvidence.PROVEN_NONE
+                        or self.gate.state is TaskDispatchGateState.CLOSED):
+                    self._fail_close_locked(terminal_reason, root_node=invocation.node_id)
                     close_dispatch = True
             self.states[invocation.node_id] = state.model_copy(update=changes)
+            if local_cancel:
+                self._locally_cancelled_nodes.discard(invocation.node_id)
+                if mutation is not MutationEvidence.PROVEN_NONE:
+                    # Shared Workspace changed during a cancelled attempt: unrelated
+                    # branches cannot safely continue without a clean baseline.
+                    self._fail_close_locked("LOCAL_CANCEL_MUTATION", root_node=invocation.node_id)
+                    close_dispatch = True
             self.tickets[invocation.dispatch_ticket_id] = self.tickets[
                 invocation.dispatch_ticket_id
             ].model_copy(update={"state": NodeDispatchTicketState.FINISHED})
@@ -381,6 +516,7 @@ class SchedulerCore:
                                      epoch=self.gate.epoch + 1)
         self.failure_kinds.append(reason)
         self._task_failed = True
+        self.task_logical_status = TaskLogicalStatus.FAILED
         for tid, ticket in tuple(self.tickets.items()):
             if ticket.state in (
                 NodeDispatchTicketState.PREPARING,
@@ -420,6 +556,8 @@ class SchedulerCore:
     ) -> None:
         """Verify durable provenance outside mutex, then publish attempt evidence."""
         evidence_store.get(evidence_ref)
+        if not evidence_ref.evidence_id.startswith(self.task_id + "__"):
+            raise ValueError("attempt evidence belongs to a different task")
         if evidence_ref.source_node_id != node_id:
             raise ValueError("evidence node mismatch")
         async with self.state_mutex:
@@ -466,10 +604,12 @@ class SchedulerCore:
                 raise ValueError("repair attribution must be attached to current source attempt")
             # Capture only immutable snapshots; do integrity I/O outside mutex.
             state_snapshot = dict(self.states)
+        if self._canonical_verifier is None and not self._test_only_allow_fixture_receipts:
+            raise ValueError("Runtime Canonical Verifier required for real repair authorization")
         resolved = resolve_verification_repair_attribution(
             dag=self.dag, source_attempt=source_attempt,
             verification_ref=verification_ref, node_states=state_snapshot,
-            evidence_store=evidence_store,
+            evidence_store=evidence_store, canonical_verifier=self._canonical_verifier,
         )
         if attribution != resolved:
             raise ValueError("stored repair attribution differs from deterministic resolution")
@@ -477,6 +617,11 @@ class SchedulerCore:
             raise RepairScopeInvalidated("verification has no unique legal repair owner")
         writer_id = attribution.target_write_node_id
         assert writer_id is not None
+        source_result = VerificationResult.model_validate(evidence_store.get(verification_ref))
+        feedback = build_verification_repair_feedback(
+            source=source_result, source_ref=verification_ref,
+            attribution=attribution, attribution_ref=attribution_ref,
+        )
         fail_reason = None
         async with self.state_mutex:
             source_now = self.states[source_id]
@@ -486,9 +631,10 @@ class SchedulerCore:
                 or writer != state_snapshot[writer_id]
                 or self.revision != attribution.observed_workspace_revision
                 or writer.logical_status is not NodeLogicalStatus.SUCCEEDED
-                or writer.accepted_attempt != attribution.target_write_attempt
-                or writer.repair_count >= self.budget.max_repairs_per_write):
+                or writer.accepted_attempt != attribution.target_write_attempt):
                 fail_reason = "REPAIR_SCOPE_INVALIDATED_STALE"
+            elif writer.repair_count >= self.budget.max_repairs_per_write:
+                fail_reason = "REPAIR_BUDGET_EXHAUSTED"
             else:
                 descendants = self._descendants_locked(writer_id)
                 for node_id in descendants:
@@ -525,10 +671,9 @@ class SchedulerCore:
                         "repair_count": writer.repair_count + 1,
                     })
                     self._pending_attempt_kinds[writer_id] = NodeAttemptKind.REPAIR
-                    self._repair_feedback_revision[writer_id] = attribution.observed_workspace_revision
-                    self._repair_feedback_text[writer_id] = (
-                        "deterministic verification obligations: " + ", ".join(attribution.failed_check_ids)
-                    )
+                    self._typed_repair_feedback[writer_id] = feedback
+                    self._repair_feedback_revision[writer_id] = feedback.observed_workspace_revision
+                    self._repair_feedback_text[writer_id] = feedback.bounded_projection()
                     if source_now.logical_status is not NodeLogicalStatus.FAILED:
                         raise RuntimeError("verification source no longer FAILED")
                     self.states[source_id] = source_now.model_copy(update={
@@ -562,6 +707,113 @@ class SchedulerCore:
             await self.drain_committed()
             raise RepairScopeInvalidated(fail_reason)
         return attribution
+
+    async def complete_task(self) -> None:
+        """Close successful scheduling without incorrectly marking a root failure.
+
+        ContractVerdict is checked separately by Runtime-only TaskResult finalizer.
+        """
+        async with self.state_mutex:
+            if self.gate.state is not TaskDispatchGateState.OPEN or self._task_failed:
+                raise RuntimeError("task is not eligible for normal completion")
+            if any(s.logical_status is not NodeLogicalStatus.SUCCEEDED for s in self.states.values()):
+                raise RuntimeError("ordinary nodes not all accepted")
+            if any(t.state in (NodeDispatchTicketState.PREPARING, NodeDispatchTicketState.WAITING_WORKSPACE,
+                              NodeDispatchTicketState.LOCKED_PRECOMMIT, NodeDispatchTicketState.COMMITTED)
+                   for t in self.tickets.values()):
+                raise RuntimeError("task still has pending dispatch")
+            self.gate = TaskDispatchGate(state=TaskDispatchGateState.CLOSED, epoch=self.gate.epoch + 1)
+        await self.drain_committed()
+
+    async def cancel_node(self, node_id: str, *, timeout: float = 2.0) -> None:
+        """Cancel only one logical node and BLOCK its ordinary descendants.
+
+        A precommit ticket is revoked without manufacturing an attempt.
+        For committed nodes, request backend cancellation and JOIN its owner
+        before returning. Unknown quiescence fails the whole shared task closed.
+        """
+        if timeout <= 0:
+            raise ValueError("join timeout must be positive")
+        async with self.state_mutex:
+            if self.gate.state is not TaskDispatchGateState.OPEN:
+                raise DispatchRevoked("task dispatch gate closed")
+            if node_id not in self.states:
+                raise KeyError(node_id)
+            state = self.states[node_id]
+            if state.logical_status is NodeLogicalStatus.CANCELLED:
+                return
+            if state.logical_status not in (
+                NodeLogicalStatus.PENDING, NodeLogicalStatus.READY,
+                NodeLogicalStatus.REMEDIATION_PENDING, NodeLogicalStatus.RUNNING,
+            ):
+                raise DispatchRevoked("node already terminal")
+            if state.logical_status is NodeLogicalStatus.RUNNING:
+                active = state.attempts[-1]
+                item = self._committed.get(active.execution_id)
+                if item is None:
+                    raise RuntimeError("RUNNING node missing committed execution")
+                self._locally_cancelled_nodes.add(node_id)
+                execution_id = active.execution_id
+            else:
+                if state.active_dispatch_ticket_id:
+                    ticket_id = state.active_dispatch_ticket_id
+                    ticket = self.tickets[ticket_id]
+                    if ticket.state in (NodeDispatchTicketState.COMMITTED,
+                                        NodeDispatchTicketState.FINISHED):
+                        raise DispatchRevoked("committed attempt cannot be revoked")
+                    self.tickets[ticket_id] = ticket.model_copy(
+                        update={"state": NodeDispatchTicketState.REVOKED}
+                    )
+                self.states[node_id] = state.model_copy(update={
+                    "logical_status": NodeLogicalStatus.CANCELLED,
+                    "active_dispatch_ticket_id": None,
+                    "block_reason": None, "blocked_by": (),
+                    "terminal_failure_kind": None,
+                })
+                self._recompute_locked()
+                return
+
+        # Do not hold SchedulerStateMutex while invoking backend or joining.
+        try:
+            if item.backend is None or item.owner is asyncio.current_task():
+                raise RuntimeError("committed local cancellation cannot be joined")
+            await asyncio.wait_for(item.backend.cancel_node(execution_id), timeout)
+            await asyncio.wait_for(item.done.wait(), timeout)
+            if item.quiescent is not True or item.cancel_error is not None:
+                raise RuntimeError("local cancellation quiescence not proven")
+        except (Exception, asyncio.CancelledError):
+            self._quiescence_unknown = True
+            await self.fail_closed("LOCAL_CANCEL_QUIESCENCE_UNKNOWN", root_node=node_id)
+            raise
+
+    async def cancel_task(self) -> None:
+        """Cancellation owns terminalization only while task dispatch is OPEN.
+
+        A later user cancellation must never rewrite an already failed or
+        normally completed task into CANCELLED.
+        """
+        async with self.state_mutex:
+            if self.gate.state is TaskDispatchGateState.OPEN:
+                self._fail_close_locked("TASK_USER_CANCELLED")
+                self._task_cancelled = True
+                self.task_logical_status = TaskLogicalStatus.CANCELLED
+                for node_id, state in tuple(self.states.items()):
+                    if state.logical_status in (
+                        NodeLogicalStatus.PENDING, NodeLogicalStatus.READY,
+                        NodeLogicalStatus.REMEDIATION_PENDING, NodeLogicalStatus.BLOCKED,
+                    ):
+                        self.states[node_id] = state.model_copy(update={
+                            "logical_status": NodeLogicalStatus.CANCELLED,
+                            "active_dispatch_ticket_id": None,
+                            "block_reason": None, "blocked_by": (),
+                        })
+            # CLOSED means prior terminalization owns the task's status.
+            # A repeated cancellation may join work, never replace its cause.
+        await self.drain_committed()
+
+    @property
+    def cancelled(self) -> bool:
+        return getattr(self, "_task_cancelled", False)
 
     async def fail_closed(self, reason: str, *, root_node: str | None = None) -> None:
         async with self.state_mutex:
@@ -628,6 +880,14 @@ class SchedulerCore:
             ):
                 await self.workspace.terminalize(quiescence_proven=False)
             raise
+        if not self._quiescence_unknown:
+            try:
+                # Backend join is insufficient: a physically LOCKED_PRECOMMIT
+                # ticket can hold WorkspaceAccess without ever being COMMITTED.
+                # Never publish FROZEN while that holder still exists.
+                await asyncio.wait_for(self.workspace.wait_idle(), timeout)
+            except asyncio.TimeoutError:
+                self._quiescence_unknown = True
         if self._quiescence_unknown:
             from aswe.workspace.session import WorkspaceSessionStatus
             if self.workspace.lifecycle.current.status not in (
@@ -678,6 +938,8 @@ class SchedulerCore:
     async def run_claim(
         self, ticket: NodeDispatchTicket, backend: FakeBackendPort, *,
         accept: Acceptance | None = None,
+        review_gate: ReviewGate | None = None,
+        review_evidence_store: LocalEvidenceStore | None = None,
     ) -> NodeExecutionInvocation | None:
         """Deterministic FakeBackend orchestration; no model-derived acceptance.
 
@@ -697,10 +959,24 @@ class SchedulerCore:
                 refs_ok = True
                 for stamp in ticket.dependency_acceptance_stamps:
                     h = self.states[stamp.upstream_node_id].accepted_handoff
-                    if h is None or not self._evidence_checker(h):
+                    # Evidence resolution may perform disk/hash/network-backed
+                    # lookups. It is not a SchedulerStateMutex operation and
+                    # must not block the event loop while a concurrent fail-close
+                    # or Writer reopen is trying to linearize.
+                    if h is None or not await asyncio.to_thread(self._evidence_checker, h):
                         refs_ok = False
                         break
-                invocation = await self._commit(current_id, evidence_validated=refs_ok, backend=backend)
+                try:
+                    invocation = await self._commit(current_id, evidence_validated=refs_ok, backend=backend)
+                except DispatchRevoked as exc:
+                    if "RepairFeedback stale" not in str(exc):
+                        raise
+                    # Preserve the physical WRITE lock while refreshing, but never
+                    # execute checks or EvidenceStore I/O under SchedulerStateMutex.
+                    from aswe.runtime.refresh import refresh_stale_verification
+                    if not await refresh_stale_verification(self, current_id):
+                        raise DispatchRevoked("RepairFeedback stale: no authorized repair remains")
+                    invocation = await self._commit(current_id, evidence_validated=refs_ok, backend=backend)
                 try:
                     result = await backend.execute_prepared(preparation, invocation)
                 except BaseException:
@@ -722,10 +998,71 @@ class SchedulerCore:
                     post = self.revision if observed is MutationEvidence.PROVEN_NONE else self.revision.model_copy(
                         update={"generation": self.revision.generation + 1}
                     )
+                    certified_post = None
+                    own_fb = None
+                    own_refs = ()
+                    review_ref = None
+                    policy = self._canonical_acceptance_policies.get(invocation.node_id)
+                    if (observed is MutationEvidence.OBSERVED
+                            and self._canonical_verifier is not None
+                            and self.nodes[invocation.node_id].workspace_access.value == "write"):
+                        from aswe.repository import capture_repository_state
+                        state = await asyncio.to_thread(
+                            capture_repository_state, self._canonical_verifier.binding,
+                        )
+                        if not state.head_matches_baseline or state.base_sha != self.revision.base_sha:
+                            raise RuntimeError("own acceptance repository baseline invariant broken")
+                        post = post.model_copy(update={
+                            "repository_state_fingerprint": state.fingerprint,
+                            "head_sha": state.head_sha,
+                            "dirty": state.dirty_vs_base,
+                            "head_matches_baseline": state.head_matches_baseline,
+                        })
+                        certified_post = post
                     if result.terminal_status is BackendTerminalStatus.COMPLETED and result.quiescent:
-                        if accept is not None:
+                        if (self.nodes[invocation.node_id].work_kind is WorkKind.REVIEW
+                                and review_gate is not None):
+                            from aswe.runtime.review import ReviewVerdict, ReviewDecision
+                            if review_evidence_store is None:
+                                raise ValueError("ReviewVerdict needs Runtime-owned evidence store")
+                            proposal = ReviewVerdict.model_validate(
+                                await review_gate(result, invocation, post)
+                            )
+                            if (proposal.source_node_id != invocation.node_id
+                                    or proposal.source_execution_id != invocation.execution_id
+                                    or proposal.source_attempt != invocation.attempt
+                                    or proposal.observed_workspace_revision != post):
+                                raise ValueError("ReviewVerdict provenance does not match active attempt")
+                            if proposal.decision is not ReviewDecision.REQUEST_CHANGES:
+                                raise ValueError("only explicit REQUEST_CHANGES supported by this Step-2 gate")
+                            review_ref = review_evidence_store.put_attempt(
+                                task_id=self.task_id, node_id=invocation.node_id,
+                                execution_id=invocation.execution_id, attempt=invocation.attempt,
+                                kind=AttemptEvidenceKind.REVIEW_VERDICT,
+                                payload=proposal, workspace_revision=post,
+                            )
+                            # Backend COMPLETED denotes execution termination only,
+                            # not logical success. This is a Runtime-owned gate.
+                            result = result.model_copy(update={
+                                "terminal_status": BackendTerminalStatus.FAILED,
+                                "failure_kind": "REVIEW_GATE_REJECTED",
+                            })
+                        elif accept is not None:
                             handoff = await accept(result, invocation, post)
-                    await self._finish(invocation, result, handoff)
+                        if (handoff is None and accept is not None
+                                and certified_post is not None
+                                and policy is not None):
+                            from aswe.runtime.own_acceptance import certify_mutated_own_failure
+                            own_fb, own_refs = await certify_mutated_own_failure(
+                                self, invocation, post, policy,
+                            )
+                    await self._finish(
+                        invocation, result, handoff,
+                        certified_post=certified_post,
+                        own_acceptance_feedback=own_fb,
+                        own_evidence_refs=own_refs,
+                        review_verdict_ref=review_ref,
+                    )
                 except BaseException:
                     await self._abort_committed(
                         invocation, failure_kind="EVIDENCE_FINALIZATION_FAILURE",
@@ -735,10 +1072,14 @@ class SchedulerCore:
                 if not getattr(result, "quiescent", False):
                     await self.workspace.terminalize(quiescence_proven=False)
                 return invocation
-        except (DispatchRevoked, WorkspaceClosedError):
+        except (DispatchRevoked, WorkspaceClosedError) as exc:
             if invocation is not None:
                 raise  # A committed attempt is never silently uncommitted.
             await self.revoke(current_id)
+            if (isinstance(exc, DispatchRevoked)
+                    and "RepairFeedback stale" in str(exc)
+                    and self.gate.state is TaskDispatchGateState.OPEN):
+                await self.fail_closed("REPAIR_FEEDBACK_STALE", root_node=ticket.node_id)
             return None
         except asyncio.CancelledError:
             if invocation is None:
@@ -753,7 +1094,8 @@ class SchedulerCore:
                 item = self._committed[invocation.execution_id]
                 item.quiescent = completed_quiescent
                 item.done.set()
-                await self._settle_if_drained()
+            # A stale refresh can close the gate without a Writer attempt.
+            await self._settle_if_drained()
 
     @property
     def failed(self) -> bool:
