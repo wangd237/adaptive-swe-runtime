@@ -258,6 +258,8 @@ async def test_real_scheduler_commit_gates_one_shot_claim(tmp_path):
     from tests.fakes.backend import FakeExecutionBackend, FakeExecutionScenario
     backend, node, env, tool = setup()
     core, _ = scheduler(tmp_path, node)
+    # Production host constructs the backend with its Scheduler task identity.
+    backend.task_id = core.task_id
     backend.commit_checker = core.is_committed_invocation
     fake = FakeExecutionBackend([FakeExecutionScenario()])
     captured = []
