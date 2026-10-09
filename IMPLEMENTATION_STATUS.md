@@ -1,3 +1,12 @@
+## Step 5E-B — Installed pinned DeerFlow offline physical integration (2026-10-09)
+
+- New `.github/workflows/deerflow-pinned-native.yml` physically checks out `bytedance/deer-flow@c0895d295bba34f6e95188fca380f555dabed891` and runs Python 3.12 after installing the editable frozen Harness with its declared dependencies.
+- Physical integration tests: `tests/integration/test_deerflow_pinned_native_step5eb.py` validate genuine `SubagentExecutor`, frozen `AppConfig/SubagentConfig/LoadedExtensions`, actual LangChain `create_agent`, compiled `ToolNode`, native `ToolCallRequest` path through `ToolCallGuard`, and full frozen `_aexecute` terminalization with a synthetic offline `BaseChatModel`.
+- Real bundled `RbacAuthorizationProvider` permits and denies tool calls; denied synthetic handler is not invoked. Forged compiled same-name tool and already-revoked binding fail closed. No outbound model request or credentials involved.
+- Core-only CI (Python 3.11/3.13) excludes installed-vendor tests, preserving clean separation. **Source-pinned physical 5E-B Scoped GO** when latest green dual CI is confirmed; initial physical run `37913740074`: **6 PASS**.
+- Audit: `audits/step5eb-pinned-native-physical-poc.md`. Actual Scheduler-to-native external model credentials, deployed AuthorizationProvider identity, mutable workspace evidence, native subprocess/sandbox quiescence and dependency lockfile require separate 5F/5G gates. All native result records still `quiescent=False`, `mutation_evidence=unknown`.
+- No real Writer/Bash mutation or production execution. **PR #7 remains Draft/Open and unmerged. Step 5 is not completed.**
+
 ## Step 5E — Native Execution Integration (2026-10-09)
 
 - **5E-A guarded native assembly coded, deterministic API-shaped tests passing** (latest HEAD CI to be verified). Added `src/aswe/integrations/deerflow/native_execution.py` with `NativeSubagentAssembler`, `NativeDeerFlowExecutionBackend`, `_ReservedContextGraph`, and process-scoped native task/cancel management.
