@@ -43,6 +43,9 @@ class NodeExecutionPolicy(FrozenModel):
     task_contract_fingerprint:str
     workplan_fingerprint:str
     planning_inventory_fingerprint:str
+    acceptance_fingerprint:str
+    verification_exact_commands:tuple[str,...]
+    canonical_check_policy_fingerprints:tuple[str,...]
     required_business_tools:tuple[str,...]
     allowed_business_tools:tuple[str,...]
     denied_tools:tuple[str,...]
@@ -59,6 +62,9 @@ class NodeExecutionPolicy(FrozenModel):
     def sealed(self):
         if self.fingerprint!=fingerprint(self.model_dump(mode="json",exclude={"fingerprint"})):
             raise ValueError("NodeExecutionPolicy fingerprint mismatch")
+        if (len(self.verification_exact_commands)!=len(self.canonical_check_policy_fingerprints)
+                or self.verification_exact_commands and "bash" not in self.allowed_business_tools):
+            raise ValueError("Acceptance Bash execution policy mismatch")
         if (not set(self.required_business_tools).issubset(self.allowed_business_tools)
                 or set(self.allowed_business_tools).intersection(self.denied_tools)
                 or not set(self.required_infrastructure_tools).issubset(self.infrastructure_tool_names)):
@@ -116,6 +122,8 @@ def compile_policies(*,contract:CompiledTaskContract,plan:ValidatedWorkPlan,
     by_provider={p.id:p for p in providers}
     op={o.provider_id:o for o in operators}
     resources={r.node_id:r for r in resolved.nodes}
+    if acceptance.unresolved_check_keys:
+        raise AdmissionError("REQUIRED_ACCEPTANCE_CHECK_UNRESOLVED")
     denied_actions=set()
     for constraint in contract.constraints:
         if constraint.key=="actions.forbidden":
@@ -165,11 +173,20 @@ def compile_policies(*,contract:CompiledTaskContract,plan:ValidatedWorkPlan,
             raise AdmissionError("REQUIRED_INFRASTRUCTURE_TOOL_DENIED")
         if node_max_turns<1 or node_timeout_seconds<=0:
             raise AdmissionError("INVALID_RUNTIME_BUDGET")
+        exact=(tuple(c.bash_exact_allowlist_entry for c in acceptance.criteria)
+               if item.work_kind is WorkKind.VERIFICATION else ())
+        canonical=(tuple(c.fingerprint for c in acceptance.canonical_policies)
+                   if item.work_kind is WorkKind.VERIFICATION else ())
+        if exact and "bash" not in allow:
+            raise AdmissionError("ACCEPTANCE_COMMAND_POLICY_MISMATCH")
         body=dict(node_id=item.id,provider_id=p.id,backend_agent_type=p.backend_agent_type,
           provider_contract_fingerprint=p.fingerprint,
           task_contract_fingerprint=contract.fingerprint,
           workplan_fingerprint=plan.fingerprint,
           planning_inventory_fingerprint=inventory.fingerprint,
+          acceptance_fingerprint=acceptance.fingerprint,
+          verification_exact_commands=exact,
+          canonical_check_policy_fingerprints=canonical,
           required_business_tools=r.required_tools,
           allowed_business_tools=allow,denied_tools=tuple(sorted(set(o.denied_tools))),
           required_infrastructure_tools=infra,infrastructure_tool_names=infra,

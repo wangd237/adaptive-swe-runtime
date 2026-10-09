@@ -58,6 +58,10 @@ def compile_plan_descriptor(*,contract:CompiledTaskContract,plan:ValidatedWorkPl
         if (p.task_contract_fingerprint!=contract.fingerprint
             or p.workplan_fingerprint!=plan.fingerprint
             or p.planning_inventory_fingerprint!=inventory.fingerprint
+            or p.acceptance_fingerprint!=acceptance.fingerprint
+            or p.verification_exact_commands!=(
+                tuple(x.bash_exact_allowlist_entry for x in acceptance.criteria)
+                if next(item for item in plan.items if item.id==p.node_id).work_kind.value=="verification" else ())
             or p.provider_id!=r.provider_id
             or p.provider_contract_fingerprint!=r.provider_contract_fingerprint
             or not set(p.allowed_business_tools).issubset(r.allowed_tools)

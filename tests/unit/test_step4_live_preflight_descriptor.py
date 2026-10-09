@@ -326,3 +326,48 @@ def test_explicit_contract_tool_deny_overrides_provider_operator_allowlist():
             acceptance=AcceptanceCompiler().compile(contract=c),
             providers=stage4_providers(),
             operators=(OperatorSurface(provider_id="tester",allowed_tools=("bash",)),))
+
+
+def test_acceptance_bash_exact_command_policy_and_sandbox_preflight():
+    from tests.unit.test_acceptance_compiler_step3d import (
+        verify_contract,unit_rule,validator_plan)
+    from aswe.planning.compiler import project_execution_authority
+    c,authority=verify_contract()
+    plan=validator_plan(c,authority)
+    acceptance=AcceptanceCompiler(rules=(unit_rule(),)).compile(contract=c)
+    inv=fake_inventory()
+    providers=stage4_providers()
+    res=resolve_workplan(plan=plan,contract=c,authority=authority,inventory=inv,
+                         providers=providers,
+                         required_sandbox_features=acceptance.required_sandbox_features)
+    operators=tuple(OperatorSurface(provider_id=x.id,
+                     allowed_tools=("bash","read_file","submit_review_verdict"))
+                    for x in providers)
+    policy=compile_policies(contract=c,plan=plan,resolved=res,inventory=inv,
+                    acceptance=acceptance,providers=providers,operators=operators)
+    assert len(policy)==len(plan.items)
+    verified=next(p for p in policy if p.verification_exact_commands)
+    assert verified.verification_exact_commands==(acceptance.criteria[0].bash_exact_allowlist_entry,)
+    assert verified.canonical_check_policy_fingerprints==(acceptance.canonical_policies[0].fingerprint,)
+    assert verified.workspace_access is WorkspaceAccess.WRITE
+    with pytest.raises(AdmissionError,match="REQUIRED_SANDBOX_EVIDENCE_UNAVAILABLE"):
+        missing=fake_inventory(features=())
+        res2=resolve_workplan(plan=plan,contract=c,authority=authority,
+                              inventory=missing,providers=providers)
+        compile_policies(contract=c,plan=plan,resolved=res2,inventory=missing,
+                         acceptance=acceptance,providers=providers,operators=operators)
+    with pytest.raises(Exception,match="REQUIRED_SANDBOX_EVIDENCE_UNAVAILABLE"):
+        resolve_workplan(plan=plan,contract=c,authority=authority,inventory=missing,
+             providers=providers,
+             required_sandbox_features=acceptance.required_sandbox_features)
+
+
+def test_runtime_node_ceiling_can_only_narrow_operator_ceiling():
+    c,p,r,d,inv,a,providers,ops,policies,_=artifacts(
+        ("tester",WorkKind.VERIFICATION,"regression_testing"))
+    small=compile_policies(contract=c,plan=p,resolved=r,inventory=inv,
+        acceptance=a,providers=providers,operators=ops,
+        node_max_turns=3,node_timeout_seconds=8.)
+    assert small[0].max_turns==3
+    assert small[0].timeout_seconds==8.
+    assert small[0].fingerprint!=policies[0].fingerprint
