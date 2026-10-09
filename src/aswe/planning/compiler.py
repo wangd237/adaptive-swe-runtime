@@ -12,6 +12,7 @@ external side effects in P1.
 from __future__ import annotations
 
 import hashlib
+import re
 from typing import Any
 
 from pydantic import Field
@@ -29,7 +30,7 @@ from aswe.planning.contracts import (
 )
 from aswe.planning.analyzer import TaskSpec, RiskLevel
 from aswe.planning.registry import (
-    CONSTRAINT_REGISTRY, DeliverableEffect, canonical_value,
+    CONSTRAINT_REGISTRY, DeliverableEffect, DeliverableRequirement, canonical_value,
     normalize_path, parse_exact_user_directive,
 )
 
@@ -284,7 +285,7 @@ def project_execution_authority(contract: CompiledTaskContract) -> TaskExecution
 
 # Versioned deterministic rules used in compiler-owned fingerprints.
 # Bump when canonicalization / provenance / merge semantics change.
-COMPILER_RULESET_VERSION = "aswe-step3-constraint-compiler-v1"
+COMPILER_RULESET_VERSION = "aswe-step3-constraint-compiler-v2"
 
 
 def compiler_ruleset_fingerprint() -> str:
@@ -293,6 +294,30 @@ def compiler_ruleset_fingerprint() -> str:
         tuple((k, spec.merge_strategy, spec.verification_mode)
               for k, spec in sorted(CONSTRAINT_REGISTRY.items())),
     ))
+
+
+# Narrow deterministic direct-user imperative; a model hint cannot grant mutation.
+_DIRECT_MUTATION = re.compile(
+    r"^(?:please\s+)?(?:fix|repair|implement|refactor|modify|update|"
+    r"add|remove|write|patch)\b[\s:]+.{3,}$", re.IGNORECASE)
+_DIRECT_CN = re.compile(r"^(?:请)?(?:修复|修改|实现|重构|添加|删除|更新)(?!说明|示例).{2,}$")
+_NEGATED = re.compile(
+    r"\b(?:do\s+not|don't|never|without|instead of|only\s+analy[sz]e|"
+    r"just\s+explain|no\s+code\s+changes)\b|"
+    r"(?:不要|无需|仅分析|只分析|只解释|不修改|无需修改|不需要修改)", re.IGNORECASE)
+_QUOTED = re.compile(r"[\x60\"“”‘’]|(?:^|\n)\s*>|(?:^|\n)\s*[-*]\s")
+
+def _direct_user_mutation(text: str) -> str | None:
+    clean = text.strip()
+    if ("\n" in clean or _NEGATED.search(clean) or _QUOTED.search(clean)
+            or clean.endswith("?")
+            or clean.lower().startswith(("analyze","analyse","explain",
+                                         "describe","review","summarize",
+                                         "why","how","if","when"))):
+        return None
+    if _DIRECT_MUTATION.fullmatch(clean) or _DIRECT_CN.fullmatch(clean):
+        return clean
+    return None
 
 
 class ConstraintCompiler:
@@ -332,6 +357,23 @@ class ConstraintCompiler:
                 "review.required", True, enforcement=ConstraintEnforcement.HARD,
                 origin=ConstraintOrigin.RUNTIME_DERIVED, evidence=evidence,
                 contributor="runtime-rule:RISK-REVIEW-001:" + policy_hash,
+            ))
+        direct = _direct_user_mutation(request.raw_text)
+        if direct:
+            # Original user request only: never TaskSpec hints or LLM candidate.value.
+            ref = ConstraintEvidenceRef(
+                source_kind="task_request", source_id=request.request_id,
+                source_hash=request.content_hash,
+                locator=f"raw_text:{request.raw_text.index(direct)}:{len(direct)}",
+                quote=direct,
+            )
+            raw.append(_source_constraint(
+                "deliverables.required",
+                (DeliverableRequirement(description=direct,
+                                        effect=DeliverableEffect.REPOSITORY_MUTATION),),
+                enforcement=ConstraintEnforcement.HARD,
+                origin=ConstraintOrigin.USER_EXPLICIT, evidence=ref,
+                method="deterministic", contributor="runtime-rule:DIRECT_MUTATION_V1",
             ))
         for candidate in user_candidates:
             quote = candidate.evidence_quote
