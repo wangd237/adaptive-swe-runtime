@@ -183,7 +183,7 @@ def finalize_task(
     historical_candidates = tuple(ref for st in scheduler.states.values() for attempt in st.attempts
                        for ref in attempt.evidence_refs)
     # Validate immutable historical EvidenceRefs without touching Workspace.
-    warnings: list[str] = []
+    warnings: list[str] = list(getattr(scheduler, "secondary_runtime_diagnostics", ()))
     historical = []
     for ref in sorted(set(historical_candidates), key=lambda e: e.evidence_id):
         try:

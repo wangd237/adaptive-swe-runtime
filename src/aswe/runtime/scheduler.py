@@ -105,6 +105,8 @@ class SchedulerCore:
         }
         self.tickets: dict[str, NodeDispatchTicket] = {}
         self.failure_kinds: list[str] = []
+        # Secondary cancellation side effects never create business root failures.
+        self.secondary_runtime_diagnostics: list[str] = []
         self._pending_attempt_kinds: dict[str, NodeAttemptKind] = {}
         self._repair_feedback_revision: dict[str, WorkspaceRevision] = {}
         self._repair_feedback_text: dict[str, str] = {}
@@ -381,6 +383,9 @@ class SchedulerCore:
                            NodeAttemptStatus.CANCELLED if cancelled else NodeAttemptStatus.FAILED),
                 "post_workspace_revision": post,
                 "failure_kind": None if success else (
+                    "FAIL_CLOSED_CONSUMER_CANCELLED"
+                    if (cancelled and self.gate.state is TaskDispatchGateState.CLOSED
+                        and not self.cancelled and not local_cancel) else
                     "ACCEPTANCE_FAILED" if own_repair else
                     getattr(result, "failure_kind", None) or "ACCEPTANCE_OR_EXECUTION_FAILED"
                 ),
@@ -391,11 +396,24 @@ class SchedulerCore:
                 "attempts": state.attempts[:-1] + (record,),
                 "active_dispatch_ticket_id": None,
             }
-            if cancelled and (self.cancelled or local_cancel):
+            if cancelled and (self.cancelled or local_cancel
+                              or self.gate.state is TaskDispatchGateState.CLOSED):
+                # A task-fail-close cancelled consumer is a consequence of the
+                # original business failure, not another independent root.
                 changes.update(
                     logical_status=NodeLogicalStatus.CANCELLED,
                     terminal_failure_kind=None,
                 )
+                if (not self.cancelled and not local_cancel
+                        and self.gate.state is TaskDispatchGateState.CLOSED):
+                    if mutation is not MutationEvidence.PROVEN_NONE:
+                        self.secondary_runtime_diagnostics.append(
+                            "FAIL_CLOSED_CONSUMER_MUTATION:" + invocation.node_id
+                        )
+                    if not getattr(result, "quiescent", False):
+                        self.secondary_runtime_diagnostics.append(
+                            "FAIL_CLOSED_CONSUMER_QUIESCENCE_UNKNOWN:" + invocation.node_id
+                        )
             elif success:
                 changes.update(
                     logical_status=NodeLogicalStatus.SUCCEEDED,
@@ -421,15 +439,31 @@ class SchedulerCore:
                 changes["logical_status"] = NodeLogicalStatus.REMEDIATION_PENDING
                 self._pending_attempt_kinds[invocation.node_id] = NodeAttemptKind.RETRY
             else:
+                budget_exhausted = (
+                    own_acceptance_feedback is not None
+                    and mutation is MutationEvidence.OBSERVED
+                    and getattr(result, "quiescent", False)
+                    and state.repair_count >= self.budget.max_repairs_per_write
+                    and self.nodes[invocation.node_id].work_kind is WorkKind.IMPLEMENTATION
+                )
+                review_rejected = (
+                    self.nodes[invocation.node_id].work_kind is WorkKind.REVIEW
+                    and getattr(result, "failure_kind", None) == "REVIEW_GATE_REJECTED"
+                    and mutation is MutationEvidence.PROVEN_NONE
+                )
+                terminal_reason = (
+                    "REPAIR_BUDGET_EXHAUSTED" if budget_exhausted else
+                    "REVIEW_GATE_REJECTED" if review_rejected else
+                    "DIRTY_WRITE_FAILURE" if mutation is not MutationEvidence.PROVEN_NONE else
+                    "ATTEMPT_FAILED"
+                )
                 changes.update(
                     logical_status=NodeLogicalStatus.FAILED,
-                    terminal_failure_kind=(
-                        "DIRTY_WRITE_FAILURE" if mutation is not MutationEvidence.PROVEN_NONE
-                        else "ATTEMPT_FAILED"
-                    ),
+                    terminal_failure_kind=terminal_reason,
                 )
-                if mutation is not MutationEvidence.PROVEN_NONE or self.gate.state is TaskDispatchGateState.CLOSED:
-                    self._fail_close_locked("DIRTY_WRITE_FAILURE", root_node=invocation.node_id)
+                if (mutation is not MutationEvidence.PROVEN_NONE
+                        or self.gate.state is TaskDispatchGateState.CLOSED):
+                    self._fail_close_locked(terminal_reason, root_node=invocation.node_id)
                     close_dispatch = True
             self.states[invocation.node_id] = state.model_copy(update=changes)
             if local_cancel:
@@ -567,9 +601,10 @@ class SchedulerCore:
                 or writer != state_snapshot[writer_id]
                 or self.revision != attribution.observed_workspace_revision
                 or writer.logical_status is not NodeLogicalStatus.SUCCEEDED
-                or writer.accepted_attempt != attribution.target_write_attempt
-                or writer.repair_count >= self.budget.max_repairs_per_write):
+                or writer.accepted_attempt != attribution.target_write_attempt):
                 fail_reason = "REPAIR_SCOPE_INVALIDATED_STALE"
+            elif writer.repair_count >= self.budget.max_repairs_per_write:
+                fail_reason = "REPAIR_BUDGET_EXHAUSTED"
             else:
                 descendants = self._descendants_locked(writer_id)
                 for node_id in descendants:
