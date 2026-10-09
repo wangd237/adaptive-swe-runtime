@@ -8,8 +8,8 @@
     "GAP": "specific scenario has no direct executable regression; blocks Step 2 closure"
   },
   "counts": {
-    "PASS": 58,
-    "PARTIAL": 7,
+    "PASS": 60,
+    "PARTIAL": 5,
     "GAP": 0
   },
   "entries": [
@@ -305,9 +305,9 @@
       "id": "R100",
       "description": "Review REQUEST_CHANGES after valid Writer patch",
       "criterion": "Task FAILED；patch 保留为 RESIDUAL_UNACCEPTED，不伪装 accepted",
-      "status": "PARTIAL",
+      "status": "PASS",
       "test": "tests/unit/test_p0c_terminal.py::test_r100_review_request_changes_preserves_writer_patch_but_not_acceptance",
-      "assessment": "FakeBackend 正规化 REVIEW_GATE_REJECTED 后 TaskResult FAILED + RESIDUAL_UNACCEPTED，未实现带 ReviewVerdict EvidenceRef 的生产级可信 REQUEST_CHANGES 入口"
+      "assessment": "Runtime-injected typed ReviewGate 产生 source-bound ReviewVerdict(kind REVIEW_VERDICT) + REQUEST_CHANGES；Task FAILED，真实 Git patch 为 RESIDUAL_UNACCEPTED；伪造执行身份被拒绝"
     },
     {
       "id": "R101",
@@ -329,9 +329,9 @@
       "id": "R103",
       "description": "terminal dirty fail-close state transaction",
       "criterion": "failing node FAILED + task FAILED + dispatch closed + remaining nodes BLOCKED 原子化",
-      "status": "PARTIAL",
+      "status": "PASS",
       "test": "tests/unit/test_p0c_terminal.py::test_r91_r94_r95_r103_dirty_writer_failed_reviewer_never_runs_and_patch_is_runtime_only",
-      "assessment": "Scheduler mutex 内 post revision、failing Node、_task_failed、gate、剩余 nodes BLOCKED 一次发布；TaskLogicalStatus 仍在 finalizer 汇总生成，缺规范意义独立任务状态同步发布与并发证明"
+      "assessment": "_fail_close_locked 在 SchedulerStateMutex 一次事务中发布 TaskLogicalStatus=FAILED、gate epoch、failing Node 和 blocked nodes；仅 quiescence 后 FROZEN/final TaskResult"
     },
     {
       "id": "R104",

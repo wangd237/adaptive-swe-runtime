@@ -27,8 +27,8 @@
 ## Full frozen PoC exit audit
 
 - Audited cases: 65 (R16–R26, R75–R128)
-- PASS: 58
-- PARTIAL: 7
+- PASS: 60
+- PARTIAL: 5
 - GAP: 0
 - **Step 2 CLOSED is forbidden while PARTIAL/GAP remains.**
 
@@ -48,8 +48,8 @@
 - [x] R89 real Git intervening Writer and Runtime-owned post-digest capture
 - [x] R101/R102 actual mutated WRITE acceptance → bounded repair → repair budget exhausted, residual patch terminal proof
 - [x] R91/R94/R95/R99/R123/R128 physical dirty-failure, quarantine and fail-close cancellation result integration
-- [ ] R100 production typed ReviewVerdict admission (currently only FakeBackend normalized REVIEW_GATE_REJECTED)
-- [ ] R103 explicit authoritative TaskLogicalStatus atomic publication (Scheduler boolean/gate/node transition already linearized)
+- [x] R100 trusted typed ReviewGate REQUEST_CHANGES callback + persisted attempt REVIEW_VERDICT; FakeBackend-only API, integration with DeerFlow remains Step 5
+- [x] R103 typed TaskLogicalStatus FAILED/CANCELLED publication within Scheduler mutex transaction
 - [ ] True concurrent mutex / claim / accepted-publish race stresses R119–R121, R125–R126
 - [ ] Finish every audit PARTIAL/GAP with evidence and independent implementation review
 
@@ -65,7 +65,7 @@
 - Runtime preserves the **new attested AcceptanceVerdict EvidenceRef on exhausted attempt**, not just its predecessor.
 - Fail-close cancelled Consumer is CANCELLED rather than another business FAILED root; its observed mutation is a secondary diagnostic and appears in final repository patch.
 - Unsafe/quiescence-unknown consumer or user cancellation causes QUARANTINED, so terminalizer does not probe current Git.
-- R100 and R103 remain PARTIAL; no artificial PASS without typed review provenance/explicit logical task publication.
+- R100 and R103 now PASS for deterministic Step-2 FakeBackend scenarios; real DeerFlow reviewer adapter remains out of scope.
 
 ## Strict limits
 
