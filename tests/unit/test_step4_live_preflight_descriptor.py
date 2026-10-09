@@ -24,7 +24,8 @@ from tests.unit.test_scheduler_foundation import scheduler,accept
 
 def artifacts(*items):
     c,plan,res,dag=build(*(items or (("explorer",WorkKind.DISCOVERY,"repo_exploration"),)),
-                         needs_mutation=any(cap=="code_modification" for _,_,cap in items))
+                         needs_mutation=any(cap=="code_modification" for _,_,cap in items),
+                         optional_bash=True)
     inv=fake_inventory()
     acceptance=AcceptanceCompiler().compile(contract=c)
     providers=stage4_providers(optional_bash=True)
