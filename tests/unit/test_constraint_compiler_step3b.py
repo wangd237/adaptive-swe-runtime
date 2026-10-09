@@ -328,3 +328,60 @@ def test_operator_authorized_high_risk_rule_generates_review_not_mutation():
     ).compile(request=req("Analyze security risks"), repository_base_sha=BASE,
               task_spec=task)
     assert all(c.key != "review.required" for c in off.constraints)
+
+
+def test_soft_test_command_user_beats_repository_and_runtime_default():
+    guide = RepositoryGuidanceSource(
+        path="CONTRIBUTING.md", content="preference.test_command: tox -q",
+        candidates=(candidate("preference.test_command: tox -q"),),
+    )
+    request = req("preference.test_command: pytest -q")
+    contract, _ = ConstraintCompiler(
+        RuntimePolicyConfig(policy_id="p", rules=(
+            RuntimePolicyRule(
+                key="preference.test_command", value="python -m unittest",
+                enforcement=ConstraintEnforcement.SOFT,
+            ),
+        )),
+    ).compile(
+        request=request, repository_base_sha=BASE,
+        user_candidates=(candidate(request.raw_text),),
+        guidance=(guide,),
+    )
+    chosen = by_key(contract, "preference.test_command")
+    assert chosen.value == "pytest -q"
+    assert chosen.enforcement is ConstraintEnforcement.SOFT
+    assert chosen.provenance.origin is ConstraintOrigin.USER_EXPLICIT
+    assert contract.warnings
+
+
+def test_monotonic_merge_repairs_record_exact_inputs_and_result_digest():
+    contract, _ = compiled(
+        policy=(("repo.paths.allowed", ("src/**",)),
+                ("change.max_files", 10)),
+        quotes=("repo.paths.allowed: src/auth/**",
+                "change.max_files: 2"),
+    )
+    assert {r["key"] for r in contract.compiler_repairs} == {
+        "repo.paths.allowed", "change.max_files",
+    }
+    assert all(r["code"] == "MONOTONIC_MERGE" for r in contract.compiler_repairs)
+
+
+def test_runtime_soft_preference_does_not_mislabel_user_hard_exact_constraint():
+    c, _ = ConstraintCompiler(
+        RuntimePolicyConfig(policy_id="p", rules=(
+            RuntimePolicyRule(
+                key="target.exact_path", value="src/legacy.py",
+                enforcement=ConstraintEnforcement.SOFT,
+            ),
+        )),
+    ).compile(
+        request=req("target.exact_path: src/new.py"),
+        repository_base_sha=BASE,
+        user_candidates=(candidate("target.exact_path: src/new.py"),),
+    )
+    target = by_key(c, "target.exact_path")
+    assert target.enforcement is ConstraintEnforcement.HARD
+    assert target.provenance.origin is ConstraintOrigin.USER_EXPLICIT
+    assert target.value == "src/new.py"

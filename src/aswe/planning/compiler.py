@@ -149,12 +149,20 @@ def _merge(key: str, group: list[CompiledConstraint], warnings: list[dict]) -> o
         return min(values)
     if strategy in ("exact", "priority"):
         fixed = [c for c in ordered if c.enforcement is not ConstraintEnforcement.SOFT]
-        if strategy == "exact" and len({c.value for c in fixed}) > 1:
+        if len({c.value for c in fixed}) > 1:
             code = ("CONTRACT_POLICY_CONFLICT"
                     if any(c.enforcement is ConstraintEnforcement.LOCKED for c in fixed)
                     else "CONTRACT_UNSATISFIABLE")
-            raise ContractCompilationError(code, f"incompatible exact choices: {key}")
-        selected = (fixed or ordered)[0]
+            raise ContractCompilationError(code, f"incompatible fixed choices: {key}")
+        # Soft preference order is explicitly USER > REPOSITORY > Runtime.
+        soft_order = {
+            ConstraintOrigin.USER_EXPLICIT: 3,
+            ConstraintOrigin.REPOSITORY_GUIDANCE: 2,
+            ConstraintOrigin.RUNTIME_POLICY: 1,
+            ConstraintOrigin.RUNTIME_DERIVED: 1,
+        }
+        selected = (fixed or sorted(ordered,
+                    key=lambda c: (-soft_order[c.provenance.origin], c.id)))[0]
         for c in ordered:
             if c.id != selected.id and c.value != selected.value and c.enforcement is ConstraintEnforcement.SOFT:
                 warnings.append({"code": "OVERRIDDEN_GUIDANCE", "key": key,
@@ -165,7 +173,10 @@ def _merge(key: str, group: list[CompiledConstraint], warnings: list[dict]) -> o
 
 def _combine(key: str, group: list[CompiledConstraint], warnings: list[dict]) -> CompiledConstraint:
     value = _merge(key, group, warnings)
-    source = sorted(group, key=lambda c: (-_rank(c), c.id))[0]
+    source = sorted(group, key=lambda c: (
+        -{"soft": 0, "hard": 1, "locked": 2}[c.enforcement.value],
+        -_rank(c), c.id,
+    ))[0]
     # Keep each contributing evidence locator/hash, even when its origin is
     # lower priority. contributor identity retains the originals.
     refs = {fingerprint(e): e for c in group for e in c.provenance.evidence}
@@ -323,7 +334,10 @@ class ConstraintCompiler:
                 locator=f"raw_text:{at}:{len(quote)}", quote=quote,
             )
             raw.append(_source_constraint(
-                key, val, enforcement=ConstraintEnforcement.HARD,
+                key, val, enforcement=(
+                    ConstraintEnforcement.SOFT if key == "preference.test_command"
+                    else ConstraintEnforcement.HARD
+                ),
                 origin=ConstraintOrigin.USER_EXPLICIT, evidence=evidence,
                 method="deterministic", contributor="user:" + quote,
             ))
@@ -361,12 +375,23 @@ class ConstraintCompiler:
         warnings: list[dict] = []
         combined = tuple(_combine(k, groups[k], warnings) for k in sorted(groups))
         _check_conflicts({c.key: c for c in combined}, raw)
+        effective = {c.key: c for c in combined}
+        compiler_repairs = tuple(
+            {"code": "MONOTONIC_MERGE", "key": key,
+             "strategy": CONSTRAINT_REGISTRY[key].merge_strategy,
+             "contributor_ids": tuple(sorted(c.id for c in group)),
+             "effective_value_fingerprint": fingerprint(effective[key].value)}
+            for key, group in sorted(groups.items())
+            if len(group) > 1 and any(c.value != effective[key].value for c in group)
+            and CONSTRAINT_REGISTRY[key].merge_strategy
+                in ("intersection", "union", "minimum")
+        )
         body = dict(
             task_request_hash=request.content_hash,
             runtime_policy_hash=policy_hash,
             repository_base_sha=repository_base_sha,
             constraints=combined,
-            compiler_repairs=(),
+            compiler_repairs=compiler_repairs,
             warnings=tuple(sorted(warnings, key=fingerprint)),
         )
         contract = CompiledTaskContract(**body, fingerprint=fingerprint(body))
