@@ -378,8 +378,8 @@ def evaluate_compiled_contract(*, contract: CompiledTaskContract,
         diagnostics = finding.diagnostics if finding else ("MISSING_TRUSTED_EVALUATION_EVIDENCE",)
         if c.key == "verification.required" and canonical_verifier is None:
             diagnostics = diagnostics + ("CANONICAL_VERIFICATION_MISSING",)
-        if (status is ContractLeafStatus.SATISFIED and not refs
-                and c.enforcement is not ConstraintEnforcement.SOFT):
+        if (status in (ContractLeafStatus.SATISFIED, ContractLeafStatus.NOT_APPLICABLE)
+                and not refs and c.enforcement is not ConstraintEnforcement.SOFT):
             status = ContractLeafStatus.UNVERIFIED
             diagnostics = diagnostics + ("SATISFACTION_PROOF_MISSING",)
         leaves.append(ContractLeafVerdict(
@@ -413,3 +413,44 @@ def assert_final_contract_binding(*, contract: CompiledTaskContract,
                                          if c.id == v.constraint_id) for v in verdict.leaves)):
         raise AcceptanceCompilationError("TASK_CONTRACT_FINGERPRINT_MISMATCH",
                                          "terminal verdict cannot be used for this execution")
+
+
+def finalize_bound_task(
+    *, scheduler, repository_binding, evidence_store,
+    contract: CompiledTaskContract, validated_plan: ValidatedWorkPlan,
+    acceptance: CompiledAcceptancePlan,
+    execution_binding: ExecutionContractBinding,
+    observed_execution_binding_fingerprint: str,
+    trusted_findings: tuple[TrustedEvaluationFinding, ...] = (),
+    canonical_verifier: "CanonicalVerifier | None" = None,
+    canonical_receipts: tuple[CanonicalCheckBinding, ...] = (),
+    physical_attribution_complete: bool = False,
+):
+    """Step-3 -> Step-2 terminal seam. All checks precede repository I/O.
+
+    The *observed* fingerprint must come from Runtime's pinned execution
+    snapshot in Step 4, never the semantic Planner or an Agent self-report.
+    """
+    expected = bind_execution_contract(
+        contract=contract, plan=validated_plan, acceptance=acceptance,
+    )
+    if execution_binding != expected:
+        raise AcceptanceCompilationError("TASK_CONTRACT_FINGERPRINT_MISMATCH",
+                                         "compiled plan/command authority changed after admission")
+    verdict = evaluate_compiled_contract(
+        contract=contract, findings=trusted_findings,
+        execution_binding=execution_binding, acceptance=acceptance,
+        observed_execution_binding_fingerprint=observed_execution_binding_fingerprint,
+        canonical_verifier=canonical_verifier, canonical_receipts=canonical_receipts,
+    )
+    assert_final_contract_binding(
+        contract=contract, binding=execution_binding, acceptance=acceptance,
+        observed_execution_binding_fingerprint=observed_execution_binding_fingerprint,
+        verdict=verdict,
+    )
+    from aswe.runtime.finalization import finalize_task
+    return finalize_task(
+        scheduler=scheduler, binding=repository_binding, evidence_store=evidence_store,
+        contract_verdict=verdict, physical_attribution_complete=physical_attribution_complete,
+        expected_contract_fingerprint=contract.fingerprint,
+    )
