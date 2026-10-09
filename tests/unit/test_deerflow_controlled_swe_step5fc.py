@@ -141,3 +141,16 @@ def test_docker_backend_never_accepts_unpinned_tag_or_host_command(repository_fi
     for image in ("python:3.12-alpine","", "python:3.12 @sha256:fake"):
         with pytest.raises(SWEExecutionDenied,match="SWE_DOCKER_CONFIGURATION_INVALID"):
             DockerCommandBackend(workspace_root=root,image=image)
+
+
+def test_swe_binding_store_requires_explicit_scheduler_workspace_root():
+    from aswe.integrations.deerflow.tool_guard import NodeExecutionBindingStore
+    from tests.unit.test_deerflow_preparation_step5c import setup
+    prep,_,_,_=setup()
+    with pytest.raises(ValueError,match="Scheduler Workspace root required"):
+        NodeExecutionBindingStore(
+            preparation_backend=prep,principal_supplier=lambda _:None,
+            provider_supplier=lambda _:None,auth_request_factory=lambda **kw:kw,
+            execution_live_checker=lambda _:True,
+            swe_workspace_factory=lambda inv,res,pol:None,
+        )
