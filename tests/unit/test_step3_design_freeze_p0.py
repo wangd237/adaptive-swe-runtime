@@ -153,7 +153,6 @@ def test_p0d_deep_immutable_authority_and_repair_payload():
         ),
     )).compile(request=make_task_request(request_id="x",raw_text="Analyze"),
                repository_base_sha="a"*40)
-    from aswe.planning.compiler import RuntimePolicyConfig
     c,_=contract_for("Fix the leak.")
     val=c.constraints[0].value
     assert isinstance(val,tuple)

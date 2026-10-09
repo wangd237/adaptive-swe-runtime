@@ -77,10 +77,11 @@ def collect_repository_profile(root: str | Path, *, task_text: str = "",
             if budget>=max_probe_files: break
             if Path(name).suffix.lower() not in LANG_EXT: continue
             budget+=1
-            raw=_git(path,"show",f"{head}:{name}",max_bytes=max_blob_bytes+1)
-            if len(raw)>max_blob_bytes:
+            size=int(_git(path,"cat-file","-s",f"{head}:{name}").decode("ascii").strip())
+            if size>max_blob_bytes:
                 truncated=True
                 continue
+            raw=_git(path,"show",f"{head}:{name}",max_bytes=max_blob_bytes)
             for no,line in enumerate(raw.decode("utf-8","replace").splitlines(),1):
                 for anchor in anchors:
                     if anchor in line and not any(x.path==name and x.anchor==anchor for x in matches):
