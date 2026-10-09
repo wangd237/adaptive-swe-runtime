@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Mapping
 
 from aswe.core.contracts.backend import NodeExecutionInvocation, NodeExecutionPreparation
-from aswe.capabilities.effects import DEERFLOW_USE_BY_CONTRACT
+from aswe.capabilities.effects import DEERFLOW_USE_BY_CONTRACT, STANDARD_EFFECTS, ToolEffect
 from aswe.integrations.deerflow.preparation import (
     DeerFlowPreparationBackend, DeerFlowPreparationError, PinnedNodeResources,
     _tool_seal, _extension_seal,
@@ -179,7 +179,8 @@ class ToolCallGuard:
     def __init__(self, *, invocation: NodeExecutionInvocation,
                  resources: PinnedNodeResources, view: BoundToolView,
                  principal: Any, provider: Any,
-                 request_factory: Callable[..., Any], auth_enabled: bool):
+                 request_factory: Callable[..., Any], auth_enabled: bool,
+                 policy: Any):
         self.invocation = invocation
         self.resources = resources
         self.view = view
@@ -187,6 +188,10 @@ class ToolCallGuard:
         self.provider = provider
         self.request_factory = request_factory
         self.auth_enabled = auth_enabled
+        self.policy = policy
+        if (policy.fingerprint != resources.policy_fingerprint or
+                not set(view.names).issubset(policy.allowed_business_tools)):
+            _deny("TOOL_POLICY_IDENTITY_MISMATCH")
         self.closed = False
         self._pending_calls: set[str] = set()
         self._used_call_ids: set[str] = set()
@@ -207,8 +212,19 @@ class ToolCallGuard:
         if tool is None or not any(t is tool for t in self.view.objects):
             _deny("UNBOUND_TOOL_OBJECT")
         name = tool.name
-        if name not in self.view.names:
+        if name not in self.view.names or name in self.policy.denied_tools:
             _deny("UNBOUND_TOOL_NAME")
+        if (name in self.policy.prohibited_actions
+                or "*" in self.policy.prohibited_actions):
+            _deny("TOOL_ACTION_PROHIBITED")
+        effect = STANDARD_EFFECTS.get("config:" + name, ToolEffect.UNKNOWN)
+        # 5D has no authenticated Sandbox/Workspace argument policy hook.
+        # Do not permit even authorized WRITE/Bash calls until 5E/5F bind the
+        # canonical path/command verifier and mutation evidence lifecycle.
+        if effect is not ToolEffect.READ_ONLY:
+            _deny("MUTATING_TOOL_EXECUTION_NOT_ENABLED")
+        if (self.policy.allowed_paths is not None or self.policy.forbidden_paths):
+            _deny("TOOL_PATH_POLICY_UNBOUND")
         if tool_call_id in self._pending_calls:
             _deny("TOOL_CALL_REPLAY")
         # Disallow malformed opaque arguments that native AuthorizationProvider
@@ -453,6 +469,7 @@ class NodeExecutionBindingStore:
                 invocation=invocation, resources=resources,
                 view=view, principal=principal, provider=provider,
                 request_factory=self.auth_request_factory, auth_enabled=enabled,
+                policy=self.preparation_backend.policy,
             )
             record = NodeExecutionBinding(
                 execution_id=invocation.execution_id,
