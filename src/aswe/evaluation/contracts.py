@@ -3,6 +3,7 @@
 The Planner does not assign enforcement authority; these are final evaluator
 inputs from a compiler-owned contract, never generated from model prose.
 """
+from enum import Enum
 from pydantic import model_validator
 
 from aswe.core.contracts._base import FrozenModel
