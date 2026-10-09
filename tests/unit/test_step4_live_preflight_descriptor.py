@@ -476,3 +476,19 @@ def test_poc53_same_provider_multiple_nodes_no_hidden_merge_or_context_reuse():
     assert {x.id for x in desc.task_dag.nodes}=={"discover","search"}
     assert len(desc.assignments)==2
     assert len({x.node_id for x in ps})==2
+
+
+def test_resigned_resource_claim_cannot_erase_provider_required_bash():
+    from aswe.providers.resolver import NodeResources,ResolvedPlan
+    c,plan,res,dag,inv,acceptance,providers,ops,policies,descriptor=artifacts(
+        ("tester",WorkKind.VERIFICATION,"regression_testing"))
+    raw=res.nodes[0].model_dump(mode="json",exclude={"policy_fingerprint"})
+    raw.update(required_tools=["read_file"],selected_optional_tools=[],
+               allowed_tools=["read_file"],workspace_access="read")
+    forged_node=NodeResources(**raw,policy_fingerprint=fingerprint(raw))
+    body=res.model_dump(mode="json",exclude={"fingerprint"})
+    body["nodes"]=[forged_node.model_dump(mode="json")]
+    forged=ResolvedPlan(**body,fingerprint=fingerprint(body))
+    with pytest.raises(AdmissionError,match="PROVIDER_CAPABILITY_CLOSURE_MISMATCH"):
+        compile_policies(contract=c,plan=plan,resolved=forged,inventory=inv,
+            acceptance=acceptance,providers=providers,operators=ops)

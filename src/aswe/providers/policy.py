@@ -139,6 +139,21 @@ def compile_policies(*,contract:CompiledTaskContract,plan:ValidatedWorkPlan,
         if (p is None or o is None or p.backend_agent_type not in inventory.candidate_agent_types
             or r.provider_contract_fingerprint!=p.fingerprint):
             raise AdmissionError("PROVIDER_STATIC_CONTRACT_MISMATCH")
+        if not set(item.capability_hints).issubset(p.capability_bindings):
+            raise AdmissionError("PROVIDER_CAPABILITY_CLOSURE_MISMATCH")
+        expected_required=[]
+        declared_optional=[]
+        for cap in item.capability_hints:
+            binding=p.capability_bindings[cap]
+            for tool_id in binding.required_tools:
+                if tool_id not in expected_required: expected_required.append(tool_id)
+            for tool_id in binding.optional_tools:
+                if tool_id not in declared_optional: declared_optional.append(tool_id)
+        if (tuple(expected_required)!=r.required_tools
+            or not set(r.selected_optional_tools).issubset(declared_optional)
+            or set(r.selected_optional_tools).intersection(expected_required)
+            or r.allowed_tools!=r.required_tools+r.selected_optional_tools):
+            raise AdmissionError("PROVIDER_CAPABILITY_CLOSURE_MISMATCH")
         allow_set=set(o.allowed_tools) if o.allowed_tools is not None else set(r.allowed_tools)
         allow=tuple(t for t in r.allowed_tools
                     if t in allow_set and t not in o.denied_tools
