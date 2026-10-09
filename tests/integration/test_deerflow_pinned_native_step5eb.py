@@ -305,3 +305,58 @@ async def test_real_subagent_executor_aexecute_native_lifecycle_offline():
     )
     assert result.result == "offline-native-complete"
     assert binding.guard._used_call_ids == {"native-pinned-tool-call-1"}
+
+
+@pytest.mark.asyncio
+async def test_real_installed_native_graph_persists_guard_receipt_and_unknown_quiescence(tmp_path):
+    """Real frozen vendor, real native graph/tool, *no fabricated sandbox proof*."""
+    import subprocess
+    from dataclasses import replace
+    from aswe.repository import bootstrap_repository
+    from aswe.evidence import LocalEvidenceStore
+    from aswe.integrations.deerflow.execution_evidence import ExecutionEvidenceCollector
+    from tests.unit.test_deerflow_execution_evidence_step5f import invocation
+    from aswe.workspace.delta import MutationEvidence
+
+    source=tmp_path/"origin"
+    source.mkdir()
+    def git(*args):
+        subprocess.run(["git","-C",str(source),*args],check=True,
+                       stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    git("init","-b","main")
+    git("config","user.name","Native Integration")
+    git("config","user.email","native@example.invalid")
+    (source/"README.md").write_text("fixture")
+    git("add","-A")
+    git("commit","-m","baseline")
+    repo=bootstrap_repository(source,tmp_path/"workspace",requested_ref="main")
+    actual_invocation=invocation(repo)
+    evidence=ExecutionEvidenceCollector(
+        repository=repo,
+        evidence_store=LocalEvidenceStore(tmp_path/"protected-evidence",
+                                          workspace_root=repo.repository_root),
+        supervisor=None,
+    )
+    binding=physical_binding(execution_id=actual_invocation.execution_id)
+    binding.guard.invocation=actual_invocation
+    binding=replace(binding,invocation=actual_invocation)
+    baseline=await evidence.begin(actual_invocation)
+    assembler,_=native_assembler_with_offline_model()
+    native=assembler.build(binding)
+    result=await native._aexecute("Read the fake file")
+    assert result.status.value=="completed"
+    binding.guard.close()
+    report=await evidence.finish(baseline,guard=binding.guard,
+                                  native_task_done=True)
+    assert report.quiescent is False
+    assert report.mutation_evidence is MutationEvidence.UNKNOWN
+    workspace=evidence.evidence_store.get(report.evidence_ref)
+    ledger=evidence.evidence_store.get(report.tool_receipt_ref)
+    assert workspace["quiescence_proven"] is False
+    assert workspace["execution_id"] == actual_invocation.execution_id
+    assert len(ledger["receipts"])==1
+    assert ledger["receipts"][0]["status"]=="completed"
+    assert ledger["receipts"][0]["tool_name"]=="read_file"
+    assert ledger["receipts"][0]["tool_call_id"]=="native-pinned-tool-call-1"
+    assert ledger["receipts"][0]["arguments_digest"]
+    assert "README.md" not in str(ledger)
