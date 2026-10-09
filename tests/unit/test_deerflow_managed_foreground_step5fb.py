@@ -184,3 +184,108 @@ async def test_approved_but_missing_executable_fails_closed(repository_fixture):
     observed = await runner.await_completion(inv.execution_id)
     assert observed is not None and observed.status == "unverified"
     assert observed.process_group_drained is False
+
+
+@pytest.mark.asyncio
+async def test_real_foreground_receipt_is_signed_and_verified_by_runtime(
+        repository_fixture, tmp_path):
+    import hashlib
+    from aswe.runtime.canonical_verifier import CanonicalVerifier
+    from aswe.evidence import LocalEvidenceStore
+
+    runner, inv, cmd = _approved(repository_fixture, (sys.executable, "-m", "this"))
+    store = LocalEvidenceStore(tmp_path/"evidence-sign",
+                               workspace_root=repository_fixture.repository_root)
+    verifier = CanonicalVerifier(
+        task_id=inv.task_id, runtime_data_dir=tmp_path/"runtime-private",
+        evidence_store=store, binding=repository_fixture,
+    )
+    observed = await runner.run(invocation=inv, command_id=cmd.id, command=cmd.command)
+    assert observed.completion_observed and observed.process_group_drained
+    assert observed.stdout_sha256 != hashlib.sha256(b"").hexdigest()
+    ref, signed = runner.attest_canonical(invocation=inv, verifier=verifier)
+    assert signed.status == "holds"
+    assert signed.stdout_sha256 == observed.stdout_sha256
+    assert signed.command_policy_fingerprint == runner.plan.canonical_policies[0].fingerprint
+    assert verifier.validate(ref, node_id=inv.node_id, execution_id=inv.execution_id,
+                             attempt=inv.attempt,
+                             revision=inv.execution_workspace_revision,
+                             check_id=cmd.id) == signed
+
+    # The persisted payload/fingerprint/HMAC must reject any tampered status.
+    with pytest.raises(ValueError):
+        verifier.attest_foreground_observation(
+            observed=__import__("dataclasses").replace(
+                observed, status="holds", process_group_drained=False
+            ),
+            policy=runner.plan.canonical_policies[0],
+            revision=inv.execution_workspace_revision,
+        )
+    with pytest.raises(ForegroundExecutionError, match="FOREGROUND_CANONICAL_ATTESTATION_MISMATCH"):
+        runner.attest_canonical(
+            invocation=inv.model_copy(update={"attempt":99}), verifier=verifier)
+
+
+@pytest.mark.asyncio
+async def test_nonzero_and_timed_out_commands_never_sign_as_success(repository_fixture,tmp_path):
+    from aswe.runtime.canonical_verifier import CanonicalVerifier
+    from aswe.evidence import LocalEvidenceStore
+    for idx,(args,limit,expected,inline) in enumerate((
+        ((sys.executable, "-m", "aswe_nonexistent_module"), 1.0, "failed", False),
+        ((sys.executable, "-c", "__import__('time').sleep(2)"), 0.05, "unverified", True),
+    )):
+        runner, inv, cmd = _approved(repository_fixture,args,timeout=limit,
+                                      allow_inline=inline,runtime_id="task5fb" + str(idx))
+        verifier = CanonicalVerifier(
+            task_id=inv.task_id,runtime_data_dir=tmp_path/("private"+str(idx)),
+            evidence_store=LocalEvidenceStore(tmp_path/("store"+str(idx)),
+                                             workspace_root=repository_fixture.repository_root),
+            binding=repository_fixture,
+        )
+        observed = await runner.run(invocation=inv, command_id=cmd.id, command=cmd.command)
+        ref, receipt = runner.attest_canonical(invocation=inv,verifier=verifier)
+        assert receipt.status == expected and receipt.status == observed.status
+        assert receipt.attestation_hmac
+        assert verifier.validate(ref,node_id=inv.node_id,
+                                execution_id=inv.execution_id,
+                                attempt=inv.attempt,
+                                revision=inv.execution_workspace_revision,
+                                check_id=cmd.id).status == expected
+
+
+@pytest.mark.asyncio
+async def test_repeated_cancel_does_not_forge_foreground_completion(repository_fixture,monkeypatch):
+    """Even cancellation of the caller during cleanup leaves an owned finalizer."""
+    runner,inv,cmd=_approved(
+        repository_fixture,
+        (sys.executable,"-c","__import__('time').sleep(3)"),
+        timeout=5,allow_inline=True,
+    )
+    started=asyncio.Event()
+    release=asyncio.Event()
+    original=runner._drain
+    async def paused(proc):
+        started.set()
+        await release.wait()
+        return await original(proc)
+    monkeypatch.setattr(runner,"_drain",paused)
+    task=asyncio.create_task(runner.run(
+        invocation=inv,command_id=cmd.id,command=cmd.command))
+    for _ in range(300):
+        marker=runner._runs.get(inv.execution_id)
+        if marker is not None and marker.process is not None:
+            break
+        await asyncio.sleep(0.005)
+    assert marker is not None and marker.process is not None
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await asyncio.wait_for(started.wait(),1)
+    assert marker.finalizer is not None and not marker.completion.is_set()
+    with pytest.raises(ForegroundExecutionError,match="FOREGROUND_QUIESCENCE_UNPROVEN"):
+        await runner.await_completion(inv.execution_id,timeout=0.03)
+    release.set()
+    receipt=await runner.await_completion(inv.execution_id,timeout=4)
+    assert receipt is not None and receipt.completion_observed
+    assert receipt.status == "unverified"
+    assert receipt.process_group_drained
