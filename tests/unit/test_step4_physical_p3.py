@@ -204,3 +204,32 @@ async def test_p3_11_clean_bash_tester_does_not_falsely_fail(canonical_workspace
     await core.run_claim(await core.claim("tester"),guard,accept=accept)
     assert not core.failed
     assert core.states["tester"].logical_status is NodeLogicalStatus.SUCCEEDED
+
+
+def test_step4_resolved_resource_fingerprint_and_inventory_tamper_fail_closed():
+    from pydantic import ValidationError
+    from aswe.planning.dag import MaterializationError
+    from aswe.providers.inventory import inventory_fingerprint
+    c,p,res,dag=build(("tester",WorkKind.VERIFICATION,"regression_testing"),
+                      needs_mutation=False)
+    inventory=fake_inventory()
+    assert materialize_task_dag(plan=p,resolved=res,inventory=inventory)==dag
+    with pytest.raises(TypeError):
+        inventory.candidate_tools["bash"]="forged"
+    with pytest.raises(ValidationError,match="policy fingerprint mismatch"):
+        res.nodes[0].model_copy(update={"workspace_access":WorkspaceAccess.READ})
+    # A forged policy with a *self-consistent* digest is still not allowed to
+    # downgrade bash WRITE when physically materializing a TaskDAG.
+    from aswe.core.fingerprint import fingerprint
+    body=res.nodes[0].model_dump(mode="json",exclude={"policy_fingerprint"})
+    body["workspace_access"]="read"
+    downgraded=res.nodes[0].model_copy(update={
+        "workspace_access":WorkspaceAccess.READ,
+        "policy_fingerprint":fingerprint(body),
+    })
+    forged=res.model_dump(mode="json",exclude={"fingerprint"})
+    forged["nodes"]=[downgraded.model_dump(mode="json")]
+    from aswe.providers.resolver import ResolvedPlan
+    replacement=ResolvedPlan(**forged,fingerprint=fingerprint(forged))
+    with pytest.raises(MaterializationError,match="WORKSPACE_EFFECT_AUTHORITY_MISMATCH"):
+        materialize_task_dag(plan=p,resolved=replacement,inventory=inventory)

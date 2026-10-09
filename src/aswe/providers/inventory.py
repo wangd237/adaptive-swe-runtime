@@ -3,6 +3,7 @@ from datetime import datetime,timezone
 from pydantic import Field,model_validator
 from aswe.core.contracts._base import FrozenModel
 from aswe.core.fingerprint import fingerprint
+from aswe.planning.immutable import deep_freeze
 from aswe.capabilities.effects import ToolEffect,STANDARD_EFFECTS
 
 def inventory_fingerprint(values) -> str:
@@ -46,6 +47,7 @@ class BackendInventorySnapshot(FrozenModel):
             raise ValueError("inventory fingerprint mismatch")
         if any(k!=v.contract_id for k,v in self.candidate_tools.items()):
             raise ValueError("inventory Tool Contract ID mismatch")
+        object.__setattr__(self,"candidate_tools",deep_freeze(self.candidate_tools))
         return self
 
 def fake_inventory(*,agent_types=("coder","tester","reviewer","explorer"),

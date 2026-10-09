@@ -3,6 +3,7 @@ from typing import Literal
 from pydantic import model_validator
 from aswe.core.contracts._base import FrozenModel
 from aswe.core.fingerprint import fingerprint
+from aswe.planning.immutable import deep_freeze
 
 class CapabilityBinding(FrozenModel):
     capability_id:str
@@ -27,6 +28,7 @@ class AgentProvider(FrozenModel):
             raise ValueError("capability binding key mismatch")
         if self.fingerprint!=fingerprint(self.model_dump(mode="json",exclude={"fingerprint"})):
             raise ValueError("provider fingerprint mismatch")
+        object.__setattr__(self,"capability_bindings",deep_freeze(self.capability_bindings))
         return self
 
 def provider(id,capabilities,*,role=None):
