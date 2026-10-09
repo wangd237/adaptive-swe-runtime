@@ -47,7 +47,6 @@ class OfflineToolCallingModel(BaseChatModel):
         return "aswe-offline-physical-poc"
 
     def bind_tools(self, tools, **kwargs):
-        self._received_tools = tuple(tools)
         return self
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):
