@@ -414,13 +414,20 @@ class DeerFlowPreparationBackend:
         method. Missing checker, precommit invocation, wrong owner, or stale
         commit fails closed. 5D/5E must reuse these exact captured resources.
         """
+        if not isinstance(preparation, NodeExecutionPreparation):
+            raise DeerFlowPreparationError("PREPARED_EXECUTION_BINDING_MISMATCH")
         entry = self._pending.pop(preparation.preparation_id, None)
         if entry is None or entry[0] != preparation:
             raise DeerFlowPreparationError("PREPARED_EXECUTION_BINDING_MISMATCH")
         resources = entry[1]
-        if (not isinstance(invocation, NodeExecutionInvocation)
-                or self.commit_checker is None
-                or self.commit_checker(invocation) is not True
+        committed = False
+        if isinstance(invocation, NodeExecutionInvocation) and self.commit_checker is not None:
+            try:
+                committed = self.commit_checker(invocation) is True
+            except Exception:
+                # The provider must not leak a Scheduler/authorization traceback.
+                committed = False
+        if (not committed
                 or invocation.task_id != self.task_id
                 or invocation.node_id != self.node.id
                 or preparation.node_id != self.node.id
