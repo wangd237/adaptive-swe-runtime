@@ -200,3 +200,130 @@ async def test_unknown_node_and_untrusted_config_fail_closed():
     env["app"] = SimpleNamespace(models=[])
     with pytest.raises(DeerFlowPreparationError, match="APP_CONFIG_UNATTESTED"):
         await backend.prepare_node(node)
+
+@pytest.mark.asyncio
+async def test_native_agent_required_tool_deny_and_allowlist_fail_closed():
+    backend, node, env, _ = setup()
+    env["sub_denied"] = ["read_file"]
+    with pytest.raises(DeerFlowPreparationError, match="SUBAGENT_REQUIRED_TOOL_RESTRICTED"):
+        await backend.prepare_node(node)
+    env["sub_denied"] = []
+    env["sub_tools"] = ["some_other_tool"]
+    with pytest.raises(DeerFlowPreparationError, match="SUBAGENT_REQUIRED_TOOL_RESTRICTED"):
+        await backend.prepare_node(node)
+    assert backend.pending_count == 0
+
+
+@pytest.mark.asyncio
+async def test_uncommitted_invocation_denied_and_consumed_once(tmp_path):
+    from aswe.core.contracts.backend import NodeExecutionInvocation, NodeAttemptKind
+    from tests.unit.test_scheduler_foundation import scheduler
+    backend, node, env, tool = setup()
+    core, _ = scheduler(tmp_path, node)
+    backend.commit_checker = core.is_committed_invocation
+    prepared = await backend.prepare_node(node)
+    invocation = NodeExecutionInvocation(
+        task_id="task-5c", node_id=node.id, attempt=1,
+        attempt_kind=NodeAttemptKind.INITIAL,
+        execution_id="e-not-committed", run_id="r-not-committed",
+        execution_workspace_revision=core.revision, dispatch_ticket_id="t-fake",
+        task_dispatch_epoch=core.gate.epoch,
+        dependency_acceptance_stamps=(), dependency_context_text="",
+        dependency_handoff_fingerprints=(), repair_feedback_text=None,
+        context_fingerprint="test",
+    )
+    with pytest.raises(DeerFlowPreparationError, match="PREPARED_EXECUTION_BINDING_MISMATCH"):
+        backend.claim_for_execution(prepared, invocation)
+    assert backend.pending_count == 0
+    with pytest.raises(DeerFlowPreparationError, match="PREPARED_EXECUTION_BINDING_MISMATCH"):
+        backend.claim_for_execution(prepared, invocation)
+
+
+@pytest.mark.asyncio
+async def test_scheduler_precommit_revoke_releases_preparation(tmp_path):
+    from tests.unit.test_scheduler_foundation import scheduler
+    backend, node, _, _ = setup()
+    core, _ = scheduler(tmp_path, node)
+    ticket = await core.claim(node.id)
+    await core.revoke(ticket.ticket_id)
+    out = await core.run_claim(ticket, backend)
+    assert out is None
+    assert backend.pending_count == 0
+    assert core.states[node.id].attempts == ()
+
+
+@pytest.mark.asyncio
+async def test_real_scheduler_commit_gates_one_shot_claim(tmp_path):
+    from tests.unit.test_scheduler_foundation import scheduler, accept
+    from tests.fakes.backend import FakeExecutionBackend, FakeExecutionScenario
+    backend, node, env, tool = setup()
+    core, _ = scheduler(tmp_path, node)
+    backend.commit_checker = core.is_committed_invocation
+    fake = FakeExecutionBackend([FakeExecutionScenario()])
+    captured = []
+
+    class CommitBoundFake:
+        async def prepare_node(self, selected):
+            return await backend.prepare_node(selected)
+
+        async def execute_prepared(self, preparation, invocation):
+            assert core.is_committed_invocation(invocation)
+            env["app"].models[0].model = "runtime hot-reload"
+            captured.append(backend.claim_for_execution(preparation, invocation))
+            with pytest.raises(DeerFlowPreparationError, match="PREPARED_EXECUTION_BINDING_MISMATCH"):
+                backend.claim_for_execution(preparation, invocation)
+            raw = await fake.prepare_node(node)
+            return await fake.execute_prepared(raw, invocation)
+
+        async def cancel_node(self, execution_id):
+            await fake.cancel_node(execution_id)
+
+        def discard_preparation(self, preparation):
+            backend.discard_preparation(preparation)
+
+    invocation = await core.run_claim(await core.claim(node.id), CommitBoundFake(), accept=accept)
+    assert invocation is not None
+    assert not core.is_committed_invocation(invocation)
+    assert len(captured) == 1
+    assert captured[0].app_config.models[0].model == "mock"
+    assert backend.pending_count == 0
+
+
+@pytest.mark.asyncio
+async def test_app_tool_extension_tamper_rejected_on_claim(tmp_path):
+    from tests.unit.test_scheduler_foundation import scheduler
+    from aswe.core.contracts.backend import NodeExecutionInvocation, NodeAttemptKind
+    backend, node, env, tool = setup()
+    core, _ = scheduler(tmp_path, node)
+    # Isolated tamper test only. The positive production-shaped execution uses
+    # SchedulerCore.is_committed_invocation in test_real_scheduler_commit_gates...
+    backend.commit_checker = lambda invocation: True
+    def fixture_invocation(tag):
+        return NodeExecutionInvocation(
+            task_id="task-5c", node_id=node.id, attempt=1,
+            attempt_kind=NodeAttemptKind.INITIAL,
+            execution_id="e" + str(tag), run_id="r" + str(tag),
+            execution_workspace_revision=core.revision,
+            dispatch_ticket_id="fixture-commit",
+            task_dispatch_epoch=0, dependency_acceptance_stamps=(),
+            dependency_context_text="", dependency_handoff_fingerprints=(),
+            repair_feedback_text=None, context_fingerprint="test",
+        )
+    for change in ("app", "sub", "tool", "extension"):
+        prepared = await backend.prepare_node(node)
+        pinned = backend._pending[prepared.preparation_id][1]
+        if change == "app":
+            pinned.app_config.models[0].model = "tampered"
+        if change == "sub":
+            pinned.subagent_config.max_turns += 1
+        if change == "tool":
+            tool.description = "altered-visible-contract"
+        if change == "extension":
+            object.__setattr__(pinned.extensions, "plugins", (("new", object()),))
+        with pytest.raises(DeerFlowPreparationError, match="PREPARED_SNAPSHOT_MUTATED"):
+            backend.claim_for_execution(prepared, fixture_invocation(change))
+        if change == "tool":
+            del tool.description
+        if change == "extension":
+            object.__setattr__(env["extensions"], "plugins", ())
+        assert backend.pending_count == 0
