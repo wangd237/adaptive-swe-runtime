@@ -53,6 +53,10 @@ class NodeExecutionPolicy(FrozenModel):
     infrastructure_tool_names:tuple[str,...]
     preferred_skills:tuple[str,...]
     required_sandbox_features:tuple[str,...]
+    allowed_paths:tuple[str,...]|None
+    forbidden_paths:tuple[str,...]
+    prohibited_actions:tuple[str,...]
+    max_changed_files:int|None
     model_name:str
     workspace_access:WorkspaceAccess
     max_turns:int=Field(gt=0)
@@ -124,10 +128,9 @@ def compile_policies(*,contract:CompiledTaskContract,plan:ValidatedWorkPlan,
     resources={r.node_id:r for r in resolved.nodes}
     if acceptance.unresolved_check_keys:
         raise AdmissionError("REQUIRED_ACCEPTANCE_CHECK_UNRESOLVED")
-    denied_actions=set()
-    for constraint in contract.constraints:
-        if constraint.key=="actions.forbidden":
-            denied_actions.update(constraint.value)
+    contract_requirements={c.key:c for c in contract.constraints}
+    denied_actions=set(contract_requirements["actions.forbidden"].value
+                       if "actions.forbidden" in contract_requirements else ())
     result=[]
     for item in plan.items:
         r=resources[item.id]
@@ -191,6 +194,13 @@ def compile_policies(*,contract:CompiledTaskContract,plan:ValidatedWorkPlan,
           allowed_business_tools=allow,denied_tools=tuple(sorted(set(o.denied_tools))),
           required_infrastructure_tools=infra,infrastructure_tool_names=infra,
           preferred_skills=tuple(skills),required_sandbox_features=acceptance.required_sandbox_features,
+          allowed_paths=(contract_requirements["repo.paths.allowed"].value
+                         if "repo.paths.allowed" in contract_requirements else None),
+          forbidden_paths=(contract_requirements["repo.paths.forbidden"].value
+                           if "repo.paths.forbidden" in contract_requirements else ()),
+          prohibited_actions=tuple(sorted(denied_actions)),
+          max_changed_files=(contract_requirements["change.max_files"].value
+                             if "change.max_files" in contract_requirements else None),
           model_name=o.model_name,workspace_access=r.workspace_access,
           max_turns=min(o.max_turns,node_max_turns),
           timeout_seconds=min(o.timeout_seconds,node_timeout_seconds))

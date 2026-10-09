@@ -384,3 +384,40 @@ def test_live_backend_rejects_self_signed_policy_from_other_descriptor():
             policy=forged,planning_inventory=inv,
             live_inventory=lambda:inv,
             live_operator=lambda:next(o for o in ops if o.provider_id=="tester"))
+
+
+def test_compiled_policy_applies_negative_path_scope_and_file_budget_to_every_node():
+    from aswe.planning.compiler import ConstraintCompiler,RuntimePolicyConfig,RuntimePolicyRule
+    from aswe.planning.contracts import make_task_request
+    from aswe.planning.planner import WorkPlanProposal,WorkItemProposal
+    from aswe.planning.validator import SemanticPlanValidator
+    from aswe.planning.compiler import project_execution_authority
+    c,a=ConstraintCompiler(RuntimePolicyConfig(policy_id="locked",rules=(
+        RuntimePolicyRule(key="repo.paths.allowed",value=("src/**",)),
+        RuntimePolicyRule(key="repo.paths.forbidden",value=("src/secrets/**",)),
+        RuntimePolicyRule(key="change.max_files",value=3),
+    ))).compile(request=make_task_request(request_id="path",raw_text="Analyze"),
+               repository_base_sha="a"*40)
+    p=SemanticPlanValidator().validate(proposal=WorkPlanProposal(items=(
+        WorkItemProposal(id="explorer",objective="read",work_kind=WorkKind.DISCOVERY,
+                         capability_hints=("repo_exploration",)),
+        ),rationale=""),contract=c,authority=a)
+    inv=fake_inventory()
+    providers=stage4_providers()
+    resolved=resolve_workplan(plan=p,contract=c,authority=a,inventory=inv,providers=providers)
+    policy=compile_policies(contract=c,plan=p,resolved=resolved,inventory=inv,
+                            acceptance=AcceptanceCompiler().compile(contract=c),
+                            providers=providers,
+                            operators=(OperatorSurface(provider_id="explorer",
+                                    allowed_tools=("read_file",)),))
+    assert policy[0].allowed_paths==("src/**",)
+    assert policy[0].forbidden_paths==("src/secrets/**",)
+    assert policy[0].max_changed_files==3
+    descriptor=compile_plan_descriptor(contract=c,plan=p,resolved=resolved,
+        inventory=inv,acceptance=AcceptanceCompiler().compile(contract=c),policies=policy)
+    altered=policy[0].model_dump(mode="json",exclude={"fingerprint"})
+    altered["forbidden_paths"]=[]
+    forged=NodeExecutionPolicy(**altered,fingerprint=fingerprint(altered))
+    with pytest.raises(DescriptorMismatch,match="EXECUTION_DESCRIPTOR_POLICY_DRIFT"):
+        compile_plan_descriptor(contract=c,plan=p,resolved=resolved,inventory=inv,
+             acceptance=AcceptanceCompiler().compile(contract=c),policies=(forged,))
