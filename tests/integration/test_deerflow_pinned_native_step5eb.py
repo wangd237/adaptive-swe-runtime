@@ -543,6 +543,12 @@ async def test_real_langgraph_swe_coding_loop_read_edit_test_fail_repair_pass(tm
     assert result.status.value=="completed",result.status
     assert "return 42" in (root/"calc.py").read_text()
     assert sandbox.commands==["python -m unittest -q"]*2
+    summary=runtime.development_summary(native_terminal_status="completed")
+    assert summary.file_tool_changed_paths==("calc.py",)
+    assert summary.dynamic_command_count==2
+    assert summary.last_dynamic_command_exit_code==0
+    assert summary.verification_level=="agent_observed_only"
+    assert summary.acceptance_status=="not_evaluated"
     assert guard._used_call_ids=={f"swe-{i}" for i in range(1,7)}
     assert [x["status"] for x in guard.receipt_snapshot()]==["completed"]*6
     assert (root/"README.md").read_text()=="Fix answer to 42"
