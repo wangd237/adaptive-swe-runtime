@@ -357,3 +357,90 @@ async def test_task_analyzer_consumes_model_invoker_without_authority_promotion(
         repository_base_sha="a"*40,task_spec=result.spec)
     assert not authority.repository_mutation_allowed
     assert len(factory_calls)==1
+
+
+@pytest.mark.asyncio
+async def test_from_deerflow_matches_frozen_source_factory_and_langchain_messages(monkeypatch):
+    """Verify imports/call signature of the pinned DeerFlow factory with API-shaped stubs."""
+    import aswe.integrations.deerflow.inventory as inventory
+    factory_calls=[]
+    verified=[]
+    model=FakeModel('{"items":["ok"]}')
+    cfg=Config()
+    packages=("deerflow","deerflow.models","deerflow.authz",
+              "langchain_core")
+    for name in packages:
+        module=ModuleType(name)
+        module.__path__=[]
+        monkeypatch.setitem(sys.modules,name,module)
+    fac_mod=ModuleType("deerflow.models.factory")
+    fac_mod.__file__="/frozen/deerflow/models/factory.py"
+    monkeypatch.setitem(sys.modules,"deerflow.models.factory",fac_mod)
+    sys.modules["deerflow.models"].factory=fac_mod
+    def real_factory_shape(**kwargs):
+        factory_calls.append(kwargs)
+        return model
+    sys.modules["deerflow.models"].create_chat_model=real_factory_shape
+    cfg_mod=ModuleType("deerflow.config")
+    cfg_mod.get_app_config=lambda:cfg
+    monkeypatch.setitem(sys.modules,"deerflow.config",cfg_mod)
+    auth_mod=ModuleType("deerflow.authz.runtime")
+    auth_mod.resolve_authorization_provider=lambda config:None
+    monkeypatch.setitem(sys.modules,"deerflow.authz.runtime",auth_mod)
+    msg_mod=ModuleType("langchain_core.messages")
+    msg_mod.SystemMessage=lambda *,content:("system",content)
+    msg_mod.HumanMessage=lambda *,content:("human",content)
+    monkeypatch.setitem(sys.modules,"langchain_core.messages",msg_mod)
+    monkeypatch.setattr(inventory,"assert_pinned_deerflow_source",
+                        lambda path:verified.append(path))
+    actual=ModelInvoker.from_deerflow(
+        role_models={"task_analyzer":"plan"},principal_supplier=lambda:None)
+    result=await call(actual)
+    assert result.data=={"items":("ok",)}
+    assert len(factory_calls)==1
+    assert factory_calls[0]["app_config"] is not cfg
+    assert factory_calls[0]["name"]=="plan"
+    assert factory_calls[0]["attach_tracing"] is False
+    assert factory_calls[0]["thinking_enabled"] is False
+    assert len(verified)==2
+    assert verified==[fac_mod.__file__,fac_mod.__file__]
+
+
+@pytest.mark.asyncio
+async def test_semantic_planner_model_proposal_is_still_blocked_by_contract_validator():
+    from aswe.planning.analyzer import TaskSpec
+    from aswe.planning.planner import SemanticPlanner,PlanningContext
+    from aswe.planning.profile import RepositoryProfile
+    from aswe.planning.compiler import ConstraintCompiler,RuntimePolicyConfig
+    from aswe.planning.contracts import make_task_request
+    from aswe.planning.validator import SemanticPlanValidator,PlanValidationError
+    c,a=ConstraintCompiler(RuntimePolicyConfig(policy_id="read-only")).compile(
+       request=make_task_request(request_id="r",raw_text="Analyze login"),
+       repository_base_sha="a"*40)
+    profile=RepositoryProfile(
+        base_sha="a"*40,tracked_file_count=0,top_level_tree=(),
+        languages={},manifests=(),test_configs=(),build_configs=(),
+        ci_configs=(),guidance_files=(),test_framework_hints=(),
+        build_system_hints=(),task_anchor_matches=(),truncated=False,
+    )
+    task=TaskSpec(
+        task_type="analysis",description="Analyze login",domains=(),
+        repository_level=True,complexity="low",risk="low",
+        testing_required=False,review_required=False,scope_hints=(),
+        capability_hints=("code_modification",),planning_uncertainties=(),
+    )
+    fabricated={
+      "items":[{"id":"bad_writer","objective":"Change source code",
+                "work_kind":"implementation",
+                "capability_hints":["code_modification"],
+                "depends_on":[],"coverage_claims":[],"acceptance_intent":[]}],
+      "rationale":"The model recommends changing files",
+    }
+    inv,model,created=invoker(model=FakeModel(json.dumps(fabricated)))
+    proposal=await SemanticPlanner(DeerFlowReasoningBackend(inv)).propose(
+        task=task,contract=c,context=PlanningContext(repository_profile=profile),
+        capability_catalog=("code_modification","repo_exploration"))
+    assert proposal.items[0].capability_hints==("code_modification",)
+    with pytest.raises(PlanValidationError,match="CAPABILITY_AUTHORITY_VIOLATION"):
+        SemanticPlanValidator().validate(proposal=proposal,contract=c,authority=a)
+    assert len(created)==1
