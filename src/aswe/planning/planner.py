@@ -4,7 +4,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, model_validator
+from aswe.core.fingerprint import fingerprint
+from aswe.planning.context import ReconReport
 
 from aswe.core.contracts._base import FrozenModel
 from aswe.core.contracts.task import WorkKind
@@ -14,9 +16,21 @@ from aswe.planning.profile import RepositoryProfile
 
 
 class PlanningContext(FrozenModel):
-    """Repository/recon content is informational, not policy authority."""
+    """Frozen context snapshot, never an instruction/constraint authority."""
     repository_profile: RepositoryProfile
-    recon_notes: tuple[str, ...] = ()
+    recon_report: "ReconReport | None" = None
+    context_complete: bool = True
+    unresolved_questions: tuple[str, ...] = ()
+    fingerprint: str = ""
+
+    @model_validator(mode="after")
+    def validate_fingerprint(self):
+        expected = fingerprint(self.model_dump(mode="json", exclude={"fingerprint"}))
+        if self.fingerprint and self.fingerprint != expected:
+            raise ValueError("PlanningContext fingerprint mismatch")
+        if not self.fingerprint:
+            object.__setattr__(self,"fingerprint",expected)
+        return self
 
 
 class WorkItemProposal(FrozenModel):
@@ -44,12 +58,19 @@ class SemanticPlanner:
         self, *, task: TaskSpec, contract: CompiledTaskContract,
         context: PlanningContext, capability_catalog: tuple[str, ...],
     ) -> WorkPlanProposal:
+        # Context gate prevents hallucinated implementation when recon is missing.
+        if not context.context_complete:
+            raise ValueError("PLANNING_CONTEXT_INCOMPLETE: resolve context before proposal")
         # The model must not receive hidden provider IDs or execution tools.
         content = {
             "task": task.model_dump(mode="json"),
             "contract": contract.model_dump(mode="json"),
             "repository_profile": context.repository_profile.model_dump(mode="json"),
-            "untrusted_recon_notes": list(context.recon_notes),
+            "context_complete": context.context_complete,
+            "unresolved_questions": list(context.unresolved_questions),
+            "untrusted_recon_report": (
+                context.recon_report.model_dump(mode="json") if context.recon_report else None
+            ),
             "semantic_capability_ids": sorted(set(capability_catalog)),
         }
         result = await self.backend.generate_structured(
