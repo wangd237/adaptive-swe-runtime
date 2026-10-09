@@ -339,6 +339,27 @@ class SchedulerCore:
             and ticket.task_dispatch_epoch == invocation.task_dispatch_epoch
         )
 
+    def is_active_execution(self, invocation: NodeExecutionInvocation) -> bool:
+        """Execution-lifetime check for tool calls, including child Tasks.
+
+        Unlike commit-time identity, it does not require the caller to be the
+        dispatch-owning asyncio Task. The invocation object itself is a
+        Scheduler-owned reference and is not a bearer credential; the tool
+        guard must additionally check its pinned tool identity and principal.
+        """
+        if not isinstance(invocation, NodeExecutionInvocation):
+            return False
+        ticket = self.tickets.get(invocation.dispatch_ticket_id)
+        return (
+            self._active_invocations.get(invocation.execution_id) is invocation
+            and ticket is not None
+            and ticket.state is NodeDispatchTicketState.COMMITTED
+            and ticket.node_id == invocation.node_id
+            and ticket.task_dispatch_epoch == invocation.task_dispatch_epoch
+            and invocation.task_id == self.task_id
+            and invocation.execution_id in self._committed
+        )
+
     async def _finish(self, invocation: NodeExecutionInvocation, result: Any,
                       handoff: NodeHandoff | None, *,
                       certified_post: WorkspaceRevision | None = None,
