@@ -349,9 +349,12 @@ class SchedulerCore:
                 and getattr(result, "quiescent", False)
                 and self.nodes[invocation.node_id].work_kind is WorkKind.IMPLEMENTATION
                 and self.nodes[invocation.node_id].workspace_access.value == "write"
-                and state.repair_count < self.budget.max_repairs_per_write
                 and self.gate.state is TaskDispatchGateState.OPEN
             )
+            # Canonical evidence remains trusted even when the authorization
+            # budget is already exhausted; only the new REPAIR is forbidden.
+            own_certified_failure = own_repair
+            own_repair = own_certified_failure and state.repair_count < self.budget.max_repairs_per_write
             success = (
                 self.gate.state is TaskDispatchGateState.OPEN
                 and getattr(result, "terminal_status", None) is BackendTerminalStatus.COMPLETED
@@ -386,11 +389,13 @@ class SchedulerCore:
                     "FAIL_CLOSED_CONSUMER_CANCELLED"
                     if (cancelled and self.gate.state is TaskDispatchGateState.CLOSED
                         and not self.cancelled and not local_cancel) else
+                    "REPAIR_BUDGET_EXHAUSTED"
+                    if own_certified_failure and not own_repair else
                     "ACCEPTANCE_FAILED" if own_repair else
                     getattr(result, "failure_kind", None) or "ACCEPTANCE_OR_EXECUTION_FAILED"
                 ),
                 "handoff": handoff if success else None,
-                "evidence_refs": own_evidence_refs if own_repair else running.evidence_refs,
+                "evidence_refs": own_evidence_refs if own_certified_failure else running.evidence_refs,
             })
             changes: dict[str, Any] = {
                 "attempts": state.attempts[:-1] + (record,),
@@ -439,13 +444,7 @@ class SchedulerCore:
                 changes["logical_status"] = NodeLogicalStatus.REMEDIATION_PENDING
                 self._pending_attempt_kinds[invocation.node_id] = NodeAttemptKind.RETRY
             else:
-                budget_exhausted = (
-                    own_acceptance_feedback is not None
-                    and mutation is MutationEvidence.OBSERVED
-                    and getattr(result, "quiescent", False)
-                    and state.repair_count >= self.budget.max_repairs_per_write
-                    and self.nodes[invocation.node_id].work_kind is WorkKind.IMPLEMENTATION
-                )
+                budget_exhausted = own_certified_failure and not own_repair
                 review_rejected = (
                     self.nodes[invocation.node_id].work_kind is WorkKind.REVIEW
                     and getattr(result, "failure_kind", None) == "REVIEW_GATE_REJECTED"
