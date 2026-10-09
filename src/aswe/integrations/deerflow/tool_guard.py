@@ -270,6 +270,56 @@ class ToolCallGuard:
             self._pending_calls.discard(tool_call_id)
 
 
+def make_langchain_tool_policy_middleware(binding: "NodeExecutionBinding") -> Any:
+    """5D native shape: intercept LangChain ToolCallRequest before its handler.
+
+    The factory imports the real LangChain middleware base only when the
+    optional dependency is present. **Not automatically injected** into the
+    frozen DeerFlow SubagentExecutor; 5E must install it and verify the
+    compiled ToolNode registry, otherwise real execution remains disabled.
+    """
+    try:
+        from langchain.agents.middleware import AgentMiddleware
+    except ImportError as exc:
+        raise ToolBindingError("LANGCHAIN_MIDDLEWARE_DEPENDENCY_UNAVAILABLE") from exc
+
+    class PinnedToolPolicyMiddleware(AgentMiddleware):
+        """Run-owned middleware, not an extension, skill or MCP capability."""
+
+        def _incoming(self, request):
+            call = getattr(request, "tool_call", None)
+            if not isinstance(call, Mapping):
+                _deny("TOOL_CALL_UNATTESTED")
+            tool = getattr(request, "tool", None)
+            name = call.get("name")
+            if not isinstance(name, str) or tool is None or name != getattr(tool, "name", None):
+                _deny("TOOL_CALL_NAME_OBJECT_MISMATCH")
+            runtime = getattr(request, "runtime", None)
+            context = getattr(runtime, "context", None) if runtime is not None else None
+            if not isinstance(context, Mapping):
+                _deny("TOOL_CALL_RUNTIME_CONTEXT_MISSING")
+            if (context.get("run_id") != binding.invocation.run_id
+                    or context.get("execution_id") != binding.invocation.execution_id):
+                _deny("TOOL_CALL_RUNTIME_CONTEXT_MISMATCH")
+            return tool, call.get("id"), call.get("args")
+
+        def wrap_tool_call(self, request, handler):
+            tool, call_id, args = self._incoming(request)
+            return binding.guard.invoke(
+                tool=tool, tool_call_id=call_id,
+                tool_input=args, handler=lambda: handler(request),
+            )
+
+        async def awrap_tool_call(self, request, handler):
+            tool, call_id, args = self._incoming(request)
+            return await binding.guard.ainvoke(
+                tool=tool, tool_call_id=call_id,
+                tool_input=args, handler=lambda: handler(request),
+            )
+
+    return PinnedToolPolicyMiddleware()
+
+
 @dataclass(frozen=True)
 class NodeExecutionBinding:
     execution_id: str
