@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import pytest
 
-from aswe.core.contracts import WorkspaceAccess
+from aswe.core.contracts import WorkspaceAccess, BackendTerminalStatus
 from aswe.runtime.dispatch import DispatchRevoked, NodeDispatchTicketState, TaskDispatchGateState
 from aswe.runtime.state import NodeAttemptStatus, NodeLogicalStatus
 from aswe.workspace.session import WorkspaceSessionStatus
@@ -95,3 +95,31 @@ async def test_r21_terminal_success_cannot_be_retroactively_cancelled(tmp_path):
     with pytest.raises(DispatchRevoked, match="already terminal"):
         await core.cancel_node("target")
     assert core.states["target"].logical_status is NodeLogicalStatus.SUCCEEDED
+
+
+@pytest.mark.asyncio
+async def test_local_cancel_while_backend_completes_does_not_fail_entire_task(tmp_path):
+    core, manager = scheduler(
+        tmp_path, node("target", access=WorkspaceAccess.READ),
+        node("independent", ordinal=1, access=WorkspaceAccess.READ),
+    )
+    released = asyncio.Event()
+    class CancelLosesToCompleted(FakeExecutionBackend):
+        async def cancel_node(self, execution_id):
+            released.set()
+    backend = CancelLosesToCompleted([FakeExecutionScenario(release_event=released)])
+    runner = asyncio.create_task(core.run_claim(
+        await core.claim("target"), backend, accept=accept,
+    ))
+    for _ in range(300):
+        if core.states["target"].logical_status is NodeLogicalStatus.RUNNING:
+            break
+        await asyncio.sleep(0)
+    assert core.states["target"].logical_status is NodeLogicalStatus.RUNNING
+    await core.cancel_node("target")
+    await runner
+    assert backend.records[-1].terminal_status is BackendTerminalStatus.COMPLETED
+    assert core.states["target"].logical_status is NodeLogicalStatus.CANCELLED
+    assert core.states["target"].accepted_handoff is None
+    assert not core.failed and not core.cancelled
+    assert core.states["independent"].logical_status is NodeLogicalStatus.READY

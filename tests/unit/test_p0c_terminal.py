@@ -467,3 +467,37 @@ async def test_p0c_late_user_cancel_does_not_change_completed_contract_success(t
     )
     assert final.status is TaskLogicalStatus.SUCCEEDED
     assert final.root_failures == ()
+
+
+@pytest.mark.asyncio
+async def test_terminal_failclose_completed_consumer_after_cancel_is_not_second_root(tmp_path):
+    from tests.unit.test_scheduler_repair import fixture
+    core, manager, store, ref, _, attribution_ref = await fixture(tmp_path, consumer=True)
+    release = asyncio.Event()
+    class CancellationRacesCompletion(FakeExecutionBackend):
+        async def cancel_node(self, execution_id):
+            # A compliant executor may settle COMPLETED before cancellation
+            # takes effect; cancellation still must join physical quiescence.
+            release.set()
+    backend = CancellationRacesCompletion([FakeExecutionScenario(
+        release_event=release, mutation_evidence=MutationEvidence.PROVEN_NONE,
+    )])
+    runner = asyncio.create_task(core.run_claim(
+        await core.claim("reviewer"), backend, accept=accept,
+    ))
+    for _ in range(300):
+        if core.states["reviewer"].logical_status is NodeLogicalStatus.RUNNING:
+            break
+        await asyncio.sleep(0)
+    assert core.states["reviewer"].logical_status is NodeLogicalStatus.RUNNING
+    with pytest.raises(RepairScopeInvalidated, match="ACTIVE_DOWNSTREAM_DISPATCH"):
+        await core.reopen_writer_from_verification(
+            verification_ref=ref, attribution_ref=attribution_ref, evidence_store=store,
+        )
+    await runner
+    assert backend.records[-1].terminal_status is BackendTerminalStatus.COMPLETED
+    assert core.states["reviewer"].logical_status is NodeLogicalStatus.CANCELLED
+    assert core.states["reviewer"].accepted_handoff is None
+    assert core.failure_kinds == ["REPAIR_SCOPE_INVALIDATED_ACTIVE_DOWNSTREAM_DISPATCH"]
+    assert core.task_logical_status is TaskLogicalStatus.FAILED
+    assert manager.lifecycle.current.status is WorkspaceSessionStatus.FROZEN
