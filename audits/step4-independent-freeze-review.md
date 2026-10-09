@@ -1,6 +1,6 @@
 # Coding Step 4 — Independent Design Freeze / Runtime Admission Audit
 
-**Audit date:** 2026-10-09. **Decision: scoped GO for Step-4 Core/FakeBackend contract/compiler baseline, NO-GO for claiming full production DeerFlow integration.** This is an independent source-vs-frozen-spec review; tests and fingerprints alone are not authorization.
+**Audit date:** 2026-10-09. Latest implementation CI at `ca15d8e2` passed **335 tests each** on Python 3.11 and Python 3.13 ([Actions 37898262354](https://github.com/wangd237/adaptive-swe-runtime/actions/runs/37898262354)). Latest audit-only commit still requires repeat CI. **Decision: scoped GO for Step-4 Core/FakeBackend contract/compiler baseline, NO-GO for claiming full production DeerFlow integration.** This is an independent source-vs-frozen-spec review; tests and fingerprints alone are not authorization.
 
 ## Source of truth and reviewed scope
 

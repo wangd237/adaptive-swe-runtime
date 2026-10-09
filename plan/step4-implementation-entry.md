@@ -1,6 +1,6 @@
 # Coding Step 4 — Capability / Provider / DAG Compiler Entry Contract
 
-**Status: IN PROGRESS — physical P3 integration implemented in draft PR #6; additional Step-4 provider/policy PoCs pending.** Step-3-owned P0-A..D have direct negative tests (see `audits/step3-freeze-closure.md`). Wait for accepted PR #5 on main; no DeerFlow calls in this stage.
+**Status: Core compiler / FakeBackend integration implemented and independently audited. Scoped GO for PR #6 after latest-head CI; all live DeerFlow assembly/authorization/middleware requirements remain Step 5.** Step-3-owned P0-A..D have direct negative tests (see `audits/step3-freeze-closure.md`). Wait for accepted PR #5 on main; no DeerFlow calls in this stage.
 
 ## Architecture handoff contract
 
@@ -76,3 +76,8 @@ Pass P3-01/02/03/04/11 plus applicable P0-5 contract/static FakeBackend tests. P
 - Five frozen physical PoCs are now covered by real Scheduler / temporary Git tests: P3-01/02/03/04/11.
 - Current Step-4 branch review document: `audits/step4-physical-poc-audit.md`.
 - Overall Stage 4 remains IN PROGRESS; do not merge / close without checking all provider/policy/inventory requirements.
+
+
+## Final Stage-4 Core / Provider handoff audit (2026-10-09)
+
+See `audits/step4-independent-freeze-review.md` and `audits/step4-poc-coverage.json` for the full frozen P0-5 matrix; **13 PASS / 5 PARTIAL / 12 STEP5-owned**. Core implementation includes sealed ProviderAssignment resources, NodeExecutionPolicy (exact Acceptance commands, global limits and runtime ceilings), precommit live inventory revalidation, a pinned FakeBackend preparation and CompiledPlanDescriptor. Full DeerFlow assembly, middleware, AuthorizationProvider and tool-call guards are not asserted.

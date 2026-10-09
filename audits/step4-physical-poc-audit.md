@@ -1,6 +1,6 @@
 # Step 4 — Physical Integration Closure of Frozen P3 PoCs
 
-**Stage-4 scoped result:** P3-01 / 02 / 03 / 04 / 11 direct deterministic FakeBackend/real-Git integration scenarios all PASS on Step-4 coding branch. Step 3's existing frozen 22-case inventory now records **22 PASS / 0 PARTIAL / 0 GAP** in THIS branch. Full Step 4 remains IN PROGRESS; true DeerFlow adapter belongs to Step 5.
+**Stage-4 scoped result:** P3-01 / 02 / 03 / 04 / 11 direct deterministic FakeBackend/real-Git integration scenarios all PASS on Step-4 coding branch. Step 3's existing frozen 22-case inventory now records **22 PASS / 0 PARTIAL / 0 GAP** in THIS branch. Full Step-4 **Core** follow-up is now independently audited in `audits/step4-independent-freeze-review.md`; actual DeerFlow adapter remains Step 5.
 
 | Frozen PoC | Direct test | Physical invariant |
 |---|---|---|
