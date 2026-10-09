@@ -64,7 +64,7 @@ class OfflineToolCallingModel(BaseChatModel):
 
 def physical_binding(*, visible_tool=read_file, execution_id="native-run-1"):
     """Adapter boundary fixture, not a claim to have passed 5C preparation."""
-    app = AppConfig.model_validate({})
+    app = AppConfig.model_validate({"sandbox": {"use": "deerflow.sandbox.local:LocalSandboxProvider", "allow_host_bash": False}})
     sub = SubagentConfig(
         name="general-purpose", description="Offline native physical PoC",
         model="inherit", tools=["read_file"], disallowed_tools=[],
