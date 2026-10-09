@@ -281,3 +281,95 @@ async def test_r123_consumer_uncertain_cancel_quarantines_without_git_probe(term
     assert result.final_repository_state is None
     assert result.root_failures[0].node_id == "verify"
     assert result.cancelled_node_ids == ("consumer",)
+
+
+@pytest.mark.asyncio
+async def test_r99_quarantine_preserves_preexisting_repository_changeset_only(terminal_fixture, monkeypatch):
+    core, manager, binding, store = terminal_fixture
+    await core.run_claim(
+        await core.claim("writer"),
+        FakeExecutionBackend([FakeExecutionScenario()]), accept=accept,
+    )
+    attempt = core.states["writer"].attempts[-1]
+    historical = store.put_attempt(
+        task_id=core.task_id, node_id="writer", execution_id=attempt.execution_id,
+        attempt=attempt.attempt, kind=AttemptEvidenceKind.REPOSITORY_CHANGESET,
+        payload={"tracked_diff": "historical-only", "verified_before_quarantine": True},
+        workspace_revision=attempt.post_workspace_revision,
+    )
+    await core.attach_attempt_evidence(
+        node_id="writer", evidence_ref=historical, evidence_store=store,
+    )
+    async with core.state_mutex:
+        core._fail_close_locked("BACKEND_QUIESCENCE_UNKNOWN")
+    await manager.close_dispatch()
+    await manager.terminalize(quiescence_proven=False)
+    from aswe.runtime import finalization
+    def disallow(*args, **kwargs):
+        raise AssertionError("quarantine may not inspect current Git")
+    monkeypatch.setattr(finalization, "capture_repository_state", disallow)
+    monkeypatch.setattr(finalization, "materialize_repository_changeset", disallow)
+    result = finalize_task(scheduler=core, binding=binding, evidence_store=store)
+    assert result.status is TaskLogicalStatus.FAILED
+    assert historical in result.last_trusted_evidence_refs
+    assert store.get(historical)["tracked_diff"] == "historical-only"
+    assert result.repository_disposition is RepositoryDisposition.UNKNOWN
+    assert result.patch_disposition is PatchDisposition.UNAVAILABLE
+    assert result.final_repository_changeset is None
+    assert result.final_repository_state is None
+    assert result.final_workspace_revision is None
+
+
+@pytest.mark.asyncio
+async def test_r128_taskwide_user_cancel_uncertain_backend_results_in_quarantine_without_git_probe(
+        terminal_fixture, monkeypatch):
+    core, manager, binding, store = terminal_fixture
+    backend = FakeExecutionBackend([FakeExecutionScenario(
+        release_event=asyncio.Event(),
+        mutation_evidence=MutationEvidence.UNKNOWN,
+        quiescent=False,
+    )])
+    runner = asyncio.create_task(core.run_claim(await core.claim("writer"), backend))
+    for _ in range(300):
+        if core.states["writer"].logical_status is NodeLogicalStatus.RUNNING:
+            break
+        await asyncio.sleep(0)
+    assert core.states["writer"].logical_status is NodeLogicalStatus.RUNNING
+    await core.cancel_task()
+    await runner
+    assert core.cancelled and manager.lifecycle.current.status is WorkspaceSessionStatus.QUARANTINED
+    from aswe.runtime import finalization
+    def disallow(*args, **kwargs):
+        raise AssertionError("quarantine cannot read current workspace")
+    monkeypatch.setattr(finalization, "capture_repository_state", disallow)
+    monkeypatch.setattr(finalization, "materialize_repository_changeset", disallow)
+    final = finalize_task(scheduler=core, binding=binding, evidence_store=store)
+    assert final.status is TaskLogicalStatus.CANCELLED
+    assert final.workspace_disposition is WorkspaceDisposition.QUARANTINED
+    assert final.repository_disposition is RepositoryDisposition.UNKNOWN
+    assert final.patch_disposition is PatchDisposition.UNAVAILABLE
+    assert final.final_repository_state is None
+    assert final.final_repository_changeset is None
+    assert final.root_failures == ()
+    assert final.cancelled_node_ids == ("writer",)
+
+
+@pytest.mark.asyncio
+async def test_r102_verification_repair_budget_zero_closes_gate_without_new_writer_attempt(tmp_path):
+    from aswe.core.config import RuntimeBudgetConfig
+    from tests.unit.test_scheduler_repair import fixture
+    core, manager, store, verification_ref, attribution, attribution_ref = await fixture(tmp_path)
+    assert attribution.kind is RepairAttributionKind.UNIQUE_WRITER
+    writer = core.states["writer"]
+    core.budget = RuntimeBudgetConfig(max_repairs_per_write=0)
+    with pytest.raises(RepairScopeInvalidated, match="REPAIR_BUDGET_EXHAUSTED"):
+        await core.reopen_writer_from_verification(
+            verification_ref=verification_ref, attribution_ref=attribution_ref,
+            evidence_store=store,
+        )
+    assert core.failed and manager.dispatch_closed
+    assert core.failure_kinds == ["REPAIR_BUDGET_EXHAUSTED"]
+    assert core.states["writer"].accepted_handoff == writer.accepted_handoff
+    assert core.states["writer"].attempts == writer.attempts
+    assert core.states["verify"].logical_status is NodeLogicalStatus.FAILED
+    assert manager.lifecycle.current.status is WorkspaceSessionStatus.FROZEN
