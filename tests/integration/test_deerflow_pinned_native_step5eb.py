@@ -421,3 +421,128 @@ async def test_vendor_real_lease_manager_reports_owner_until_async_release(tmp_p
     assert observed.process_tree_drained is False
     assert observed.complete is False
     observer.release_execution(inv.execution_id)
+
+
+@pytest.mark.asyncio
+async def test_real_langgraph_swe_coding_loop_read_edit_test_fail_repair_pass(tmp_path):
+    """5F-C: frozen installed DeerFlow + true compiled LangGraph ToolNode.
+
+    The model and isolated ShellOutcome backend are deterministic fixtures.
+    This proves native tool CALL integration and iterative repair, NOT real
+    Docker isolation, deployed credentials, or Scheduler TaskResult acceptance.
+    """
+    import subprocess
+    from aswe.repository import bootstrap_repository
+    from aswe.core.fingerprint import fingerprint
+    from aswe.integrations.deerflow.controlled_swe import ControlledSWEWorkspace, ShellOutcome
+    from aswe.integrations.deerflow.tool_guard import BoundToolView, ToolCallGuard, NodeExecutionBinding
+    from tests.unit.test_deerflow_controlled_swe_step5fc import policy
+    from tests.unit.test_deerflow_execution_evidence_step5f import invocation as native_invocation
+
+    origin=tmp_path/"coding-source"
+    origin.mkdir()
+    def git(*argv):
+        subprocess.run(["git","-C",str(origin),*argv],check=True,
+                       stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    git("init","-b","main")
+    git("config","user.name","SWE Offline")
+    git("config","user.email","swe@example.invalid")
+    (origin/"calc.py").write_text("def answer():\n    return 1\n")
+    (origin/"README.md").write_text("Fix answer to 42")
+    git("add","-A")
+    git("commit","-m","baseline")
+    repository=bootstrap_repository(origin,tmp_path/"coding-workspace",requested_ref="main")
+    root=__import__("pathlib").Path(repository.repository_root)
+    compiled_policy=policy()
+    inv=native_invocation(repository).model_copy(update={
+        "node_id":compiled_policy.node_id, "execution_id":"swe-loop-001",
+        "task_id":"physical-coding-loop","run_id":"swe-loop-run"
+    })
+
+    class FakeIsolatedShell:
+        isolation_kind="docker-no-network"
+        workspace_root=root
+        def __init__(self):self.commands=[]
+        async def run(self,command,*,timeout,max_output):
+            self.commands.append(command)
+            assert command=="python -m unittest -q"
+            source=(root/"calc.py").read_text()
+            success="return 42" in source
+            return ShellOutcome(exit_code=0 if success else 1,
+                                output="OK" if success else "FAIL: expected 42")
+    sandbox=FakeIsolatedShell()
+    runtime=ControlledSWEWorkspace(
+        invocation=inv,policy=compiled_policy,root=root,command_backend=sandbox
+    )
+    tools=runtime.make_tools(("read_file","str_replace","bash"))
+    # A model-initiated write is allowed only through this exact runtime and
+    # ToolCallGuard's committed, sealed tool-surface and identity checks.
+    resources=SimpleNamespace(
+        model_name="offline-pinned",
+        app_config=AppConfig.model_validate({
+            "sandbox":{"use":"deerflow.sandbox.local:LocalSandboxProvider",
+                       "allow_host_bash":False}}),
+        subagent_config=SubagentConfig(
+            name="general-purpose",description="Offline repair",
+            model="inherit",tools=[t.name for t in tools],
+            disallowed_tools=[],skills=[],system_prompt="Fix calc.py",
+            max_turns=25,timeout_seconds=20,
+        ),
+        extensions=get_loaded_extensions(),node_id=inv.node_id,
+        effective_max_turns=50,effective_timeout_seconds=20,
+        policy_fingerprint=compiled_policy.fingerprint,
+        assert_intact=lambda:None,
+    )
+    principal=SimpleNamespace(user_id="trusted-swe-user",role="worker",
+        oauth_provider=None,oauth_id=None,channel_user_id=None,
+        is_internal=False,attributes={})
+    view=BoundToolView(
+        names=tuple(t.name for t in tools),objects=tools,
+        object_seals=tuple(_tool_seal(t) for t in tools),
+    )
+    guard=ToolCallGuard(
+        invocation=inv,resources=resources,view=view,principal=principal,
+        provider=None,request_factory=None,auth_enabled=False,
+        policy=compiled_policy,execution_live_checker=lambda _:True,
+        swe_runtime=runtime,
+    )
+    binding=NodeExecutionBinding(
+        execution_id=inv.execution_id,preparation_id="offline-swe-test",
+        invocation=inv,resources=resources,tool_view=view,guard=guard,
+        swe_runtime=runtime,
+    )
+    script=[
+        ("read_file",{"path":"calc.py"}),
+        ("str_replace",{"path":"calc.py","old_str":"return 1","new_str":"return 2"}),
+        ("bash",{"command":"python -m unittest -q"}),
+        ("read_file",{"path":"calc.py"}),
+        ("str_replace",{"path":"calc.py","old_str":"return 2","new_str":"return 42"}),
+        ("bash",{"command":"python -m unittest -q"}),
+    ]
+    class ScriptedRepairModel(BaseChatModel):
+        turn:int=0
+        @property
+        def _llm_type(self):return "aswe-scripted-swe-repair"
+        def bind_tools(self,tools,**kwargs):return self
+        def _generate(self,messages,stop=None,run_manager=None,**kwargs):
+            self.turn+=1
+            if self.turn<=len(script):
+                name, args=script[self.turn-1]
+                response=AIMessage(content="",tool_calls=[{
+                    "name":name,"args":args,"id":f"swe-{self.turn}"}])
+            else:
+                response=AIMessage(content="Fixed calc.answer with tests passing")
+            return ChatResult(generations=[ChatGeneration(message=response)])
+
+    assembler=NativeSubagentAssembler.from_deerflow()
+    assembler=NativeSubagentAssembler(replace(
+        assembler.seams,create_chat_model=lambda **kw: ScriptedRepairModel()
+    ))
+    native=assembler.build(binding)
+    result=await native._aexecute("Fix answer and test until successful")
+    assert result.status.value=="completed",result.status
+    assert "return 42" in (root/"calc.py").read_text()
+    assert sandbox.commands==["python -m unittest -q"]*2
+    assert guard._used_call_ids=={f"swe-{i}" for i in range(1,7)}
+    assert [x["status"] for x in guard.receipt_snapshot()]==["completed"]*6
+    assert (root/"README.md").read_text()=="Fix answer to 42"
