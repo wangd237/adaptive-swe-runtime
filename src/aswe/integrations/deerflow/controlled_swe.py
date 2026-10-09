@@ -144,6 +144,20 @@ class DockerCommandBackend:
             )
 
 
+@dataclass(frozen=True)
+class SWEDevelopmentSummary:
+    """Useful MVP trace, explicitly NOT a verified TaskResult/Acceptance."""
+    task_id: str
+    execution_id: str
+    node_id: str
+    native_terminal_status: str
+    file_tool_changed_paths: tuple[str,...]
+    dynamic_command_count: int
+    last_dynamic_command_exit_code: int | None
+    verification_level: str = "agent_observed_only"
+    acceptance_status: str = "not_evaluated"
+
+
 class ControlledSWEWorkspace:
     """One committed execution's file operations + explicit isolated Bash.
 
@@ -185,6 +199,7 @@ class ControlledSWEWorkspace:
         self.max_output_chars=max_output_chars
         self._reads: dict[str,str]={}
         self._changes: set[str]=set()
+        self._shell_observations: list[ShellOutcome]=[]
 
     def _path(self, value: str, *, create: bool=False) -> tuple[Path,str]:
         if not isinstance(value,str) or not value or "\x00" in value or "\\" in value:
@@ -288,8 +303,32 @@ class ControlledSWEWorkspace:
             command, timeout=min(self.policy.timeout_seconds,60),
             max_output=self.max_output_chars,
         )
+        if not isinstance(outcome,ShellOutcome):
+            raise SWEExecutionDenied("SWE_COMMAND_OUTCOME_UNATTESTED")
+        self._shell_observations.append(outcome)
         # Output status must stay explicit; model can retry after a failure.
         return f"exit_code={outcome.exit_code}; timed_out={outcome.timed_out}\n{outcome.output}"
+
+    def development_summary(self, *, native_terminal_status: str) -> SWEDevelopmentSummary:
+        """MVP diagnostic, not a trusted canonical verification outcome.
+
+        This tracks only file-tool writes and dynamic command statuses; a
+        separate Git diff and Runtime's independent canonical tests are still
+        authoritative for deliverables.
+        """
+        if native_terminal_status not in ("completed","failed","cancelled","timed_out"):
+            raise SWEExecutionDenied("SWE_TERMINAL_STATUS_UNKNOWN")
+        return SWEDevelopmentSummary(
+            task_id=self.invocation.task_id,execution_id=self.invocation.execution_id,
+            node_id=self.invocation.node_id,
+            native_terminal_status=native_terminal_status,
+            file_tool_changed_paths=tuple(sorted(self._changes)),
+            dynamic_command_count=len(self._shell_observations),
+            last_dynamic_command_exit_code=(
+                self._shell_observations[-1].exit_code
+                if self._shell_observations else None
+            ),
+        )
 
     def make_tools(self, original_names: tuple[str,...]) -> tuple[Any,...]:
         """Physical LangChain wrappers preserve pinned contract names exactly."""
