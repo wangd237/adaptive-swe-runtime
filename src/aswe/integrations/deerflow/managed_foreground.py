@@ -8,6 +8,8 @@ executable or shell flags. No remote Sandbox or arbitrary daemon proof is made.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import tempfile
 from dataclasses import dataclass
 import os
 from pathlib import Path
@@ -16,6 +18,7 @@ import sys
 from typing import Callable
 
 from aswe.core.contracts.backend import NodeExecutionInvocation
+from aswe.core.contracts import WorkspaceRevision
 from aswe.planning.acceptance import CompiledAcceptancePlan, VerificationCommand, _validate_argv
 from aswe.providers.policy import NodeExecutionPolicy
 from aswe.core.fingerprint import fingerprint
@@ -46,6 +49,9 @@ class ForegroundReceipt:
     pre_repository_fingerprint: str
     post_repository_fingerprint: str
     status: str
+    stdout_sha256: str
+    stderr_sha256: str
+    observed_revision: WorkspaceRevision
     # This host observation is NOT a CanonicalVerifier HMAC verdict.
     authority: str = "runtime-foreground-command-observation"
 
@@ -56,6 +62,7 @@ class _Run:
         self.process: asyncio.subprocess.Process | None = None
         self.receipt: ForegroundReceipt | None = None
         self.drain_error = False
+        self.finalizer: asyncio.Task[None] | None = None
 
 
 class ManagedForegroundVerifier:
@@ -170,6 +177,17 @@ class ManagedForegroundVerifier:
             await asyncio.sleep(0.01)
         return not self._group_alive(pgid)
 
+    @staticmethod
+    def _hash_output(file: object) -> str:
+        file.seek(0)
+        checksum = hashlib.sha256()
+        while True:
+            chunk = file.read(65536)
+            if not chunk:
+                break
+            checksum.update(chunk)
+        return checksum.hexdigest()
+
     async def run(self, *, invocation: NodeExecutionInvocation,
                   command_id: str, command: str) -> ForegroundReceipt:
         selected = self._command(invocation, command_id=command_id, command=command)
@@ -181,54 +199,37 @@ class ManagedForegroundVerifier:
             raise ForegroundExecutionError("FOREGROUND_EXECUTION_ALREADY_ACTIVE")
         marker = _Run()
         self._runs[invocation.execution_id] = marker
-        before = capture_repository_state(self.repository)
-        rev = invocation.execution_workspace_revision
-        if (before.fingerprint != rev.repository_state_fingerprint
-                or before.head_sha != rev.head_sha or before.base_sha != rev.base_sha):
-            marker.completion.set()
-            raise ForegroundExecutionError("FOREGROUND_PRESTATE_DRIFT")
-
-        timed_out = False
-        cancelled = False
-        exitcode: int | None = None
-        drained = False
         try:
+            before = capture_repository_state(self.repository)
+            revision = invocation.execution_workspace_revision
+            if (before.fingerprint != revision.repository_state_fingerprint
+                    or before.head_sha != revision.head_sha
+                    or before.base_sha != revision.base_sha):
+                raise ForegroundExecutionError("FOREGROUND_PRESTATE_DRIFT")
+        except Exception:
+            marker.completion.set()
+            raise
+
+        # TemporaryFile() is an unlinked host file OUTSIDE the agent repo.
+        # It captures actual stdout/stderr without buffering arbitrarily large
+        # subprocess output in memory or storing sensitive raw logs.
+        stdout_file = tempfile.TemporaryFile(mode="w+b")
+        stderr_file = tempfile.TemporaryFile(mode="w+b")
+        timed_out, cancelled = False, False
+        exitcode: int | None = None
+        spawn_task: asyncio.Task[asyncio.subprocess.Process] | None = None
+
+        async def finalize() -> None:
+            """Independent completion owner: task cancellation cannot fake it."""
+            drained = False
             try:
-                marker.process = await asyncio.create_subprocess_exec(
-                    *selected.argv, cwd=str(self.root),
-                    stdin=asyncio.subprocess.DEVNULL,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
-                    start_new_session=True,
-                    env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
-                )
-            except OSError:
-                raise ForegroundExecutionError("FOREGROUND_EXEC_SPAWN_FAILED") from None
-            try:
-                exitcode = await asyncio.wait_for(
-                    marker.process.wait(),
-                    timeout=self.plan.canonical_policies[
-                        self.plan.commands.index(selected)
-                    ].timeout_seconds
-                )
-            except asyncio.TimeoutError:
-                timed_out = True
-            except asyncio.CancelledError:
-                cancelled = True
-                raise
-        finally:
-            try:
-                if marker.process is not None:
-                    # The drain is shielded from first cancellation. Even if
-                    # the caller abandons this task, the separate completion
-                    # signal is only raised by this cleanup coroutine.
-                    cleanup = asyncio.create_task(self._drain(marker.process))
+                if spawn_task is not None:
                     try:
-                        drained = await asyncio.shield(cleanup)
-                    except asyncio.CancelledError:
-                        # Repeated cancellation cannot forge a positive proof.
+                        proc = await asyncio.shield(spawn_task)
+                        marker.process = proc
+                        drained = await self._drain(proc)
+                    except OSError:
                         marker.drain_error = True
-                        raise
                     except Exception:
                         marker.drain_error = True
                 after = capture_repository_state(self.repository)
@@ -247,12 +248,80 @@ class ManagedForegroundVerifier:
                     process_group_drained=drained, status=status,
                     pre_repository_fingerprint=before.fingerprint,
                     post_repository_fingerprint=after.fingerprint,
+                    stdout_sha256=self._hash_output(stdout_file),
+                    stderr_sha256=self._hash_output(stderr_file),
+                    observed_revision=revision,
                 )
             finally:
+                stdout_file.close()
+                stderr_file.close()
                 marker.completion.set()
+
+        try:
+            # Shield subprocess registration from cancellation: a process
+            # spawned but not yet returned must still be joined and drained.
+            spawn_task = asyncio.create_task(asyncio.create_subprocess_exec(
+                *selected.argv, cwd=str(self.root),
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=stdout_file, stderr=stderr_file,
+                start_new_session=True,
+                env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+            ))
+            try:
+                marker.process = await asyncio.shield(spawn_task)
+            except OSError:
+                raise ForegroundExecutionError("FOREGROUND_EXEC_SPAWN_FAILED") from None
+            try:
+                exitcode = await asyncio.wait_for(
+                    marker.process.wait(),
+                    timeout=self.plan.canonical_policies[
+                        self.plan.commands.index(selected)
+                    ].timeout_seconds
+                )
+            except asyncio.TimeoutError:
+                timed_out = True
+            except asyncio.CancelledError:
+                cancelled = True
+                raise
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
+        finally:
+            # The finalizer is the *sole* owner of the separate completion
+            # event. Repeated cancellation may abandon the caller but cannot
+            # forge a positive drain or completed receipt.
+            marker.finalizer = asyncio.create_task(finalize())
+            await asyncio.shield(marker.finalizer)
         if marker.receipt is None:
             raise ForegroundExecutionError("FOREGROUND_RECEIPT_UNAVAILABLE")
         return marker.receipt
+
+    def attest_canonical(
+        self, *, invocation: NodeExecutionInvocation, verifier: object,
+    ):
+        """Restricted Runtime bridge, requires finalized owner receipt."""
+        from aswe.runtime.canonical_verifier import CanonicalVerifier
+
+        marker = self._runs.get(invocation.execution_id)
+        if (not isinstance(verifier, CanonicalVerifier)
+                or verifier.task_id != self.task_id
+                or Path(verifier.binding.repository_root).resolve() != self.root
+                or marker is None or not marker.completion.is_set()
+                or marker.finalizer is None or not marker.finalizer.done()
+                or marker.receipt is None
+                or not self._trusted(invocation)):
+            raise ForegroundExecutionError("FOREGROUND_CANONICAL_ATTESTATION_UNAVAILABLE")
+        receipt = marker.receipt
+        if (receipt.node_id != invocation.node_id
+                or receipt.attempt != invocation.attempt
+                or receipt.execution_id != invocation.execution_id
+                or receipt.observed_revision != invocation.execution_workspace_revision
+                or receipt.command_id != self.plan.commands[0].id):
+            raise ForegroundExecutionError("FOREGROUND_CANONICAL_ATTESTATION_MISMATCH")
+        return verifier.attest_foreground_observation(
+            observed=receipt, policy=self.plan.canonical_policies[0],
+            revision=invocation.execution_workspace_revision,
+        )
 
     async def await_completion(self, execution_id: str, *,
                                timeout: float = 5) -> ForegroundReceipt | None:
