@@ -26,6 +26,6 @@ def test_step3_audit_22_cases_and_statuses_match_source():
             source,symbol=case["test"].split("::",1)
             path=ROOT/source
             assert path.is_file(), str(path)
-            assert re.search(rf"(?:async )?def {re.escape(symbol)}\\(", path.read_text(encoding="utf-8")), symbol
+            assert re.search(rf"(?:async )?def {re.escape(symbol)}\(", path.read_text(encoding="utf-8")), symbol
         else:
             assert case["test"] is None
