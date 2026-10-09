@@ -939,7 +939,11 @@ class SchedulerCore:
                 refs_ok = True
                 for stamp in ticket.dependency_acceptance_stamps:
                     h = self.states[stamp.upstream_node_id].accepted_handoff
-                    if h is None or not self._evidence_checker(h):
+                    # Evidence resolution may perform disk/hash/network-backed
+                    # lookups. It is not a SchedulerStateMutex operation and
+                    # must not block the event loop while a concurrent fail-close
+                    # or Writer reopen is trying to linearize.
+                    if h is None or not await asyncio.to_thread(self._evidence_checker, h):
                         refs_ok = False
                         break
                 try:
