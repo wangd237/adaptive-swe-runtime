@@ -190,3 +190,63 @@ async def test_failed_workspace_scan_can_never_derive_proven_none(repository_fix
     assert result.mutation_evidence is MutationEvidence.OBSERVED
     assert result.workspace_delta.attribution_truncated
     assert "EVIDENCE_SCANNER_INCOMPLETE" in result.unknown_reasons
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_supervisor", [False, True])
+async def test_real_scheduler_commit_native_guard_and_durable_workspace_evidence(
+        repository_fixture, tmp_path, with_supervisor):
+    """Full Scheduler lock -> 5C -> 5D -> native-shaped 5E -> 5F, no vendor API."""
+    from tests.unit.test_deerflow_native_execution_step5e import context
+    from aswe.workspace.session import WorkspaceSessionStatus
+    physical=repository_fixture
+    backend, binding_store, prep, core, node, env, tool, trace=context(tmp_path)
+    core.revision=invocation(physical).execution_workspace_revision
+
+    class HostSupervisor:
+        async def inspect(self, *, task_id, execution_id):
+            return QuiescenceObservation(
+                task_id=task_id,execution_id=execution_id,
+                process_tree_drained=True,sandbox_lease_released=True,
+                tool_workers_drained=True,complete=True,
+                provenance="runtime-sandbox-supervisor",
+            )
+
+    evidence=collector(physical,tmp_path,
+        supervisor=HostSupervisor() if with_supervisor else None)
+    backend.evidence_collector=evidence
+    observed=[]
+
+    class ActualRun:
+        async def prepare_node(self,n):return await backend.prepare_node(n)
+        async def execute_prepared(self,p,i):
+            output=await backend.execute_prepared(p,i)
+            observed.append((output,i))
+            return output
+        async def cancel_node(self,x):await backend.cancel_node(x)
+        def release_preparation(self,p):backend.release_preparation(p)
+
+    task=await core.claim(node.id)
+    invocation_result=await core.run_claim(task,ActualRun())
+    assert invocation_result is not None and observed
+    result, committed=observed[0]
+    assert committed is invocation_result
+    assert evidence.evidence_store.get(result.workspace_evidence_ref)[
+        "execution_id"]==committed.execution_id
+    ledger=evidence.evidence_store.get(result.tool_receipt_ref)
+    assert len(ledger["receipts"])==1
+    receipt=ledger["receipts"][0]
+    assert receipt["tool_call_id"]=="g-call-1"
+    assert receipt["tool_name"]=="read_file"
+    assert receipt["status"]=="completed"
+    assert receipt["execution_id"]==committed.execution_id
+    assert "README.md" not in str(ledger)
+    assert trace["calls"]==["read-ok"]
+    assert binding_store.active_count==0
+    assert not core.is_active_execution(committed)
+    assert result.quiescent is with_supervisor
+    assert result.mutation_evidence==(
+        "proven_none" if with_supervisor else "unknown")
+    if not with_supervisor:
+        assert core.workspace.lifecycle.current.status is WorkspaceSessionStatus.QUARANTINED
+        assert core.failed
