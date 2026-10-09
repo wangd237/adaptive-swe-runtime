@@ -1,6 +1,6 @@
 # Coding Step 4 — Capability / Provider / DAG Compiler Entry Contract
 
-**Status: ENTRY APPROVED AFTER SCOPED STEP-3 PR MERGE.** Step-3-owned P0-A..D have direct negative tests (see `audits/step3-freeze-closure.md`). Wait for accepted PR #5 on main; no DeerFlow calls in this stage.
+**Status: IN PROGRESS — physical P3 integration implemented in draft PR #6; additional Step-4 provider/policy PoCs pending.** Step-3-owned P0-A..D have direct negative tests (see `audits/step3-freeze-closure.md`). Wait for accepted PR #5 on main; no DeerFlow calls in this stage.
 
 ## Architecture handoff contract
 
@@ -69,3 +69,10 @@ Hard rules: Step 4 may not read `WorkPlanProposal`, LLM arbitrary effect hints o
 Pass P3-01/02/03/04/11 plus applicable P0-5 contract/static FakeBackend tests. Prove deterministic TaskDAG and rejection of provider/tool/fingerprint drift with adversarial fixtures. Preserve Step-2 cancellation, quiescence and business-mutation invariants. Neither a demo nor a successful LLM response closes the gate.
 
 **Branching decision:** create `coding/step4-capability-provider-dag` from accepted `main` only after PR #5's scoped Step-3 baseline is merged. Until then, Step-4 work must be an isolated spike without pretending it is authoritative `main` implementation.
+
+
+## First Stage-4 physical P3 checkpoint (2026-10-09)
+
+- Five frozen physical PoCs are now covered by real Scheduler / temporary Git tests: P3-01/02/03/04/11.
+- Current Step-4 branch review document: `audits/step4-physical-poc-audit.md`.
+- Overall Stage 4 remains IN PROGRESS; do not merge / close without checking all provider/policy/inventory requirements.

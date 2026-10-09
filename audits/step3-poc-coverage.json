@@ -5,27 +5,27 @@
   "entries": [
     {
       "id": "P3-01",
-      "status": "PARTIAL",
-      "test": "tests/unit/test_semantic_plan_step3c.py::test_p3_01_writer_precedes_bash_tester_by_semantic_phase",
-      "assessment": "Explicit Writer→Verifier semantic edge accepted; Step 4 still owns phase-derived materialization and physical Workspace WRITE scheduling"
+      "status": "PASS",
+      "test": "tests/unit/test_step4_physical_p3.py::test_p3_01_02_03_real_scheduler_stage_barriers",
+      "assessment": "Coder has exclusive physical WRITE; Tester using bash is physical WRITE; materialized phase edge and real Scheduler gate confirmed."
     },
     {
       "id": "P3-02",
-      "status": "PARTIAL",
-      "test": "tests/unit/test_semantic_plan_step3c.py::test_p3_02_tester_semantically_precedes_readonly_reviewer",
-      "assessment": "Explicit Verifier→Reviewer edge accepted; physical READ/WRITE relation is Step 4"
+      "status": "PASS",
+      "test": "tests/unit/test_step4_physical_p3.py::test_p3_01_02_03_real_scheduler_stage_barriers",
+      "assessment": "Materialized Tester WRITE -> Reviewer READ dependency, verified in real Scheduler READY progression."
     },
     {
       "id": "P3-03",
-      "status": "PARTIAL",
-      "test": "tests/unit/test_semantic_plan_step3c.py::test_p3_03_discovery_before_implementation",
-      "assessment": "Explicit discovery→implementation edge accepted; Step 4 automatic phase edges pending"
+      "status": "PASS",
+      "test": "tests/unit/test_step4_physical_p3.py::test_p3_01_02_03_real_scheduler_stage_barriers",
+      "assessment": "Discovery READ -> Implementation WRITE materialized edge validated through real Scheduler."
     },
     {
       "id": "P3-04",
-      "status": "PARTIAL",
-      "test": "tests/unit/test_semantic_plan_step3c.py::test_p3_04_unordered_same_phase_mutating_items_keep_ordinals_without_fake_provider_edges",
-      "assessment": "Planner ordinals stable and semantic edges untouched; Step 4 must compile deterministic WRITE serialization"
+      "status": "PASS",
+      "test": "tests/unit/test_step4_physical_p3.py::test_p3_04_ordinal_physical_writes_are_deterministically_serialized",
+      "assessment": "Same-phase unordered business WRITEs get stable ordinal-dependent edge and actual successor claim gate; deterministic TaskDAG fingerprint."
     },
     {
       "id": "P3-05",
@@ -65,9 +65,9 @@
     },
     {
       "id": "P3-11",
-      "status": "PARTIAL",
-      "test": "tests/unit/test_semantic_plan_step3c.py::test_p3_11_semantic_verification_not_equivalent_to_business_mutation",
-      "assessment": "Semantic verification cannot carry code_modification; physical bash WRITE and Git post-node invariant remain Step 4/Runtime integration"
+      "status": "PASS",
+      "test": "tests/unit/test_step4_physical_p3.py::test_p3_11_tester_bash_physical_write_business_read_git_invariant",
+      "assessment": "Tester bash requires physical WRITE, remains business READ_ONLY: actual tracked Git mutation rejected and fail-closed by Stage4 Git guarded FakeBackend; clean bash passes."
     },
     {
       "id": "P3-12",
@@ -137,8 +137,8 @@
     }
   ],
   "counts": {
-    "PASS": 17,
-    "PARTIAL": 5,
+    "PASS": 22,
+    "PARTIAL": 0,
     "GAP": 0
   }
 }

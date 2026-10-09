@@ -1,3 +1,12 @@
+## Step 4 physical P3 integration checkpoint (2026-10-09)
+
+- PR #5 **MERGED** into `main` at `584c1eae`, accepting Step-3 semantic compiler baseline only.
+- Step-4 branch `coding/step4-capability-provider-dag` implements canonical CapabilitySpec vocabulary, trusted static FakeBackendInventory/AgentProvider, ToolEffect / WorkspaceAccess, deterministic TaskDAG Materializer and real Git post-node Tester guard.
+- Five Step-3 deferred P3 cases are **PASS on this branch**: P3-01/02/03/04/11, with actual Scheduler and Git tests; frozen P3/C inventory now **22/22 scenario PASS**, awaiting PR #6 review/merge before main is updated.
+- Implementation CI `29cc2aef`: Python 3.11 and 3.13 **305 passed** each (run 37895498872).
+- **Step 4 is NOT CLOSED:** remaining provider preflight / live inventory / execution policy / descriptor / stage-4 P0-5 PoCs require separate review and coding. No DeerFlow adapter executed.
+- See `audits/step4-physical-poc-audit.md`.
+
 ## Step 3 P0 closure and Step 4 handoff (2026-10-09)
 
 - Scoped **GO** recommendation after P0-A..D source/negative test review. See `audits/step3-freeze-closure.md`.
