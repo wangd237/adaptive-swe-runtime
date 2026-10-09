@@ -18,6 +18,7 @@ from langchain_core.tools import tool
 from deerflow.config.app_config import AppConfig
 from deerflow.subagents.config import SubagentConfig
 from deerflow.subagents.executor import SubagentExecutor
+from deerflow.extensions import get_loaded_extensions
 from langgraph.prebuilt import ToolNode
 
 from aswe.core.contracts.backend import NodeExecutionInvocation
@@ -76,7 +77,7 @@ def physical_binding(*, visible_tool=read_file, execution_id="native-run-1"):
     )
     resources = SimpleNamespace(
         model_name="offline-pinned", app_config=app, subagent_config=sub,
-        extensions=None, node_id="node-poc",
+        extensions=get_loaded_extensions(), node_id="node-poc",
         effective_max_turns=10, effective_timeout_seconds=10,
         policy_fingerprint="physical-contract",
         assert_intact=lambda: None,
@@ -129,7 +130,7 @@ async def test_frozen_checkout_real_native_constructor_and_langgraph_tool_regist
     assert isinstance(executor, SubagentExecutor)
     state, tools, deferred = await executor._build_initial_state("Read README.md")
     assert tools == [read_file] and deferred is None
-    graph = await executor._create_agent(tools, deferred_setup=None, extensions=None)
+    graph = await executor._create_agent(tools, deferred_setup=None, extensions=binding.resources.extensions)
     compiled = graph.get_graph().nodes["tools"].data
     assert isinstance(compiled, ToolNode)
     assert tuple(compiled.tools_by_name) == ("read_file",)
@@ -143,7 +144,7 @@ async def test_real_langchain_graph_stream_calls_guarded_tool_with_stamped_conte
     binding = physical_binding(execution_id="native-run-2")
     executor = assembler.build(binding)
     state, tools, deferred = await executor._build_initial_state("Read README.md")
-    graph = await executor._create_agent(tools, deferred_setup=deferred, extensions=None)
+    graph = await executor._create_agent(tools, deferred_setup=deferred, extensions=binding.resources.extensions)
     p = binding.guard.principal
     context = {
         "run_id": binding.invocation.run_id,
@@ -179,7 +180,7 @@ async def test_real_compiled_graph_deny_on_tool_surface_change():
     executor = assembler.build(binding)
     state,tools,_ = await executor._build_initial_state("read")
     with pytest.raises(NativeExecutionError, match="COMPILED_TOOL_REGISTRY_DRIFT"):
-        await executor._create_agent(tools, deferred_setup=None, extensions=None)
+        await executor._create_agent(tools, deferred_setup=None, extensions=binding.resources.extensions)
 
 
 @pytest.mark.asyncio
