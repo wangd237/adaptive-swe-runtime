@@ -14,7 +14,7 @@ from pydantic import Field, model_validator
 
 from aswe.core.contracts._base import FrozenModel
 from aswe.core.contracts.constraint import ConstraintEnforcement
-from aswe.core.contracts import EvidenceRef, TaskEvidenceRef
+from aswe.core.contracts import EvidenceRef, TaskEvidenceRef, WorkspaceRevision
 from aswe.core.fingerprint import fingerprint
 from aswe.evaluation.contracts import (
     ContractLeafStatus, ContractLeafVerdict, ContractVerdict, build_contract_verdict,
@@ -241,6 +241,76 @@ def bind_execution_contract(*, contract: CompiledTaskContract, plan: ValidatedWo
     return ExecutionContractBinding(**fields, fingerprint=fingerprint(fields))
 
 
+class CanonicalCheckBinding(FrozenModel):
+    """Attempt-scoped receipt mapping supplied only by the Runtime EvidenceStore."""
+    command_id: str
+    proof: EvidenceRef
+    node_id: str
+    execution_id: str
+    attempt: int = Field(ge=1)
+    observed_revision: "WorkspaceRevision"
+
+
+def verified_canonical_check_finding(
+    *, contract: CompiledTaskContract, acceptance: CompiledAcceptancePlan,
+    verifier: "CanonicalVerifier", receipts: tuple[CanonicalCheckBinding, ...],
+) -> "TrustedEvaluationFinding":
+    """Convert real HMAC-attested CanonicalVerifier receipts into a leaf.
+
+    Every required check must have a matching command, policy and authenticated
+    attempt receipt. Missing/unresolved/non-quiescent checks are UNVERIFIED.
+    Failed checks are VIOLATED, not silently treated as semantic success.
+    """
+    if acceptance.task_contract_fingerprint != contract.fingerprint:
+        raise AcceptanceCompilationError("TASK_CONTRACT_FINGERPRINT_MISMATCH",
+                                         "check plan contract drift")
+    target = next((c for c in contract.constraints if c.key == "verification.required"), None)
+    if target is None:
+        raise AcceptanceCompilationError("CONTRACT_VERDICT_INVALID",
+                                         "no verification requirement to evaluate")
+    if len({r.command_id for r in receipts}) != len(receipts):
+        raise AcceptanceCompilationError("CONTRACT_VERDICT_INVALID",
+                                         "duplicate canonical command receipt")
+    from aswe.runtime.canonical_verifier import CanonicalVerifier
+    if not isinstance(verifier, CanonicalVerifier):
+        raise AcceptanceCompilationError("CONTRACT_VERDICT_INVALID",
+                                         "Runtime CanonicalVerifier required")
+    supplied = {r.command_id: r for r in receipts}
+    expected = {cmd.id for cmd in acceptance.commands}
+    if set(supplied) - expected:
+        raise AcceptanceCompilationError("CONTRACT_VERDICT_INVALID",
+                                         "unexpected verification receipt")
+    status = ContractLeafStatus.SATISFIED
+    refs: list[EvidenceRef] = []
+    diagnostics: list[str] = []
+    if acceptance.unresolved_check_keys:
+        status = ContractLeafStatus.UNVERIFIED
+        diagnostics.append("UNRESOLVED_CHECKS:" + ",".join(acceptance.unresolved_check_keys))
+    for cmd, policy in zip(acceptance.commands, acceptance.canonical_policies):
+        bound = supplied.get(cmd.id)
+        if bound is None:
+            status = ContractLeafStatus.UNVERIFIED
+            diagnostics.append("MISSING_CANONICAL_RECEIPT:" + cmd.id)
+            continue
+        receipt = verifier.validate(
+            bound.proof, node_id=bound.node_id,
+            execution_id=bound.execution_id, attempt=bound.attempt,
+            revision=bound.observed_revision, check_id=cmd.id,
+        )
+        if receipt.command_policy_fingerprint != policy.fingerprint:
+            raise AcceptanceCompilationError("ACCEPTANCE_COMMAND_POLICY_MISMATCH",
+                                             "attested receipt does not match compiled check policy")
+        refs.append(bound.proof)
+        if receipt.status == "failed":
+            status = ContractLeafStatus.VIOLATED
+        elif receipt.status != "holds" and status is not ContractLeafStatus.VIOLATED:
+            status = ContractLeafStatus.UNVERIFIED
+    return TrustedEvaluationFinding(
+        constraint_id=target.id, status=status,
+        supporting_refs=tuple(refs), diagnostics=tuple(diagnostics),
+    )
+
+
 class TrustedEvaluationFinding(FrozenModel):
     """Runtime evaluator input, NOT agent self-report or success authority.
 
@@ -303,7 +373,15 @@ def assert_final_contract_binding(*, contract: CompiledTaskContract,
                                   observed_execution_binding_fingerprint: str,
                                   verdict: ContractVerdict) -> None:
     """Step-4/terminal caller must provide the active *Runtime-owned* stamp."""
+    effective_policy = fingerprint(tuple(
+        (c.id, p.fingerprint, criterion.criterion,
+         criterion.bash_exact_allowlist_entry)
+        for c, p, criterion in zip(
+            acceptance.commands, acceptance.canonical_policies, acceptance.criteria
+        )
+    ))
     if (observed_execution_binding_fingerprint != binding.fingerprint
+            or binding.execution_policy_fingerprint != effective_policy
             or binding.task_contract_fingerprint != contract.fingerprint
             or binding.repository_base_sha != contract.repository_base_sha
             or binding.acceptance_plan_fingerprint != acceptance.fingerprint
