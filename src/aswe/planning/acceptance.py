@@ -162,6 +162,14 @@ class AcceptanceCompiler:
         for key in required:
             rule = rules.get(key)
             if rule is not None:
+                # P1 load-bearing DeerFlow acceptance presently supports
+                # tests_passed only. An IMPORT/BUILD/STATIC command needs its
+                # own checker semantics before it may become a success gate.
+                if rule.kind is not VerificationCommandKind.TEST:
+                    raise AcceptanceCompilationError(
+                        "ACCEPTANCE_KIND_UNSUPPORTED",
+                        "only TEST may compile to a tests_passed acceptance gate",
+                    )
                 selected.append((key, "runtime_rule", rule.kind, rule.argv,
                                  rule.timeout_seconds, fingerprint(rule)))
                 continue
