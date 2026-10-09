@@ -282,6 +282,19 @@ def project_execution_authority(contract: CompiledTaskContract) -> TaskExecution
     return TaskExecutionAuthority(**body, fingerprint=fingerprint(body))
 
 
+# Versioned deterministic rules used in compiler-owned fingerprints.
+# Bump when canonicalization / provenance / merge semantics change.
+COMPILER_RULESET_VERSION = "aswe-step3-constraint-compiler-v1"
+
+
+def compiler_ruleset_fingerprint() -> str:
+    return fingerprint((
+        COMPILER_RULESET_VERSION,
+        tuple((k, spec.merge_strategy, spec.verification_mode)
+              for k, spec in sorted(CONSTRAINT_REGISTRY.items())),
+    ))
+
+
 class ConstraintCompiler:
     def __init__(self, policy: RuntimePolicyConfig):
         self.policy = policy
@@ -405,9 +418,15 @@ class ConstraintCompiler:
             and CONSTRAINT_REGISTRY[key].merge_strategy
                 in ("intersection", "union", "minimum")
         )
+        guidance_hashes = tuple(sorted(set(
+            (source.path, hashlib.sha256(source.content.encode("utf-8")).hexdigest())
+            for source in guidance
+        )))
         body = dict(
             task_request_hash=request.content_hash,
             runtime_policy_hash=policy_hash,
+            compiler_ruleset_fingerprint=compiler_ruleset_fingerprint(),
+            repository_guidance_hashes=guidance_hashes,
             repository_base_sha=repository_base_sha,
             constraints=combined,
             compiler_repairs=compiler_repairs,

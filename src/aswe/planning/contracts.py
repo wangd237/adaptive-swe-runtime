@@ -95,6 +95,10 @@ class CompiledConstraint(FrozenModel):
 class CompiledTaskContract(FrozenModel):
     task_request_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     runtime_policy_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    # Bind compiler normalization semantics and all loaded guidance content,
+    # including guidance with no extracted candidates.
+    compiler_ruleset_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    repository_guidance_hashes: tuple[tuple[str, str], ...]
     repository_base_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     constraints: tuple[CompiledConstraint, ...]
     compiler_repairs: tuple[dict[str, Any], ...]
@@ -106,6 +110,11 @@ class CompiledTaskContract(FrozenModel):
         from aswe.core.fingerprint import fingerprint
         if self.fingerprint != fingerprint(self.model_dump(mode="json", exclude={"fingerprint"})):
             raise ValueError("compiled contract fingerprint mismatch")
+        if self.repository_guidance_hashes != tuple(sorted(set(self.repository_guidance_hashes))):
+            raise ValueError("guidance provenance hashes must be canonical")
+        if any(not p or len(h) != 64 or any(ch not in "0123456789abcdef" for ch in h)
+               for p, h in self.repository_guidance_hashes):
+            raise ValueError("guidance provenance invalid")
         ids = tuple(c.id for c in self.constraints)
         keys = tuple(c.key for c in self.constraints)
         if len(set(ids)) != len(ids) or keys != tuple(sorted(set(keys))):

@@ -398,3 +398,26 @@ def test_locked_wildcard_action_deny_conflicts_with_requested_mutation():
         compiled(policy=(("actions.forbidden", ("*",)),),
                  quotes=("deliverables.required: repository_mutation | fix code",))
     assert err.value.code == "CONTRACT_POLICY_CONFLICT"
+
+
+def test_design_freeze_contract_hash_includes_all_guidance_and_compiler_ruleset():
+    from aswe.planning.compiler import compiler_ruleset_fingerprint
+    input_request=req("Analyze")
+    def make(profile):
+        return ConstraintCompiler(
+            RuntimePolicyConfig(policy_id="p"),
+        ).compile(
+            request=input_request,repository_base_sha=BASE,
+            guidance=(RepositoryGuidanceSource(
+                path="AGENTS.md",content=profile,candidates=(),
+            ),),
+        )[0]
+    first=make("Do not edit production")
+    second=make("Never edit production")
+    assert first.fingerprint!=second.fingerprint
+    assert first.compiler_ruleset_fingerprint==compiler_ruleset_fingerprint()
+    assert first.repository_guidance_hashes!=second.repository_guidance_hashes
+    assert first.constraints==second.constraints==()
+    assert make("Do not edit production")==first
+    with pytest.raises(ValidationError,match="fingerprint mismatch"):
+        first.model_copy(update={"repository_guidance_hashes":()})
