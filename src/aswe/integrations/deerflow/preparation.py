@@ -42,7 +42,8 @@ def _json_payload(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_json_payload(v) for v in value]
     if isinstance(value, __import__("types").SimpleNamespace):
-        return {k: _json_payload(v) for k, v in vars(value).items()}\n    return value
+        return {k: _json_payload(v) for k, v in vars(value).items()}
+    return value
 
 
 def _digest(value: Any) -> str:
