@@ -402,7 +402,8 @@ async def test_langchain_middleware_shaped_interceptor_checks_actual_tool_and_ru
     )
     assert await middleware.awrap_tool_call(request,lambda _: record_async(executed,"ok"))=="ok"
     assert executed==["ok"]
-    forged=SimpleNamespace(tool_call=request.tool_call,
+    forged=SimpleNamespace(
+        tool_call={"id":"impostor-id","name":"read_file","args":{"path":"x"}},
         tool=SimpleNamespace(name="read_file"),runtime=runtime)
     with pytest.raises(ToolBindingError,match="UNBOUND_TOOL_OBJECT"):
         await middleware.awrap_tool_call(forged,lambda _: record_async(executed,"bad"))
