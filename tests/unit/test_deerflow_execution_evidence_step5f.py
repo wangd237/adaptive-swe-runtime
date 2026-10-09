@@ -187,7 +187,8 @@ async def test_failed_workspace_scan_can_never_derive_proven_none(repository_fix
     base=await store.begin(invocation(repo))
     (Path(repo.repository_root)/"another.txt").write_text("new")
     result=await store.finish(base,guard=guard(),native_task_done=True)
-    assert result.mutation_evidence is MutationEvidence.OBSERVED
+    assert result.mutation_evidence is MutationEvidence.UNKNOWN
+    assert result.workspace_delta.mutation_evidence is MutationEvidence.OBSERVED
     assert result.workspace_delta.attribution_truncated
     assert "EVIDENCE_SCANNER_INCOMPLETE" in result.unknown_reasons
 
