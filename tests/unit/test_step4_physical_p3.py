@@ -134,8 +134,7 @@ def test_optional_bash_does_not_upgrade_explorer_read_access():
 
 
 def test_fake_inventory_alias_does_not_self_authorize_read_only():
-    from aswe.providers.inventory import BackendInventorySnapshot
-    from aswe.core.fingerprint import fingerprint
+    from aswe.providers.inventory import BackendInventorySnapshot,inventory_fingerprint
     _,plan,res,_=build(("explorer",WorkKind.DISCOVERY,"repo_exploration"),
                        needs_mutation=False)
     inv=fake_inventory()
@@ -145,7 +144,7 @@ def test_fake_inventory_alias_does_not_self_authorize_read_only():
     })
     body=inv.model_dump(mode="json",exclude={"fingerprint"})
     body["candidate_tools"]["read_file"]=spoof.model_dump(mode="json")
-    forged=BackendInventorySnapshot(**body,fingerprint=fingerprint(body))
+    forged=BackendInventorySnapshot(**body,fingerprint=inventory_fingerprint(body))
     contract,authority=ConstraintCompiler(RuntimePolicyConfig(policy_id="p")).compile(
         request=make_task_request(request_id="r",raw_text="Analyze"),
         repository_base_sha="a"*40)
