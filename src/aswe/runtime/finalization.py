@@ -184,6 +184,13 @@ def finalize_task(
                        for ref in attempt.evidence_refs)
     # Validate immutable historical EvidenceRefs without touching Workspace.
     warnings: list[str] = list(getattr(scheduler, "secondary_runtime_diagnostics", ()))
+    if task_status is TaskLogicalStatus.FAILED:
+        root_kinds = {root.failure_kind for root in roots}
+        # Preserve the task-level reason that stopped remediation even when
+        # the original verification failure remains the only business root.
+        for reason in getattr(scheduler, "failure_kinds", ()):
+            if reason not in root_kinds:
+                warnings.append("TASK_TERMINATION:" + reason)
     historical = []
     for ref in sorted(set(historical_candidates), key=lambda e: e.evidence_id):
         try:
