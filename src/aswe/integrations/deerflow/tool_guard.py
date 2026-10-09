@@ -7,6 +7,7 @@ including middleware-declared tools, before enabling real execute_prepared().
 from __future__ import annotations
 
 import asyncio
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Mapping
 
@@ -195,12 +196,14 @@ class ToolCallGuard:
                 not set(view.names).issubset(policy.allowed_business_tools)):
             _deny("TOOL_POLICY_IDENTITY_MISMATCH")
         self.closed = False
+        self._call_lock = threading.RLock()
         self._pending_calls: set[str] = set()
         self._used_call_ids: set[str] = set()
 
     def close(self) -> None:
         """Revoke future calls. In-flight provider/native tool quiescence is 5E."""
-        self.closed = True
+        with self._call_lock:
+            self.closed = True
 
     def _live(self) -> None:
         try:
@@ -244,6 +247,16 @@ class ToolCallGuard:
             _deny("TOOL_INPUT_UNATTESTED")
         return name
 
+    def _reserve(self, *, tool: Any, tool_call_id: str, tool_input: Any) -> str:
+        # LangChain can invoke native sync tools from a worker thread while
+        # async tools run on the event loop: the replay test/set must be atomic.
+        with self._call_lock:
+            name = self._validate(tool=tool, tool_call_id=tool_call_id,
+                                  tool_input=tool_input)
+            self._used_call_ids.add(tool_call_id)
+            self._pending_calls.add(tool_call_id)
+            return name
+
     def _auth_request(self, name: str, call_id: str, tool_input: Any) -> Any:
         return _request(
             self.request_factory, self.principal, "tool", "call", name,
@@ -256,9 +269,7 @@ class ToolCallGuard:
     async def ainvoke(self, *, tool: Any, tool_call_id: str,
                       tool_input: dict | str, handler: Callable[[], Awaitable[Any]]) -> Any:
         """Guarantee no provided native handler is called on authorization deny."""
-        name = self._validate(tool=tool, tool_call_id=tool_call_id, tool_input=tool_input)
-        self._used_call_ids.add(tool_call_id)
-        self._pending_calls.add(tool_call_id)
+        name = self._reserve(tool=tool, tool_call_id=tool_call_id, tool_input=tool_input)
         try:
             if self.auth_enabled:
                 try:
@@ -284,9 +295,7 @@ class ToolCallGuard:
     def invoke(self, *, tool: Any, tool_call_id: str,
                tool_input: dict | str, handler: Callable[[], Any]) -> Any:
         """Synchronous tool path; never permits bypass through BaseTool.run."""
-        name = self._validate(tool=tool, tool_call_id=tool_call_id, tool_input=tool_input)
-        self._used_call_ids.add(tool_call_id)
-        self._pending_calls.add(tool_call_id)
+        name = self._reserve(tool=tool, tool_call_id=tool_call_id, tool_input=tool_input)
         try:
             if self.auth_enabled:
                 try:
