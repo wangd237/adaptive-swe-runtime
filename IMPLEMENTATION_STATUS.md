@@ -88,10 +88,10 @@
 
 ## Step 3D Acceptance checkpoint
 
-- `VerificationCommand` is compiler-owned and immutable; `tests_passed:<command>`, Bash exact allowlist, and CanonicalCommandPolicy derive from one identity.
+- `VerificationCommand` is compiler-owned and immutable; `tests_passed:<command>`, Bash exact allowlist, and CanonicalCommandPolicy derive from one identity. Only TEST commands may compile to tests_passed; BUILD/IMPORT/STATIC fail closed.
 - Local authenticated canonical receipts drive trusted verification leaves; HARD/LOCKED UNVERIFIED and unproven NOT_APPLICABLE block Task success.
 - `ExecutionContractBinding` ties contract, validated work plan, acceptance policy, and Git base; `finalize_bound_task` rejects a changed observed execution stamp.
-- Step 3D real Git/CanonicalVerifier terminal test completed; Python 3.11 and 3.13 **272 passed** on `e3663300` (run 37880067331).
+- Step 3D real Git/CanonicalVerifier terminal test completed; Python 3.11 and 3.13 **273 passed** on `2a4b952c` (run 37880285730).
 - Current frozen Step 3 inventory: **17 PASS / 5 PARTIAL / 0 GAP**. Remaining cases need Step 4 physical DAG integration.
 - Do not merge PR #5 or mark Step 3 CLOSED until independent review and remaining physical PoCs.
 

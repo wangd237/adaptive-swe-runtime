@@ -35,7 +35,7 @@
 ## Boundaries not claimed
 
 - Runtime operator configuration is the trust root of verification commands; `user_hard_requirement` exists in the schema but no user-supplied arbitrary shell command is activated by this compiler.
-- Fixed command argv may not contain shell metacharacters/interpreters; the check is intentionally conservative and **not** a general shell safety proof.
+- Fixed command argv may not contain shell metacharacters/interpreters; the check is intentionally conservative and **not** a general shell safety proof. Only `VerificationCommandKind.TEST` compiles to `tests_passed`; BUILD/IMPORT_CHECK/STATIC_CHECK fail closed as `ACCEPTANCE_KIND_UNSUPPORTED` until their independent checker semantics are implemented (`test_d08_non_test_command_cannot_impersonate_tests_passed_acceptance`).
 - Local `CanonicalVerifier` HMAC and Git provenance are Step-2 runtime mechanisms, not distributed trust, DeerFlow's native tests_passed checker, or its persistent-shell evidence.
 - `finalize_bound_task` requires an **observed Runtime-owned execution binding fingerprint** provided by the Step-4 admission snapshot. Step 3D provides the checker but does **not** yet install the snapshot in a real Provider/DeerFlow scheduler run.
 - Semantic/Review SATISFIED evidence resolution remains scoped to the trusted Runtime evaluator and receipt resolver; model prose cannot be passed as successful deterministic test evidence.
@@ -43,4 +43,4 @@
 
 ## CI
 
-Implementation-and-terminal-seam HEAD `e36633009885b680846e282862a2c4baaded48ae`: Python 3.11 **272 passed**, Python 3.13 **272 passed**, GitHub Actions run 37880067331. This audit-only update requires latest-head CI before Stage 3 release.
+Acceptance kind hardening HEAD `2a4b952c2e17e66ced003336b5cb07aef795e2b7`: Python 3.11 **273 passed**, Python 3.13 **273 passed**, GitHub Actions run 37880285730. Audit-only sync head requires the same CI gate before any Step 3 closure.
