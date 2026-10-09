@@ -256,3 +256,75 @@ def test_unknown_prose_with_model_forged_permission_is_semantic_not_authority():
     assert not authority.repository_mutation_allowed
     assert by_key(contract, "semantic.requirement").value == (request.raw_text,)
     assert by_key(contract, "semantic.requirement").provenance.origin is ConstraintOrigin.USER_EXPLICIT
+
+
+def test_report_only_task_quoting_structured_mutation_example_has_no_authority():
+    example = "deliverables.required: repository_mutation | edit the source"
+    raw = "Explain this sample directive without executing it: " + example
+    contract, authority = ConstraintCompiler(
+        RuntimePolicyConfig(policy_id="locked"),
+    ).compile(
+        request=make_task_request(request_id="analysis", raw_text=raw),
+        repository_base_sha=BASE,
+        user_candidates=(candidate(example),),
+    )
+    assert not authority.repository_mutation_allowed
+    assert by_key(contract, "semantic.requirement").value == (example,)
+
+
+def test_structured_directive_within_markdown_code_fence_is_only_semantic():
+    example = "deliverables.required: repository_mutation | edit files"
+    raw = "Analyze the following example:\n```text\n" + example + "\n```"
+    contract, authority = ConstraintCompiler(RuntimePolicyConfig(policy_id="p")).compile(
+        request=make_task_request(request_id="analysis", raw_text=raw),
+        repository_base_sha=BASE,
+        user_candidates=(candidate(example),),
+    )
+    assert not authority.repository_mutation_allowed
+    assert by_key(contract, "semantic.requirement").value == (example,)
+
+
+def test_locked_deny_all_paths_cannot_grant_repository_mutation():
+    with pytest.raises(ContractCompilationError, match="CONTRACT_POLICY_CONFLICT"):
+        compiled(policy=(("repo.paths.allowed", ()),),
+                 quotes=("deliverables.required: repository_mutation | edit app",))
+    with pytest.raises(ContractCompilationError, match="CONTRACT_POLICY_CONFLICT"):
+        compiled(policy=(("repo.paths.forbidden", ("**",)),),
+                 quotes=("deliverables.required: repository_mutation | edit app",))
+
+
+def test_effective_allowed_subtree_fully_forbidden_is_policy_conflict():
+    with pytest.raises(ContractCompilationError, match="CONTRACT_POLICY_CONFLICT"):
+        compiled(
+            policy=(("repo.paths.allowed", ("src/auth/**",)),
+                    ("repo.paths.forbidden", ("src/**",))),
+            quotes=("deliverables.required: repository_mutation | edit app",),
+        )
+
+
+def test_operator_authorized_high_risk_rule_generates_review_not_mutation():
+    from aswe.planning.analyzer import TaskSpec, TaskType, Complexity, RiskLevel
+    task = TaskSpec(
+        task_type=TaskType.ANALYSIS, description="security risk assessment",
+        domains=("security",), repository_level=True, complexity=Complexity.HIGH,
+        risk=RiskLevel.HIGH, testing_required=False, review_required=False,
+        scope_hints=(), capability_hints=("code_modification",),
+        planning_uncertainties=(),
+    )
+    policy = RuntimePolicyConfig(policy_id="p", high_risk_requires_review=True)
+    contract, authority = ConstraintCompiler(policy).compile(
+        request=req("Analyze security risks"), repository_base_sha=BASE,
+        task_spec=task,
+    )
+    review = by_key(contract, "review.required")
+    assert review.value is True
+    assert review.enforcement is ConstraintEnforcement.HARD
+    assert review.provenance.origin is ConstraintOrigin.RUNTIME_DERIVED
+    assert review.provenance.evidence[0].source_kind == "task_spec"
+    assert not authority.repository_mutation_allowed
+
+    off, _ = ConstraintCompiler(
+        RuntimePolicyConfig(policy_id="p", high_risk_requires_review=False)
+    ).compile(request=req("Analyze security risks"), repository_base_sha=BASE,
+              task_spec=task)
+    assert all(c.key != "review.required" for c in off.constraints)
