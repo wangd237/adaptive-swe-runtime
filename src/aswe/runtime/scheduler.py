@@ -360,6 +360,10 @@ class SchedulerCore:
             # budget is already exhausted; only the new REPAIR is forbidden.
             own_certified_failure = own_repair
             own_repair = own_certified_failure and state.repair_count < self.budget.max_repairs_per_write
+            # Snapshot the gate *before* this attempt can fail itself closed.
+            # A task which was already CLOSED cancels this consumer; a running
+            # node which itself violates authority remains a FAILED root.
+            gate_preclosed = self.gate.state is TaskDispatchGateState.CLOSED
             success = (
                 self.gate.state is TaskDispatchGateState.OPEN
                 and getattr(result, "terminal_status", None) is BackendTerminalStatus.COMPLETED
@@ -376,7 +380,7 @@ class SchedulerCore:
             # a racing acceptance callback is inert, not a second failure root.
             cancel_consequence = (
                 invocation.node_id in self._locally_cancelled_nodes
-                or self.gate.state is TaskDispatchGateState.CLOSED
+                or gate_preclosed
             )
             if handoff is not None and not success:
                 if not cancel_consequence:
@@ -393,7 +397,7 @@ class SchedulerCore:
             local_cancel = invocation.node_id in self._locally_cancelled_nodes
             cancelled = (
                 local_cancel
-                or self.gate.state is TaskDispatchGateState.CLOSED
+                or gate_preclosed
                 or getattr(result, "terminal_status", None) is BackendTerminalStatus.CANCELLED
             )
             if review_verdict_ref is not None and (
@@ -412,7 +416,7 @@ class SchedulerCore:
                 "post_workspace_revision": post,
                 "failure_kind": None if success else (
                     "FAIL_CLOSED_CONSUMER_CANCELLED"
-                    if (cancelled and self.gate.state is TaskDispatchGateState.CLOSED
+                    if (cancelled and gate_preclosed
                         and not self.cancelled and not local_cancel) else
                     "REPAIR_BUDGET_EXHAUSTED"
                     if own_certified_failure and not own_repair else
@@ -429,16 +433,14 @@ class SchedulerCore:
                 "attempts": state.attempts[:-1] + (record,),
                 "active_dispatch_ticket_id": None,
             }
-            if cancelled and (self.cancelled or local_cancel
-                              or self.gate.state is TaskDispatchGateState.CLOSED):
+            if cancelled and (self.cancelled or local_cancel or gate_preclosed):
                 # A task-fail-close cancelled consumer is a consequence of the
                 # original business failure, not another independent root.
                 changes.update(
                     logical_status=NodeLogicalStatus.CANCELLED,
                     terminal_failure_kind=None,
                 )
-                if (not self.cancelled and not local_cancel
-                        and self.gate.state is TaskDispatchGateState.CLOSED):
+                if (not self.cancelled and not local_cancel and gate_preclosed):
                     if mutation is not MutationEvidence.PROVEN_NONE:
                         self.secondary_runtime_diagnostics.append(
                             "FAIL_CLOSED_CONSUMER_MUTATION:" + invocation.node_id
