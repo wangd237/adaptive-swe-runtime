@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Mapping
 
 from aswe.core.contracts.backend import NodeExecutionInvocation, NodeExecutionPreparation
+from aswe.capabilities.effects import DEERFLOW_USE_BY_CONTRACT
 from aswe.integrations.deerflow.preparation import (
     DeerFlowPreparationBackend, DeerFlowPreparationError, PinnedNodeResources,
     _tool_seal, _extension_seal,
@@ -72,15 +73,7 @@ def _static_surface(resources: PinnedNodeResources) -> tuple[str, ...]:
         _deny("DUPLICATE_CONFIG_TOOL")
     for contract_id, tool in zip(resources.allowed_tool_ids, resources.tools):
         if (tool.name != contract_id or contract_id not in tool_config
-                or tool_config[contract_id] not in {
-                    "deerflow.sandbox.tools:ls_tool",
-                    "deerflow.sandbox.tools:glob_tool",
-                    "deerflow.sandbox.tools:grep_tool",
-                    "deerflow.sandbox.tools:read_file_tool",
-                    "deerflow.sandbox.tools:write_file_tool",
-                    "deerflow.sandbox.tools:str_replace_tool",
-                    "deerflow.sandbox.tools:bash_tool",
-                }):
+                or tool_config[contract_id] != DEERFLOW_USE_BY_CONTRACT.get(contract_id)):
             _deny("DYNAMIC_TOOL_PROVENANCE_FORBIDDEN")
     if (len(resources.allowed_tool_ids) != len(resources.tools)
             or len(set(resources.allowed_tool_ids)) != len(resources.allowed_tool_ids)):
@@ -141,6 +134,31 @@ class BoundToolView:
                 _deny("MIDDLEWARE_TOOL_DECLARATION_UNKNOWN")
             if declared:
                 _deny("MIDDLEWARE_TOOL_DECLARATION_FORBIDDEN")
+
+
+class ToolPolicyMiddleware:
+    """Provider-neutral 5D surface gate; NOT a LangChain AgentMiddleware.
+
+    Native wrappers and compiled-ToolNode enforcement are deliberately held
+    for 5E. No caller may treat a validated raw tool as guard-wrapped.
+    """
+
+    def __init__(self, view: BoundToolView):
+        self.view = view
+
+    def validate_build_inputs(self, *, tools: tuple[Any, ...],
+                              middleware: tuple[Any, ...] = ()) -> None:
+        self.view.check_model_visible(tools)
+        self.view.check_middleware_declarations(middleware)
+
+    def validate_compiled_registry(self, registry: Mapping[str, Any]) -> None:
+        # A middleware tool can shadow an ordinary tool by exposed name.
+        # Same-name impostors are rejected by identity and schema seal.
+        if not isinstance(registry, Mapping) or set(registry) != set(self.view.names):
+            _deny("COMPILED_TOOL_REGISTRY_DRIFT")
+        for tool, seal in zip(self.view.objects, self.view.object_seals):
+            if registry[tool.name] is not tool or _tool_seal(tool) != seal:
+                _deny("COMPILED_TOOL_REGISTRY_DRIFT")
 
 
 class ToolCallGuard:
@@ -272,7 +290,7 @@ class NodeExecutionBindingStore:
     """
 
     def __init__(self, *, preparation_backend: DeerFlowPreparationBackend,
-                 principal_supplier: Callable[[], Any],
+                 principal_supplier: Callable[[PinnedNodeResources], Any],
                  provider_supplier: Callable[[Any], Any],
                  auth_request_factory: Callable[..., Any]):
         self.preparation_backend = preparation_backend
@@ -296,13 +314,13 @@ class NodeExecutionBindingStore:
             raise ToolBindingError("DEERFLOW_DEPENDENCY_UNAVAILABLE") from exc
 
         assert_pinned_deerflow_source(runtime_module.__file__)
-        def principal_supplier():
+        def principal_supplier(resources: PinnedNodeResources):
             context = host_identity_supplier()
             if not isinstance(context, Mapping):
                 _deny("HOST_PRINCIPAL_UNTRUSTED")
-            config = preparation_backend.config_supplier()
-            # Role default is only a presentation fallback: a trusted user_id
-            # or trusted is_internal must be present regardless.
+            # Use the frozen AppConfig from 5C, NEVER get_app_config() again
+            # after Scheduler commit or observe another authorization role.
+            config = resources.app_config
             return build_principal_from_context(
                 context, default_role=config.authorization.default_role
             )
@@ -332,7 +350,7 @@ class NodeExecutionBindingStore:
         try:
             enabled = _auth_enabled(resources)
             names = _static_surface(resources)
-            principal = self.principal_supplier()
+            principal = self.principal_supplier(resources)
             if not _principal_ok(principal):
                 _deny("HOST_PRINCIPAL_UNTRUSTED")
             provider = None
