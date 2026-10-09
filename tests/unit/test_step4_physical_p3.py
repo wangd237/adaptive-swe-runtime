@@ -60,10 +60,11 @@ def build(*descriptions,needs_mutation=True,optional_bash=False):
         proposal=WorkPlanProposal(items=reqs,rationale="neutral"),
         contract=c,authority=authority,
     )
+    inv=fake_inventory()
     resolved=resolve_workplan(plan=plan,contract=c,authority=authority,
          providers=stage4_providers(optional_bash=optional_bash),
-         inventory=fake_inventory())
-    dag=materialize_task_dag(plan=plan,resolved=resolved)
+         inventory=inv)
+    dag=materialize_task_dag(plan=plan,resolved=resolved,inventory=inv)
     return c,plan,resolved,dag
 
 
@@ -86,7 +87,7 @@ def test_p3_01_02_03_materialized_phase_edges_and_physical_workspace_effect():
     assert node(dag,"tester").work_kind is WorkKind.VERIFICATION
     assert node(dag,"reviewer").workspace_access is WorkspaceAccess.READ
     assert dag.topological_order==("explore","writer","tester","reviewer")
-    assert materialize_task_dag(plan=p,resolved=res)==dag
+    assert materialize_task_dag(plan=p,resolved=res,inventory=fake_inventory())==dag
 
 
 @pytest.mark.asyncio
@@ -116,7 +117,7 @@ async def test_p3_04_ordinal_physical_writes_are_deterministically_serialized(tm
     assert node(dag,"a_writer").dependencies==()
     assert node(dag,"b_writer").dependencies==("a_writer",)
     assert dag.topological_order==("a_writer","b_writer")
-    assert materialize_task_dag(plan=p,resolved=res).fingerprint==dag.fingerprint
+    assert materialize_task_dag(plan=p,resolved=res,inventory=fake_inventory()).fingerprint==dag.fingerprint
     core,_=scheduler(tmp_path,*dag.nodes)
     assert core.states["b_writer"].logical_status is NodeLogicalStatus.PENDING
     await core.run_claim(await core.claim("a_writer"),
@@ -176,7 +177,7 @@ async def test_p3_11_tester_bash_physical_write_business_read_git_invariant(cano
         terminal_status=BackendTerminalStatus.COMPLETED,
         mutation_evidence=MutationEvidence.PROVEN_NONE,
     )])
-    guard=PostNodeGitInvariantBackend(backend,binding,semantic_read_only=True)
+    guard=PostNodeGitInvariantBackend(backend,binding,dag=dag,node_id="tester")
     before=capture_repository_state(binding)
     await core.run_claim(await core.claim("tester"),guard,accept=accept)
     after=capture_repository_state(binding)
@@ -199,7 +200,7 @@ async def test_p3_11_clean_bash_tester_does_not_falsely_fail(canonical_workspace
     core,_=scheduler(Path(binding.repository_root),*dag.nodes)
     core.revision=revision
     guard=PostNodeGitInvariantBackend(
-       FakeExecutionBackend([FakeExecutionScenario()]),binding,semantic_read_only=True)
+       FakeExecutionBackend([FakeExecutionScenario()]),binding,dag=dag,node_id="tester")
     await core.run_claim(await core.claim("tester"),guard,accept=accept)
     assert not core.failed
     assert core.states["tester"].logical_status is NodeLogicalStatus.SUCCEEDED

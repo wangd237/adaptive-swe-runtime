@@ -9,19 +9,29 @@ from aswe.core.contracts.workspace import WorkspaceAccess
 from aswe.core.dag_fingerprint import build_task_dag,structure_fingerprint
 from aswe.core.fingerprint import fingerprint
 from aswe.planning.validator import ValidatedWorkPlan,PHASE
-from aswe.providers.resolver import ResolvedPlan
+from aswe.providers.resolver import ResolvedPlan,ProviderFeasibilityError
+from aswe.providers.inventory import BackendInventorySnapshot
+from aswe.capabilities.effects import access_for,trusted_effect,ToolEffect
 
 class MaterializationError(ValueError):
     pass
 
 def materialize_task_dag(*,plan:ValidatedWorkPlan,resolved:ResolvedPlan,
+                         inventory:BackendInventorySnapshot,
                          verification_check_ids:tuple[str,...]=())->TaskDAG:
-    if resolved.workplan_fingerprint!=plan.fingerprint:
-        raise MaterializationError("WORKPLAN_BINDING_MISMATCH")
+    if (resolved.workplan_fingerprint!=plan.fingerprint
+            or resolved.inventory_fingerprint!=inventory.fingerprint):
+        raise MaterializationError("WORKPLAN_INVENTORY_BINDING_MISMATCH")
     loc={x.node_id:x for x in resolved.nodes}
     if set(loc)!={x.id for x in plan.items} or len(loc)!=len(resolved.nodes):
         raise MaterializationError("RESOURCE_ASSIGNMENTS_INCOMPLETE")
     ids={x.id:x for x in plan.items}
+    for item in plan.items:
+        res=loc[item.id]
+        infos=tuple(inventory.candidate_tools.get(k) for k in res.allowed_tools)
+        if (any(x is None or trusted_effect(x) is ToolEffect.UNKNOWN for x in infos)
+                or access_for(item.capability_hints,infos)!=res.workspace_access):
+            raise MaterializationError("WORKSPACE_EFFECT_AUTHORITY_MISMATCH")
     # Planner ordinals are original and stable, independent of provider rank.
     ordered=sorted(plan.items,key=lambda x:(x.planner_ordinal,x.id))
     dependencies={x.id:set(x.depends_on) for x in ordered}

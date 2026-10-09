@@ -1,26 +1,33 @@
-"""FakeBackend-compatible physical Git post-node semantic READ invariant.
+"""Real Git-backed Step-4 post-node invariant for business read-only nodes.
 
-A Verifier may require an exclusive WRITE lock for bash, but that does not
-grant it *business* repository mutation authority. Only real pinned physical
-Git before/after state establishes source mutation, never a model statement.
+The semantic read-only decision is bound to a compiled TaskDAG. Callers
+cannot supply a boolean to disable or enable the guard for a given node.
 """
-from __future__ import annotations
 from aswe.core.contracts.backend import BackendTerminalStatus
+from aswe.core.contracts.task import TaskDAG,WorkKind
 from aswe.repository import capture_repository_state
 
 class PostNodeGitInvariantBackend:
-    def __init__(self,backend,repository_binding,*,semantic_read_only:bool):
+    def __init__(self,backend,repository_binding,*,dag:TaskDAG,node_id:str):
         self.backend=backend
         self.binding=repository_binding
-        self.semantic_read_only=semantic_read_only
+        if not isinstance(dag,TaskDAG):
+            raise ValueError("compiled TaskDAG is required")
+        nodes={n.id:n for n in dag.nodes}
+        if node_id not in nodes:raise ValueError("unknown guarded TaskDAG node")
+        self.node=nodes[node_id]
+        self.semantic_read_only=self.node.work_kind is not WorkKind.IMPLEMENTATION
 
     async def prepare_node(self,node):
+        if node!=self.node:raise ValueError("guard/Node identity mismatch")
         return await self.backend.prepare_node(node)
 
     async def cancel_node(self,execution_id):
         return await self.backend.cancel_node(execution_id)
 
     async def execute_prepared(self,preparation,invocation):
+        if invocation.node_id!=self.node.id:
+            raise ValueError("guard/Invocation identity mismatch")
         before=capture_repository_state(self.binding) if self.semantic_read_only else None
         result=await self.backend.execute_prepared(preparation,invocation)
         if self.semantic_read_only and result.quiescent:

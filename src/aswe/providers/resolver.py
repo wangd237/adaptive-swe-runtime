@@ -22,6 +22,13 @@ class NodeResources(FrozenModel):
     allowed_tools:tuple[str,...]
     workspace_access:WorkspaceAccess
     policy_fingerprint:str=Field(pattern=r"^[0-9a-f]{64}$")
+    @model_validator(mode="after")
+    def validate_policy_hash(self):
+        if self.policy_fingerprint!=fingerprint(self.model_dump(mode="json",exclude={"policy_fingerprint"})):
+            raise ValueError("NodeResources policy fingerprint mismatch")
+        if self.allowed_tools!=tuple(dict.fromkeys(self.required_tools+self.selected_optional_tools)):
+            raise ValueError("noncanonical effective tool allowlist")
+        return self
 
 class ResolvedPlan(FrozenModel):
     contract_fingerprint:str
