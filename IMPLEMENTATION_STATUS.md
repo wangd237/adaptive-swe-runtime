@@ -27,9 +27,9 @@
 ## Full frozen PoC exit audit
 
 - Audited cases: 65 (R16–R26, R75–R128)
-- PASS: 50
-- PARTIAL: 11
-- GAP: 4
+- PASS: 58
+- PARTIAL: 7
+- GAP: 0
 - **Step 2 CLOSED is forbidden while PARTIAL/GAP remains.**
 
 ## Step 2 latest CI
@@ -46,8 +46,10 @@
 - [x] Multi-writer ambiguity / non-attribution tests R76–R83, R86–R88
 - [x] R84/R85 physical tracked mutation and real backend crash refusal tests
 - [x] R89 real Git intervening Writer and Runtime-owned post-digest capture
-- [ ] Reviewer/Acceptance repair and repair-budget termination R100–R103
-- [ ] Cancelled consumer mutating Workspace and disposition R123
+- [x] R101/R102 actual mutated WRITE acceptance → bounded repair → repair budget exhausted, residual patch terminal proof
+- [x] R91/R94/R95/R99/R123/R128 physical dirty-failure, quarantine and fail-close cancellation result integration
+- [ ] R100 production typed ReviewVerdict admission (currently only FakeBackend normalized REVIEW_GATE_REJECTED)
+- [ ] R103 explicit authoritative TaskLogicalStatus atomic publication (Scheduler boolean/gate/node transition already linearized)
 - [ ] True concurrent mutex / claim / accepted-publish race stresses R119–R121, R125–R126
 - [ ] Finish every audit PARTIAL/GAP with evidence and independent implementation review
 
@@ -56,6 +58,14 @@
 - Verified with actual Scheduler Writer attempts: singleton multi-check, two business Writers, same Provider distinct writers, last-writer heuristic, changed_paths/prose non-attribution, no-owner poison, split-check attribution, retry accepted attempt2, physical WRITE verifier exclusion.
 - R89 now PASS: physical Writer B tracked mutation + Scheduler actual Git digest + attested Verification Result give SCOPE_INVALIDATED.
 - R24 now PASS in mutated WRITE, canonical-check-proven own AcceptanceFailure with stale revision; no clean failed execution can silently become own Repair. HOLDS suppresses redundant repair, without fabricating success.
+
+## P0-C terminal closeout (2026-10-09)
+
+- Repair exhausted Writer final status: FAILED, FROZEN with proven quiescence; real tracked modifications become RESIDUAL_UNACCEPTED, never ACCEPTED.
+- Runtime preserves the **new attested AcceptanceVerdict EvidenceRef on exhausted attempt**, not just its predecessor.
+- Fail-close cancelled Consumer is CANCELLED rather than another business FAILED root; its observed mutation is a secondary diagnostic and appears in final repository patch.
+- Unsafe/quiescence-unknown consumer or user cancellation causes QUARANTINED, so terminalizer does not probe current Git.
+- R100 and R103 remain PARTIAL; no artificial PASS without typed review provenance/explicit logical task publication.
 
 ## Strict limits
 

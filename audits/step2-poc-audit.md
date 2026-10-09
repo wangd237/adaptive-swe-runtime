@@ -1,9 +1,9 @@
-# Coding Step 2 — Exhaustive Frozen PoC Audit (R16–R26, R75–R128)
+| POC-R128 | PASS | `test_p0c_terminal.py::test_r128_taskwide_user_cancel_uncertain_backend_results_in_quarantine_without_git_probe` | 真实 task-wide cancellation+unquiescent fake backend，TaskResult CANCELLED + QUARANTINED，Git state/change capture 被负测禁用 || POC-R123 | PASS | `test_p0c_terminal.py::test_r123_failclose_cancelled_consumer_patch_is_secondary_not_business_root` | 已运行 Consumer 被 scope-invalidated fail-close cancel+join，Node CANCELLED 非业务 root；真实 Git 副作用为 RESIDUAL_UNACCEPTED 并记 secondary diagnostics；不静止则 QUARANTINED || POC-R103 | PARTIAL | `test_p0c_terminal.py::test_r91_r94_r95_r103_dirty_writer_failed_reviewer_never_runs_and_patch_is_runtime_only` | Scheduler mutex 内 post revision、failing Node、_task_failed、gate、剩余 nodes BLOCKED 一次发布；TaskLogicalStatus 仍在 finalizer 汇总生成，缺规范意义独立任务状态同步发布与并发证明 || POC-R102 | PASS | `test_p0c_terminal.py::test_r101_r102_mutating_own_repair_exhausted_freezes_with_unaccepted_real_patch` | 第二次 actual WRITE/acceptance failed 耗尽 repair_count，Task FAILED，FROZEN，残余 tracked patch TaskEvidenceRef 及最新 Acceptance EvidenceRefs 可追溯 || POC-R101 | PASS | `test_p0c_terminal.py::test_r101_r102_mutating_own_repair_exhausted_freezes_with_unaccepted_real_patch` | 实际 WRITE mutation + Runtime canonical AcceptanceFailure 合法进入 REMEDIATION_PENDING，首次不 task fail-close || POC-R100 | PARTIAL | `test_p0c_terminal.py::test_r100_review_request_changes_preserves_writer_patch_but_not_acceptance` | FakeBackend 正规化 REVIEW_GATE_REJECTED 后 TaskResult FAILED + RESIDUAL_UNACCEPTED，未实现带 ReviewVerdict EvidenceRef 的生产级可信 REQUEST_CHANGES 入口 || POC-R99 | PASS | `test_p0c_terminal.py::test_r99_quarantine_preserves_preexisting_repository_changeset_only` | 实际历史 RepositoryChangeSet EvidenceRef 保留在 last_trusted_evidence_refs；QUARANTINED 不执行任何当前 Git probe || POC-R95 | PASS | `test_p0c_terminal.py::test_r91_r94_r95_r103_dirty_writer_failed_reviewer_never_runs_and_patch_is_runtime_only` | FROZEN 后仅 deterministic finalizer 获取 Git digest/changeset/TaskEvidenceRef，失效 ticket 不执行其他 Agent || POC-R94 | PASS | `test_p0c_terminal.py::test_r91_r94_r95_r103_dirty_writer_failed_reviewer_never_runs_and_patch_is_runtime_only` | Reviewer 被 TASK_FAIL_CLOSED 阻断；无 REVIEW claim，受撤销票无 backend execution，finalization 不重启 agent || POC-R91 | PASS | `test_p0c_terminal.py::test_r91_r94_r95_r103_dirty_writer_failed_reviewer_never_runs_and_patch_is_runtime_only` | 真实 Git tracked 修改 + dirty terminal WRITE、backend quiescent；Task FAILED，FROZEN 且显式 physical attribution complete 时 STABLE，不误 QUARANTINED |# Coding Step 2 — Exhaustive Frozen PoC Audit (R16–R26, R75–R128)
 
 **Audit is complete; implementation exit is NOT automatically passed.**
 
 - Total frozen PoCs audited: **65**
-- PASS: **50** · PARTIAL: **11** · GAP: **4**
+- PASS: **58** · PARTIAL: **7** · GAP: **0**
 - PASS is scenario-specific evidence, not proof of DeerFlow or all acceptance semantics.
 - Every PASS/PARTIAL maps to a real test symbol present on the audited branch.
 - PARTIAL/GAP are blocking for full Step-2 closeout; do not change Specs to remove them.
@@ -83,6 +83,14 @@
 - R76–R88 now have scenario-level executables including actual tracked mutation and backend crash; R89 now PASS with actual Writer B tracked mutation, Runtime-captured post digest and attested verification evidence.
 - Do not infer Step 2 stage acceptance from these incremental results.
 
+## P0-C terminal semantics incremental audit (2026-10-09)
+
+- R101–R102: mutated WRITE own canonical failure enters bounded repair, subsequent failure exhausts repair budget; **Task FAILED / Workspace FROZEN / Repository PATCH_PRESENT / Patch RESIDUAL_UNACCEPTED**. Source check/Acceptance refs survive budget exhaustion.
+- R123: fail-close runtime cancellation of a COMMITTED consumer is a **cancellation consequence, not another business root**; observed mutation influences terminal patch/diagnostics, uncertain quiescence quarantines without probing Git.
+- R91/R94/R95/R99/R128: direct real-Git or quarantine TaskResult integrations added. R100 remains PARTIAL: terminal fake Review rejection aggregation works, but typed production ReviewVerdict admission is not wired.
+- R103 remains PARTIAL: atomic Scheduler mutex fail-close is exercised, but the independent authoritative task logical status is materialized at finalization, not published as a separate Scheduler state.
+- This is FakeBackend scenario coverage, not independent DeerFlow adapter certification.
+
 ## Current authorization
 
 - Runtime Canonical Verifier executes exact argv without shell and signs persisted receipts; this local verifier does not replace the pinned DeerFlow acceptance/command guard integration.
@@ -94,6 +102,6 @@
 
 1. R23–R26 verified at scenario level; strengthen cancellation/drift contention before stage exit.
 2. R76–R89 attribution adversarial matrix now PASS at scenario level; independent implementation review remains required.
-3. R100–R103, R123 — Review/Acceptance/repair exhausted and cancelled-mutating consumer outcomes.
+3. R100 typed ReviewVerdict admission and R103 explicit TaskLogicalStatus publication still PARTIAL; do not mark Step 2 closed.
 4. R119–R121, R125–R126 — true adversarial concurrency barriers (not static claims).
 5. Re-run both Python CI versions; independent Step-2 implementation review, and only then close Step 2.

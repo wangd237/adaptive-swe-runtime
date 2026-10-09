@@ -8,9 +8,9 @@
     "GAP": "specific scenario has no direct executable regression; blocks Step 2 closure"
   },
   "counts": {
-    "PASS": 50,
-    "PARTIAL": 11,
-    "GAP": 4
+    "PASS": 58,
+    "PARTIAL": 7,
+    "GAP": 0
   },
   "entries": [
     {
@@ -233,9 +233,9 @@
       "id": "R91",
       "description": "WRITE execution terminal fail + mutation observed + quiescence proven",
       "criterion": "Task=FAILED；WorkspaceSession=FROZEN；WorkspaceDisposition=STABLE，不误标 QUARANTINED",
-      "status": "PARTIAL",
-      "test": "tests/unit/test_finalization_extended.py::test_r97_ignored_cache_mutation_distinct_from_git_patch",
-      "assessment": "稳定失败与 patch 维度已建；WRITE 已观察修改的完整结算链需单测"
+      "status": "PASS",
+      "test": "tests/unit/test_p0c_terminal.py::test_r91_r94_r95_r103_dirty_writer_failed_reviewer_never_runs_and_patch_is_runtime_only",
+      "assessment": "真实 Git tracked 修改 + dirty terminal WRITE、backend quiescent；Task FAILED，FROZEN 且显式 physical attribution complete 时 STABLE，不误 QUARANTINED"
     },
     {
       "id": "R92",
@@ -257,17 +257,17 @@
       "id": "R94",
       "description": "dirty failure 后 planned Reviewer 尚未运行",
       "criterion": "Reviewer 不 dispatch；不会为了“诊断”重新打开 Agent execution",
-      "status": "PARTIAL",
-      "test": "tests/unit/test_scheduler_foundation.py::test_task_failclose_revokes_unrelated_ticket_and_blocks_ready_nodes",
-      "assessment": "阻塞分支已测；专门 Reviewer 不再执行的调用计数用例缺失"
+      "status": "PASS",
+      "test": "tests/unit/test_p0c_terminal.py::test_r91_r94_r95_r103_dirty_writer_failed_reviewer_never_runs_and_patch_is_runtime_only",
+      "assessment": "Reviewer 被 TASK_FAIL_CLOSED 阻断；无 REVIEW claim，受撤销票无 backend execution，finalization 不重启 agent"
     },
     {
       "id": "R95",
       "description": "FROZEN dirty workspace finalization",
       "criterion": "只允许 Runtime-owned repository digest / changeset / evidence aggregation",
-      "status": "PARTIAL",
-      "test": "tests/unit/test_task_finalization.py::test_failed_task_retains_unaccepted_patch_as_task_evidence",
-      "assessment": "Runtime-only finalizer + Git artifacts；尚缺禁止 Agent tool 的强负测"
+      "status": "PASS",
+      "test": "tests/unit/test_p0c_terminal.py::test_r91_r94_r95_r103_dirty_writer_failed_reviewer_never_runs_and_patch_is_runtime_only",
+      "assessment": "FROZEN 后仅 deterministic finalizer 获取 Git digest/changeset/TaskEvidenceRef，失效 ticket 不执行其他 Agent"
     },
     {
       "id": "R96",
@@ -297,41 +297,41 @@
       "id": "R99",
       "description": "QUARANTINED 但已有 pre-quarantine RepositoryChangeSet evidence",
       "criterion": "TaskResult 可引用旧 trusted artifact，但不得声明为重新观察的 current snapshot",
-      "status": "PARTIAL",
-      "test": "tests/unit/test_finalization_extended.py::test_r108_quarantine_preserves_only_verified_historical_attempt_artifacts",
-      "assessment": "历史 attempt evidence 可保留；具体 pre-quarantine RepositoryChangeSet 专测缺失"
+      "status": "PASS",
+      "test": "tests/unit/test_p0c_terminal.py::test_r99_quarantine_preserves_preexisting_repository_changeset_only",
+      "assessment": "实际历史 RepositoryChangeSet EvidenceRef 保留在 last_trusted_evidence_refs；QUARANTINED 不执行任何当前 Git probe"
     },
     {
       "id": "R100",
       "description": "Review REQUEST_CHANGES after valid Writer patch",
       "criterion": "Task FAILED；patch 保留为 RESIDUAL_UNACCEPTED，不伪装 accepted",
-      "status": "GAP",
-      "test": null,
-      "assessment": "Review REQUEST_CHANGES 带 residual Git Patch 的任务级检查未实现"
+      "status": "PARTIAL",
+      "test": "tests/unit/test_p0c_terminal.py::test_r100_review_request_changes_preserves_writer_patch_but_not_acceptance",
+      "assessment": "FakeBackend 正规化 REVIEW_GATE_REJECTED 后 TaskResult FAILED + RESIDUAL_UNACCEPTED，未实现带 ReviewVerdict EvidenceRef 的生产级可信 REQUEST_CHANGES 入口"
     },
     {
       "id": "R101",
       "description": "AcceptanceFailure + mutation + legal deterministic Repair",
       "criterion": "Node=REMEDIATION_PENDING；不提前 task-wide fail closed",
-      "status": "GAP",
-      "test": null,
-      "assessment": "own AcceptanceFailure + physical mutation + 合法 deterministic Repair 仍可保持 remediation 的复杂条件未实现"
+      "status": "PASS",
+      "test": "tests/unit/test_p0c_terminal.py::test_r101_r102_mutating_own_repair_exhausted_freezes_with_unaccepted_real_patch",
+      "assessment": "实际 WRITE mutation + Runtime canonical AcceptanceFailure 合法进入 REMEDIATION_PENDING，首次不 task fail-close"
     },
     {
       "id": "R102",
       "description": "Repair budget exhausted while repository patch remains",
       "criterion": "Task=FAILED；Workspace→FROZEN；residual patch reported",
-      "status": "GAP",
-      "test": null,
-      "assessment": "修复预算耗尽且 patch 存在的 root/终态联测未实现"
+      "status": "PASS",
+      "test": "tests/unit/test_p0c_terminal.py::test_r101_r102_mutating_own_repair_exhausted_freezes_with_unaccepted_real_patch",
+      "assessment": "第二次 actual WRITE/acceptance failed 耗尽 repair_count，Task FAILED，FROZEN，残余 tracked patch TaskEvidenceRef 及最新 Acceptance EvidenceRefs 可追溯"
     },
     {
       "id": "R103",
       "description": "terminal dirty fail-close state transaction",
       "criterion": "failing node FAILED + task FAILED + dispatch closed + remaining nodes BLOCKED 原子化",
       "status": "PARTIAL",
-      "test": "tests/unit/test_scheduler_foundation.py::test_task_failclose_revokes_unrelated_ticket_and_blocks_ready_nodes",
-      "assessment": "Node/gate/blocks 同 mutex 已测；TaskLogicalStatus 终态事务尚非同步发布"
+      "test": "tests/unit/test_p0c_terminal.py::test_r91_r94_r95_r103_dirty_writer_failed_reviewer_never_runs_and_patch_is_runtime_only",
+      "assessment": "Scheduler mutex 内 post revision、failing Node、_task_failed、gate、剩余 nodes BLOCKED 一次发布；TaskLogicalStatus 仍在 finalizer 汇总生成，缺规范意义独立任务状态同步发布与并发证明"
     },
     {
       "id": "R104",
@@ -489,9 +489,9 @@
       "id": "R123",
       "description": "running consumer 被 fail-close cancel 且留下 mutation",
       "criterion": "consumer 不是业务 root failure，但 mutation evidence 影响最终 Workspace/Repository disposition",
-      "status": "GAP",
-      "test": null,
-      "assessment": "被 fail-close cancel 的 consumer 留下副作用后对终态 disposition 的归因未验证"
+      "status": "PASS",
+      "test": "tests/unit/test_p0c_terminal.py::test_r123_failclose_cancelled_consumer_patch_is_secondary_not_business_root",
+      "assessment": "已运行 Consumer 被 scope-invalidated fail-close cancel+join，Node CANCELLED 非业务 root；真实 Git 副作用为 RESIDUAL_UNACCEPTED 并记 secondary diagnostics；不静止则 QUARANTINED"
     },
     {
       "id": "R124",
@@ -529,9 +529,9 @@
       "id": "R128",
       "description": "task-wide cancellation 后无法证明 active execution quiescence",
       "criterion": "Task=CANCELLED；WorkspaceDisposition=QUARANTINED；不读取 final workspace",
-      "status": "PARTIAL",
-      "test": "tests/unit/test_scheduler_step2_exit.py::test_r128_user_cancel_without_quiescence_keeps_quarantined",
-      "assessment": "cancel→QUARANTINED 已测；TaskResult 不读 Git 的取消联合测试待补"
+      "status": "PASS",
+      "test": "tests/unit/test_p0c_terminal.py::test_r128_taskwide_user_cancel_uncertain_backend_results_in_quarantine_without_git_probe",
+      "assessment": "真实 task-wide cancellation+unquiescent fake backend，TaskResult CANCELLED + QUARANTINED，Git state/change capture 被负测禁用"
     }
   ]
 }
