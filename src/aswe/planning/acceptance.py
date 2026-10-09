@@ -328,6 +328,8 @@ def evaluate_compiled_contract(*, contract: CompiledTaskContract,
                                execution_binding: ExecutionContractBinding | None = None,
                                acceptance: CompiledAcceptancePlan | None = None,
                                observed_execution_binding_fingerprint: str | None = None,
+                               canonical_verifier: "CanonicalVerifier | None" = None,
+                               canonical_receipts: tuple[CanonicalCheckBinding, ...] = (),
                                ) -> ContractVerdict:
     """Fail closed on missing leaf or stale execution contract identity.
 
@@ -350,12 +352,32 @@ def evaluate_compiled_contract(*, contract: CompiledTaskContract,
     if len(mapping) != len(findings) or set(mapping) - {c.id for c in contract.constraints}:
         raise AcceptanceCompilationError("CONTRACT_VERDICT_INVALID",
                                          "duplicate or unknown constraint finding")
+    if canonical_receipts and (canonical_verifier is None or acceptance is None):
+        raise AcceptanceCompilationError("CONTRACT_VERDICT_INVALID",
+                                         "canonical receipts need matched verifier and acceptance")
+    if canonical_verifier is not None:
+        if acceptance is None:
+            raise AcceptanceCompilationError("CONTRACT_VERDICT_INVALID",
+                                             "canonical verifier needs a compiled acceptance plan")
+        checked = verified_canonical_check_finding(
+            contract=contract, acceptance=acceptance, verifier=canonical_verifier,
+            receipts=canonical_receipts,
+        )
+        # No manually supplied Verification success may bypass the canonical
+        # receipt resolver. Compiler-owned result replaces it unconditionally.
+        mapping[checked.constraint_id] = checked
     leaves = []
     for c in contract.constraints:
         finding = mapping.get(c.id)
         status = finding.status if finding else ContractLeafStatus.UNVERIFIED
         refs = finding.supporting_refs if finding else ()
+        if c.key == "verification.required" and canonical_verifier is None:
+            # A nonempty EvidenceRef and a caller-supplied 'satisfied' string
+            # do not authenticate deterministic test success.
+            status = ContractLeafStatus.UNVERIFIED
         diagnostics = finding.diagnostics if finding else ("MISSING_TRUSTED_EVALUATION_EVIDENCE",)
+        if c.key == "verification.required" and canonical_verifier is None:
+            diagnostics = diagnostics + ("CANONICAL_VERIFICATION_MISSING",)
         if (status is ContractLeafStatus.SATISFIED and not refs
                 and c.enforcement is not ConstraintEnforcement.SOFT):
             status = ContractLeafStatus.UNVERIFIED
