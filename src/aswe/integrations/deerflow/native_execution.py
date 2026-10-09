@@ -289,7 +289,9 @@ class NativeSubagentAssembler:
             )
             if (executor.app_config is not resources.app_config
                     or executor.extensions is not resources.extensions
-                    or tuple(executor.tools) != native_tools
+                    or len(executor.tools) != len(native_tools)
+                    or any(actual is not expected for actual, expected
+                           in zip(executor.tools, native_tools))
                     or getattr(executor, "model_name", None) != resources.model_name):
                 raise NativeExecutionError("NATIVE_EXECUTOR_BINDING_DRIFT")
         except NativeExecutionError:
