@@ -247,7 +247,7 @@ def build_assignments(policies):
                                  if t not in p.required_business_tools),
             preferred_skills=p.preferred_skills,
             required_sandbox_features=p.required_sandbox_features,
-        ),preflight_status="preflight_feasible")) for p in policies)
+        ),preflight_status="preflight_feasible",preflight_diagnostics=())) for p in policies)
 
 def build_team(plan,policies):
     groups={}
