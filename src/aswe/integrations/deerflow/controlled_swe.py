@@ -94,7 +94,7 @@ class DockerCommandBackend:
             "--pids-limit",str(self.pids_limit),
             "--memory",f"{self.memory_mb}m","--cpus=1",
             "--user",f"{os.getuid()}:{os.getgid()}",
-            "--mount",f"type=bind,src={self.workspace_root},dst=/workspace,rw",
+            "--mount",f"type=bind,src={self.workspace_root},dst=/workspace",
             "--tmpfs","/tmp:rw,nosuid,nodev,size=64m",
             "--workdir","/workspace",self.image,
             "/bin/sh","-lc",command,
