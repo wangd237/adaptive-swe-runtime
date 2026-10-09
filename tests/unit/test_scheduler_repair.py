@@ -193,7 +193,9 @@ async def test_consumer_commit_wins_then_reopen_fails_closed_even_prestart(tmp_p
     # consumer; PRE_START does not make it revocable as a precommit ticket.
     assert core.states["reviewer"].attempts[0].status.value == "cancelled"
     await running
-    assert core.states["reviewer"].logical_status is NodeLogicalStatus.FAILED
+    # Runtime-driven cancellation is an effect of the existing verification
+    # failure, not an additional independent business root.
+    assert core.states["reviewer"].logical_status is NodeLogicalStatus.CANCELLED
     assert manager.lifecycle.current.status is WorkspaceSessionStatus.FROZEN
     assert backend.records[-1].terminal_status is BackendTerminalStatus.CANCELLED
 
