@@ -367,10 +367,14 @@ async def test_r128_taskwide_user_cancel_uncertain_backend_results_in_quarantine
         quiescent=False,
     )])
     runner = asyncio.create_task(core.run_claim(await core.claim("writer"), backend))
-    for _ in range(300):
-        if core.states["writer"].logical_status is NodeLogicalStatus.RUNNING:
+    deadline = asyncio.get_running_loop().time() + 5.0
+    while core.states["writer"].logical_status is not NodeLogicalStatus.RUNNING:
+        if runner.done():
+            await runner  # propagate unexpected background failure
             break
-        await asyncio.sleep(0)
+        if asyncio.get_running_loop().time() >= deadline:
+            break
+        await asyncio.sleep(0.005)
     assert core.states["writer"].logical_status is NodeLogicalStatus.RUNNING
     await core.cancel_task()
     await runner
@@ -493,10 +497,14 @@ async def test_terminal_failclose_completed_consumer_after_cancel_is_not_second_
     runner = asyncio.create_task(core.run_claim(
         await core.claim("reviewer"), backend, accept=accept,
     ))
-    for _ in range(300):
-        if core.states["reviewer"].logical_status is NodeLogicalStatus.RUNNING:
+    deadline = asyncio.get_running_loop().time() + 5.0
+    while core.states["reviewer"].logical_status is not NodeLogicalStatus.RUNNING:
+        if runner.done():
+            await runner  # propagate unexpected background failure
             break
-        await asyncio.sleep(0)
+        if asyncio.get_running_loop().time() >= deadline:
+            break
+        await asyncio.sleep(0.005)
     assert core.states["reviewer"].logical_status is NodeLogicalStatus.RUNNING
     with pytest.raises(RepairScopeInvalidated, match="ACTIVE_DOWNSTREAM_DISPATCH"):
         await core.reopen_writer_from_verification(
