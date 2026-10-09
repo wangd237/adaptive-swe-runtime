@@ -184,7 +184,10 @@ async def test_p3_11_tester_bash_physical_write_business_read_git_invariant(cano
     assert core.failed
     assert core.states["tester"].logical_status is NodeLogicalStatus.FAILED
     assert core.states["tester"].accepted_handoff is None
-    assert "POST_NODE_INVARIANT_GIT_MUTATION" in core.failure_kinds
+    # Existing Step-2 terminal root is DIRTY_WRITE_FAILURE; the precise
+    # Step-4 physical invariant is preserved on the individual attempt.
+    assert core.failure_kinds == ["DIRTY_WRITE_FAILURE"]
+    assert core.states["tester"].attempts[-1].failure_kind == "POST_NODE_INVARIANT_GIT_MUTATION"
     assert manager.dispatch_closed
 
 
