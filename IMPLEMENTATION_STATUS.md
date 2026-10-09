@@ -1,3 +1,13 @@
+## Step 5D — Tool Authority / Run Binding checkpoint (2026-10-09)
+
+- Added `src/aswe/integrations/deerflow/tool_guard.py` with process-local `NodeExecutionBindingStore`, `BoundToolView`, strict `ToolPolicyMiddleware` build/compiled-registry gates, run-bound `ToolCallGuard`, and lazy native `make_langchain_tool_policy_middleware` wrapping LangChain `ToolCallRequest`.
+- `NodeExecutionBindingStore.bind` consumes 5C preparation exactly once after real Scheduler commit, pins model/tool principal plus one `AuthorizationProvider`, rejects fail-open config, validates Layer 1 model/tool visibility and native `model/use` authorization. `ToolCallGuard` rechecks authority and live Scheduler execution on every sync/async call, using native `tool/call` authorization and atomic replay rejection.
+- Dynamic `tool_search`, implicit Skill inheritance, Skill evolution, configured MCP servers and loaded/declared plugin/extension tools are explicitly refused. Middleware declaration and compiled ToolNode name/object changes are denied by 5D gates. No non-read-only or path-constrained call can execute in this stage.
+- `SchedulerCore.is_active_execution` provides tool-call liveness without weakening original owner-bound `is_committed_invocation`. Native `SubagentConfig.skills=[]` is pinned before 5C seal. Principal is host-copied and sealed; provider-auth mutation and identity swaps are rejected.
+- Added `tests/unit/test_deerflow_tool_guard_step5d.py` with role/model/tool visibility, replay and concurrent sync-call race, host provenance, extension/MCP/Skill/tool_search injection, exact native `ToolCallRequest` API shape, liveness after terminal, and mutating-tool hard-deny tests.
+- Independent source consistency review: `audits/step5d-tool-authority-review.md`. **Stage outcome: 5D deterministic source-contract Scoped GO conditional on latest HEAD dual CI; native SubagentExecutor integration/AuthorizationProvider E2E is still NO-GO.**
+- `execute_prepared` stays hard-disabled. Actual graph tool registry verification, server-stamped ToolCallRequest context propagation, provider single-instance consistency, native credential tests, WRITE/Bash receipts, cancellation/quiescence and sandbox isolation remain 5E–5G. PR #7 remains Draft/Open and unmerged.
+
 ## Step 5C deterministic/Design Freeze audit (2026-10-09)
 
 - Preparation-only Core scope: **SCOPED GO**, real DeerFlow execution **NO-GO**. PR #7 remains Draft/Open and unmerged.
