@@ -111,9 +111,15 @@ class LivePreflightBackend:
         entry=self.prepared.pop(preparation.preparation_id,None)
         if entry is None or entry[1]!=preparation:
             raise LivePreflightError("PREPARED_EXECUTION_BINDING_MISMATCH")
-        dispose=getattr(self.backend,"discard_preparation",None)
+        dispose=getattr(self.backend,"release_preparation",None)
+        if not callable(dispose):
+            dispose=getattr(self.backend,"discard_preparation",None)
         if callable(dispose):
             dispose(entry[0])
+
+    def release_preparation(self,preparation):
+        """Frozen spec §3.3 cleanup seam; alias stays for compatibility."""
+        return self.discard_preparation(preparation)
 
     async def cancel_node(self,execution_id):
         return await self.backend.cancel_node(execution_id)
