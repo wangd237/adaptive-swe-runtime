@@ -228,7 +228,8 @@ async def test_real_scheduler_commit_native_guard_and_durable_workspace_evidence
         def release_preparation(self,p):backend.release_preparation(p)
 
     task=await core.claim(node.id)
-    invocation_result=await core.run_claim(task,ActualRun())
+    invocation_result=await core.run_claim(
+        task,ActualRun(),execution_evidence_store=evidence.evidence_store)
     assert invocation_result is not None and observed
     result, committed=observed[0]
     assert committed is invocation_result
@@ -242,6 +243,9 @@ async def test_real_scheduler_commit_native_guard_and_durable_workspace_evidence
     assert receipt["status"]=="completed"
     assert receipt["execution_id"]==committed.execution_id
     assert "README.md" not in str(ledger)
+    historical=core.states[node.id].attempts[-1]
+    assert result.tool_receipt_ref in historical.evidence_refs
+    assert result.workspace_evidence_ref in historical.evidence_refs
     assert trace["calls"]==["read-ok"]
     assert binding_store.active_count==0
     assert not core.is_active_execution(committed)
