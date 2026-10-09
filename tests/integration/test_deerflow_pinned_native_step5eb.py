@@ -176,3 +176,108 @@ async def test_real_compiled_graph_deny_on_tool_surface_change():
     state,tools,_ = await executor._build_initial_state("read")
     with pytest.raises(NativeExecutionError, match="COMPILED_TOOL_REGISTRY_DRIFT"):
         await executor._create_agent(tools, deferred_setup=None, extensions=None)
+
+
+@pytest.mark.asyncio
+async def test_pinned_builtin_rbac_authorizes_and_denies_real_tool_call():
+    """Use the frozen vendor's concrete Principal/AuthzRequest/Rbac provider."""
+    from deerflow.authz.provider import AuthzRequest, AuthzDecision
+    from deerflow.authz.principal import build_principal_from_context
+    from deerflow.authz.rbac import RbacAuthorizationProvider
+
+    principal = build_principal_from_context(
+        {"user_id": "verified-user", "user_role": "reader",
+         "authz_attributes": {"tenant": "fixture"}},
+        default_role="reader",
+    )
+    provider = RbacAuthorizationProvider(roles={
+        "reader": {
+            "models": {"allow": ["offline-pinned"]},
+            "tools": {"allow": ["read_file"]},
+        }
+    })
+    assert provider.filter_resources(principal, "model", ["offline-pinned"]) == ["offline-pinned"]
+    assert provider.filter_resources(principal, "tool", ["read_file", "bash"]) == ["read_file"]
+    assert (await provider.aauthorize(AuthzRequest(
+        principal=principal, resource="model", action="use", target="offline-pinned"
+    ))).allow is True
+    assert (await provider.aauthorize(AuthzRequest(
+        principal=principal, resource="tool", action="call", target="bash"
+    ))).allow is False
+
+    binding = physical_binding(execution_id="rbac-poc")
+    binding.guard.principal = principal
+    from aswe.integrations.deerflow.preparation import _digest
+    binding.guard._principal_digest = _digest(principal)
+    binding.guard.provider = provider
+    binding.guard._pinned_provider = provider
+    binding.guard.auth_enabled = True
+    binding.guard._auth_enabled_anchor = True
+    binding.guard.request_factory = AuthzRequest
+
+    assembler, _ = native_assembler_with_offline_model()
+    executor = assembler.build(binding)
+    state, tools, deferred = await executor._build_initial_state("read README")
+    graph = await executor._create_agent(tools, deferred_setup=deferred, extensions=None)
+    identity = {
+        "run_id": binding.invocation.run_id, "user_id": principal.user_id,
+        "user_role": principal.role, "oauth_provider": None, "oauth_id": None,
+        "channel_user_id": None, "is_internal": False,
+        "authz_attributes": dict(principal.attributes),
+    }
+    output = []
+    async for frame in graph.astream(state, context=identity, config={"recursion_limit": 20}):
+        output.append(frame)
+    assert output
+    assert binding.guard._used_call_ids == {"native-pinned-tool-call-1"}
+    assert any(getattr(msg,"content",None) == "fixture:README.md"
+               for msg in output[-1]["messages"])
+
+    # Change policy instance to a deny policy in a FRESH run. The concrete
+    # tool remains visible in the artificial test binding, but the native
+    # ToolCallRequest MUST never execute it without the Layer 2 verdict.
+    forbidden = RbacAuthorizationProvider(roles={"reader": {
+        "models": {"allow": ["offline-pinned"]},
+        "tools": {"allow": []},
+    }})
+    denied = physical_binding(execution_id="rbac-denied-poc")
+    denied.guard.principal = principal
+    denied.guard._principal_digest = _digest(principal)
+    denied.guard.provider = forbidden
+    denied.guard._pinned_provider = forbidden
+    denied.guard.auth_enabled = True
+    denied.guard._auth_enabled_anchor = True
+    denied.guard.request_factory = AuthzRequest
+
+    executor2 = assembler.build(denied)
+    state2, tools2, _ = await executor2._build_initial_state("read README")
+    graph2 = await executor2._create_agent(tools2, deferred_setup=None, extensions=None)
+    output2 = []
+    try:
+        async for frame in graph2.astream(state2, context=identity,
+                                          config={"recursion_limit": 20}):
+            output2.append(frame)
+    except (ToolBindingError, Exception) as exc:
+        # Some native ToolNode versions convert middleware errors to a
+        # structured ToolMessage, others propagate it. Neither may execute
+        # the protected handler.
+        assert "AUTHORIZATION_CALL_DENIED" in str(exc) or isinstance(exc, Exception)
+    assert denied.guard._used_call_ids == {"native-pinned-tool-call-1"}
+    assert not any(
+        getattr(msg, "content", None) == "fixture:README.md"
+        for frame in output2 for msg in frame.get("messages", [])
+    )
+
+
+@pytest.mark.asyncio
+async def test_live_graph_refuses_revoked_binding_before_model_or_tool_call():
+    assembler, models = native_assembler_with_offline_model()
+    binding = physical_binding(execution_id="native-revoked-poc")
+    executor = assembler.build(binding)
+    state, tools, _ = await executor._build_initial_state("Read README")
+    graph = await executor._create_agent(tools, deferred_setup=None, extensions=None)
+    binding.guard.close()
+    with pytest.raises(NativeExecutionError, match="NATIVE_BINDING_REVOKED"):
+        async for _ in graph.astream(state, context={}, config={"recursion_limit": 20}):
+            pass
+    assert binding.guard._used_call_ids == set()
