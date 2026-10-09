@@ -59,6 +59,13 @@ def _static_surface(resources: PinnedNodeResources) -> tuple[str, ...]:
         _deny("SKILL_ACTIVATION_UNSUPPORTED")
     if getattr(getattr(resources.app_config, "skill_evolution", None), "enabled", None) is not False:
         _deny("SKILL_EVOLUTION_UNSUPPORTED")
+    if getattr(resources.app_config, "plugins", ()):
+        _deny("CONFIGURED_PLUGINS_UNSUPPORTED")
+    mcp_servers = getattr(getattr(resources.app_config, "extensions", None), "mcp_servers", {})
+    if not isinstance(mcp_servers, Mapping):
+        _deny("MCP_EXTENSION_CONFIG_UNATTESTED")
+    if any(getattr(server, "enabled", True) is not False for server in mcp_servers.values()):
+        _deny("MCP_EXTENSION_CONFIG_FORBIDDEN")
     extensions = resources.extensions
     if any(getattr(extensions, name) for name in (
         "middleware_contributors", "task_lifecycle", "system_model_observers",
