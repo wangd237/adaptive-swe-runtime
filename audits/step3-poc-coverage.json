@@ -125,20 +125,20 @@
     },
     {
       "id": "C09",
-      "status": "GAP",
-      "test": null,
-      "assessment": "Step 3D must prove HARD/LOCKED UNVERIFIED final leaf blocks success"
+      "status": "PASS",
+      "test": "tests/unit/test_acceptance_compiler_step3d.py::test_c09_hard_locked_unverified_and_missing_proof_must_block_success",
+      "assessment": "HARD/LOCKED missing, unproven SATISFIED or NOT_APPLICABLE default UNVERIFIED; authentic canonical nonzero -> VIOLATED; terminal TaskResult not SUCCEEDED"
     },
     {
       "id": "C10",
-      "status": "GAP",
-      "test": null,
-      "assessment": "Step 3D must bind final ContractVerdict to exact execution contract fingerprint"
+      "status": "PASS",
+      "test": "tests/unit/test_acceptance_compiler_step3d.py::test_c09_c10_real_canonical_attested_proof_and_finalization_binding",
+      "assessment": "Verified real CanonicalVerifier EvidenceRef bound to CompiledAcceptancePlan and ExecutionContractBinding; finalization allows only exact compiled contract fingerprint; mismatched execution stamp/contract denied."
     }
   ],
   "counts": {
-    "PASS": 15,
+    "PASS": 17,
     "PARTIAL": 5,
-    "GAP": 2
+    "GAP": 0
   }
 }

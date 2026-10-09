@@ -1,6 +1,6 @@
 # Coding Step 3C — Semantic Planning / PlanValidator / Normalizer Review
 
-**Checkpoint:** Step 3C semantic validation is implemented and has executable tests. **Stage 3 stays IN PROGRESS**; Step 4 physical DAG semantics and Step 3D Acceptance remain unverified.
+**Checkpoint:** Step 3C semantic validation is implemented and has executable tests. **Stage 3 stays IN PROGRESS**; Step 4 physical DAG semantics remain unverified; Step 3D Acceptance has its own completed checkpoint.
 
 ## Frozen design authority
 
@@ -51,10 +51,10 @@
 - **P3-01/02/03:** direct semantic phase dependency cases now pass, but Step 4 still needs automatic phase-ordered dependency compilation when Planner omits explicit edges. These remain PARTIAL end-to-end.
 - **P3-04:** two unordered same-phase business WRITEs preserve planner ordinals at Step 3C; deterministic WRITE serialization must be implemented and tested in Step 4 DAG Materializer.
 - **P3-11:** Step 3C forbids business mutation capability on a Tester; real bash tool physical WRITE scheduling and Git source-mutation rejection need Step 4/Runtime checks.
-- **C09/C10:** Step 3D AcceptanceCompiler must prove HARD/LOCKED UNVERIFIED blocks Task success and final ContractVerdict matches exactly the compiled TaskContract in the execution snapshot.
+- **C09/C10:** now directly tested in Step 3D (see `audits/step3d-conformance.md`); the five P3 physical/DAG obligations remain PARTIAL until Step 4.
 - Semantic success does **not** imply current Provider availability, permissible shell, Sandbox admission, executable command identity or current repository Git binding; these remain later compilation/adapter gates.
 - C07/C08 are complete *at semantic PlanValidator scope* with executable fake contracts.
 
 ## Next checkpoint
 
-Proceed with Step 3D AcceptanceCompiler, then independent Step 3 compiler audit, and preserve separate Step 4 physical DAG integration PoCs. Do not mark all P3 items PASS simply because a semantic plan can be constructed.
+Proceed with independent Step 3 compiler audit, and preserve separate Step 4 physical DAG integration PoCs. Do not mark all P3 items PASS simply because a semantic plan can be constructed.

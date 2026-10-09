@@ -5,7 +5,7 @@
 - Step 0 — CLOSED / ACCEPTED
 - Step 1 — CLOSED / ACCEPTED
 - Step 2 — CLOSED / ACCEPTED (PR #4 merged as `3d19541bb9f0f7e345ec0f4fb8af3a5415b5ed53`)
-- Step 3 — IN PROGRESS (draft PR #5, Step 3A–3C implemented; Step 3D Acceptance pending)
+- Step 3 — IN PROGRESS (draft PR #5, Step 3A–3D implementation checkpoints pass; 5 Step-4-owned P3 physical cases remain PARTIAL)
 - Step 4 and later — NOT STARTED
 
 ## Step 2 accepted implementation (PR #4 merged)
@@ -82,9 +82,18 @@
 
 - `WorkPlanProposal` remains untrusted; `SemanticPlanValidator` issues immutable normalized `ValidatedWorkPlan` bound to TaskContract fingerprint.
 - Runtime-owned mandatory Verification/Review gates, dependency dedupe and PlanRepair/PlanCoverage evidence tested.
-- Stage 3 22-case frozen audit: **15 PASS / 5 PARTIAL / 2 GAP**; see `audits/step3-poc-coverage.json`.
-- P3-01/02/03/04/11 retain physical/phase DAG obligations for Step 4. C09/C10 remain Step 3D Acceptance obligations.
+- Stage 3 22-case frozen audit: **17 PASS / 5 PARTIAL / 0 GAP**; see `audits/step3-poc-coverage.json`.
+- P3-01/02/03/04/11 retain physical/phase DAG obligations for Step 4. C09/C10 now PASS direct Step 3D tests with attested CanonicalVerifier and terminal fingerprint binding.
 - Do not merge PR #5 or label Step 3 CLOSED.
+
+## Step 3D Acceptance checkpoint
+
+- `VerificationCommand` is compiler-owned and immutable; `tests_passed:<command>`, Bash exact allowlist, and CanonicalCommandPolicy derive from one identity.
+- Local authenticated canonical receipts drive trusted verification leaves; HARD/LOCKED UNVERIFIED and unproven NOT_APPLICABLE block Task success.
+- `ExecutionContractBinding` ties contract, validated work plan, acceptance policy, and Git base; `finalize_bound_task` rejects a changed observed execution stamp.
+- Step 3D real Git/CanonicalVerifier terminal test completed; Python 3.11 and 3.13 **272 passed** on `e3663300` (run 37880067331).
+- Current frozen Step 3 inventory: **17 PASS / 5 PARTIAL / 0 GAP**. Remaining cases need Step 4 physical DAG integration.
+- Do not merge PR #5 or mark Step 3 CLOSED until independent review and remaining physical PoCs.
 
 ## Step 3 next coding gate
 
