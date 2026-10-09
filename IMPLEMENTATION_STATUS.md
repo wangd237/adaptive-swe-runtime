@@ -1,3 +1,13 @@
+## Step 5F-A — Execution Evidence / Workspace Mutation / Quiescence (2026-10-09)
+
+- Coded `src/aswe/integrations/deerflow/execution_evidence.py` with runtime-owned pre/post `RepositoryStateDigest`, bounded `FilesystemSnapshot`, attempt-local `NodeWorkspaceDelta`, immutable `TOOL_RECEIPT_LEDGER` / `WORKSPACE_CHANGESET` writes to external `LocalEvidenceStore`, and read-after-write integrity checks.
+- `ToolCallGuard` now maintains atomic call ID / pending tracking, records authorized completed/denied/failed/cancelled tool outcomes as hashed argument/output receipts. No raw credentials, model content or source arguments persisted. Receipts do not count as sandbox/Bash command proof.
+- `NativeDeerFlowExecutionBackend` may receive an `ExecutionEvidenceCollector`; begins host scan after genuine Dispatch Commit, joins owned native task, closes guard, then collects evidence while Scheduler holds WorkspaceAccess. Default without collector remains `quiescent=False`, `mutation_evidence=unknown`.
+- Quiescence gate requires a distinct Runtime-owned `ResourceSupervisor` with complete process/tool-worker/sandbox lease closure for the same task/execution, plus owned task termination and empty pending tool calls. No supervisor, stale claim, interrupted task or ledger failure fails closed. **No production real sandbox supervisor has yet been implemented**; positive deterministic witnesses are synthetic only.
+- Snapshot scanner now treats excluded cache/build directories as incomplete, blocking false no-mutation proofs; authoritatively `UNKNOWN` on truncated evidence even when partial changed paths are observed.
+- Deterministic `tests/unit/test_deerflow_execution_evidence_step5f.py` and pinned physical `tests/integration/test_deerflow_pinned_native_step5eb.py` include this seam; see `audits/step5f-execution-evidence-quiescence-review.md`.
+- **5F-A scoped GO conditional on latest green CI; full 5F remains NO-GO.** Canonical controlled Bash/WRITE evidence, native sandbox/process supervisor, acceptance-verdict proof, automatic Scheduler attempt evidence attachment and live credentials not complete. **PR #7 Draft/Open/unmerged.**
+
 ## Step 5E-B — Installed pinned DeerFlow offline physical integration (2026-10-09)
 
 - New `.github/workflows/deerflow-pinned-native.yml` physically checks out `bytedance/deer-flow@c0895d295bba34f6e95188fca380f555dabed891` and runs Python 3.12 after installing the editable frozen Harness with its declared dependencies.
