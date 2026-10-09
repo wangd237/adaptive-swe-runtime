@@ -173,9 +173,23 @@ def _merge(key: str, group: list[CompiledConstraint], warnings: list[dict]) -> o
 
 def _combine(key: str, group: list[CompiledConstraint], warnings: list[dict]) -> CompiledConstraint:
     value = _merge(key, group, warnings)
-    source = sorted(group, key=lambda c: (
-        -{"soft": 0, "hard": 1, "locked": 2}[c.enforcement.value],
-        -_rank(c), c.id,
+    authority_rank = {"soft": 0, "hard": 1, "locked": 2}
+    preference_rank = {
+        ConstraintOrigin.USER_EXPLICIT: 3,
+        ConstraintOrigin.REPOSITORY_GUIDANCE: 2,
+        ConstraintOrigin.RUNTIME_POLICY: 1,
+        ConstraintOrigin.RUNTIME_DERIVED: 1,
+    }
+    # The displayed primary Origin must be the actual effective-value
+    # contributor, not an unrelated higher-origin soft default.
+    source_group = ([c for c in group if c.value == value]
+                    if key in ("preference.test_command", "target.exact_path")
+                    else group)
+    source = sorted(source_group, key=lambda c: (
+        -authority_rank[c.enforcement.value],
+        -(preference_rank[c.provenance.origin]
+          if key == "preference.test_command" else _rank(c)),
+        c.id,
     ))[0]
     # Keep each contributing evidence locator/hash, even when its origin is
     # lower priority. contributor identity retains the originals.
