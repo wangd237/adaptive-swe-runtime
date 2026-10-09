@@ -510,7 +510,9 @@ class NodeExecutionBindingStore:
     @classmethod
     def from_deerflow(cls, *, preparation_backend: DeerFlowPreparationBackend,
                       host_identity_supplier: Callable[[], Mapping[str, Any]],
-                      execution_live_checker: Callable[[NodeExecutionInvocation], bool]):
+                      execution_live_checker: Callable[[NodeExecutionInvocation], bool],
+                      swe_workspace_factory: Callable[[NodeExecutionInvocation, PinnedNodeResources, Any], ControlledSWEWorkspace] | None = None,
+                      expected_swe_workspace_root: Path | None = None):
         """Native pinned AuthorizationProvider protocol; no user-supplied ID."""
         try:
             from deerflow.authz.principal import build_principal_from_context
@@ -545,6 +547,8 @@ class NodeExecutionBindingStore:
             provider_supplier=provider_supplier,
             auth_request_factory=AuthzRequest,
             execution_live_checker=execution_live_checker,
+            swe_workspace_factory=swe_workspace_factory,
+            expected_swe_workspace_root=expected_swe_workspace_root,
         )
 
     async def bind(self, *, preparation: NodeExecutionPreparation,
