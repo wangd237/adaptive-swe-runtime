@@ -23,7 +23,7 @@ Inspected the PR #4 implementation against `AGENTS.md`, `specs/03-execution-runt
 
 ## Step 2 conformance result
 
-The 65 frozen Step-2 PoCs are individually marked **PASS** in the machine-readable inventory. The associated suite is scenario-specific, including adversarial fake backend and temporary real Git repository tests. Verify latest PR SHA's two CI lanes before merge and record the exact final commit in `IMPLEMENTATION_STATUS.md`.
+The 65 frozen Step-2 PoCs are individually marked **PASS** in the machine-readable inventory. The associated suite is scenario-specific, including adversarial fake backend and temporary real Git repository tests. At the reviewed PR HEAD `aa34fb50e11761b56d386fa6d2f570b6f2fe3173`, Python 3.11 and 3.13 each passed **202 tests**. GitHub merged PR #4 at commit `3d19541bb9f0f7e345ec0f4fb8af3a5415b5ed53`.
 
 ## Deferred, not claimed
 
@@ -31,4 +31,4 @@ The 65 frozen Step-2 PoCs are individually marked **PASS** in the machine-readab
 - Compiler-owned task constraint provenance, mutation authority, and execution command policy: Steps 3/4.
 - Distributed/restart-safe Scheduler replay and cross-machine locks: explicit P1 non-goals.
 
-**Recommendation:** merge only when the latest PR head is green and the audit integrity test passes; then mark Step 2 CLOSED on main, without treating deferred integration PoCs as complete.
+**Final disposition (2026-10-09):** PR #4 merged, latest PR-head CI green, audit integrity test green; Step 2 is **CLOSED / ACCEPTED** for FakeBackend Scheduler scope. No real DeerFlow integration or broader security certification is implied.

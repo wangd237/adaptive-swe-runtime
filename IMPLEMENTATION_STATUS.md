@@ -4,11 +4,11 @@
 
 - Step 0 — CLOSED / ACCEPTED
 - Step 1 — CLOSED / ACCEPTED
-- Step 2 — EXIT GATE SATISFIED / PR #4 MERGE PENDING (FakeBackend PoCs; final CI required)
-- Step 3 — NOT STARTED (will commence after Step 2 merge)
+- Step 2 — CLOSED / ACCEPTED (PR #4 merged as `3d19541bb9f0f7e345ec0f4fb8af3a5415b5ed53`)
+- Step 3 — NEXT / CODING BRANCH STARTING (Task / Contract / Planning Compiler)
 - Step 4 and later — NOT STARTED
 
-## PR #4 new functionality (subject to review and merge)
+## Step 2 accepted implementation (PR #4 merged)
 
 - [x] Runtime CanonicalVerifier: exact compiled argv as foreground subprocess, no shell, bounded timeout
 - [x] Before/after exact Git state comparison; nonzero -> deterministic FAIL, zero -> HOLDS, mutation/timeout -> UNVERIFIED
@@ -31,13 +31,14 @@
 - PASS: 65
 - PARTIAL: 0
 - GAP: 0
-- **Step 2 may be CLOSED only after latest-head CI + final source review + merge into main.**
+- Step 2 is formally **CLOSED / ACCEPTED** at merge commit `3d19541b`; scope is deterministic FakeBackend Runtime.
 
 ## Step 2 final acceptance evidence
 
 - Frozen inventory: 65 PASS / 0 PARTIAL / 0 GAP; exact one-row-per-PoC Markdown audit is built from machine-readable manifest.
 - Final source review: `audits/step2-finalization-review.md`. Race condition in cancellation-versus-COMPLETED addressed with regression tests.
-- Latest PR implementation CI (including new race tests and audit consistency guard) must be green on Python 3.11/3.13 before merge.
+- Merged PR #4 HEAD `aa34fb50e11761b56d386fa6d2f570b6f2fe3173`: Python 3.11 **202 passed**, Python 3.13 **202 passed**; merge commit `3d19541bb9f0f7e345ec0f4fb8af3a5415b5ed53`.
+- No Step 5 DeerFlow sandbox/integration certification claimed.
 
 ## High-priority remaining P0 blockers
 
@@ -53,7 +54,7 @@
 - [x] R103 typed TaskLogicalStatus FAILED/CANCELLED publication within Scheduler mutex transaction
 - [x] P0-D deterministic concurrency barriers R119–R121/R125–R126, including noncommitted physical Workspace join and timeout quarantine
 - [x] All 65 audit PoCs have test evidence and independent source/Design Freeze consistency sweep is documented
-- [ ] GitHub latest-head CI and PR #4 merge/Step 2 CLOSED publication
+- [x] GitHub latest-head CI, PR #4 merged, Step 2 CLOSED publication
 
 ## P0-B incremental status
 
@@ -75,7 +76,14 @@
 - Real bug repaired: fail-close now joins active physical Workspace holders as well as committed backend attempts before declaring FROZEN. Timeout quarantines safely.
 - Slow synchronous EvidenceChecker is dispatched via asyncio.to_thread instead of blocking Scheduler's event loop, with final ticket authority rechecked before dispatch.
 - Implementation HEAD `2b4061d`: Python 3.11 and 3.13 each 199 passed. Frozen PoC matrix 65 PASS / 0 PARTIAL / 0 GAP.
-- **No merge/Step 2 CLOSED:** independent implementation audit, frozen design consistency sweep, and PR merge authorization still pending.
+- **Step 2 CLOSED:** independent source/Design Freeze consistency sweep documented, latest-head CI verified, PR #4 merged.
+
+## Step 3 next coding gate
+
+- Implement the frozen `specs/01-task-planning.md` Task/Constraint/Planning compiler in `src/aswe/planning/` on an isolated coding branch.
+- First: compiler-owned immutable Request/Provenance contracts; then Constraint merge algebra POC-C01–C06; then PlanValidator/Normalizer and Acceptance compiler.
+- Step 3 must satisfy POC-P3-01..12 and POC-C01..10, with deterministic FakeReasoningBackend tests, before its own closure.
+- Step 4 DAG/Provider compilation and Step 5 DeerFlow integration remain out of scope.
 
 ## Strict limits
 

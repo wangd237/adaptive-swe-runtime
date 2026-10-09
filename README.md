@@ -6,13 +6,15 @@ Implementation repository for **Adaptive Agent Runtime for Software Engineering 
 
 ## Current phase
 
-P0 Design: FROZEN (DeerFlow integration PoCs pending)
+P0 Design: FROZEN (DeerFlow integration Go/No-Go pending)
 Coding Step 0: CLOSED / ACCEPTED
 Coding Step 1: CLOSED / ACCEPTED
-Step 2: IN PROGRESS — foundation + repair/reopen + cancel/join merged (PR #3)
-Next: complete Step 2 canonical verifier, TaskResult/drain and PoC exit gates
-DeerFlow / LLM integration: NOT STARTED
-CI of PR #3 reviewed head: 127 passed on Python 3.11 and 3.13
+Coding Step 2: **CLOSED / ACCEPTED** — [PR #4](https://github.com/wangd237/adaptive-swe-runtime/pull/4) merged as `3d19541b`
+Coding Step 3: **STARTING** — Task / Contract / Planning Compiler
+DeerFlow / LLM integration: NOT STARTED (Step 5)
+
+Step 2 frozen PoC inventory: **65 PASS / 0 PARTIAL / 0 GAP**.
+Merged PR #4 head: **202 passed on Python 3.11 and 202 passed on Python 3.13**.
 
 ## Accepted implementation
 
@@ -20,9 +22,9 @@ CI of PR #3 reviewed head: 127 passed on Python 3.11 and 3.13
 - Local immutable attempt/task EvidenceStore and minimal trace events.
 - Git bootstrap to pinned SHA; isolated temporary-index working tree digest and per-attempt patch attribution.
 - Workspace snapshots/revision evidence, reader/writer access, quiescence-gated FROZEN vs QUARANTINED lifecycle.
+- Scheduler on FakeBackend: deterministic dispatch, Retry/Repair/Reverify, provenance-bound canonical feedback, cancellation/race gates and TaskResult four-axis finalization (Step 2).
 
-Step 1 reviewed in [PR #2](https://github.com/wangd237/adaptive-swe-runtime/pull/2).
-Python 3.11 / 3.13: **84 passed, 0 skipped** on reviewed PR head.
+Step 1 reviewed in [PR #2](https://github.com/wangd237/adaptive-swe-runtime/pull/2). Step 2 accepted through [PR #4](https://github.com/wangd237/adaptive-swe-runtime/pull/4) and [final source review](audits/step2-finalization-review.md).
 
 ## Architecture and design authority
 
