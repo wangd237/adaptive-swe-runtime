@@ -200,7 +200,13 @@ class ExecutionEvidenceCollector:
                 quiescent = False
             if delta.attribution_truncated:
                 reasons.append("EVIDENCE_SCANNER_INCOMPLETE")
-            mutation = delta.mutation_evidence if quiescent else MutationEvidence.UNKNOWN
+            # Frozen Spec 03 §3.2.2: truncation is UNKNOWN even when a
+            # subset of changed paths was positively observed. The partial
+            # observations remain in the persisted delta, never promoted
+            # into complete attempt attribution.
+            mutation = (delta.mutation_evidence
+                        if quiescent and not delta.attribution_truncated
+                        else MutationEvidence.UNKNOWN)
             receipt_ref = self.evidence_store.put_attempt(
                 task_id=inv.task_id, node_id=inv.node_id,
                 execution_id=inv.execution_id, attempt=inv.attempt,
