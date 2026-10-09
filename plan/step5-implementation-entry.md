@@ -100,3 +100,10 @@ Reference: `plan/master-plan.md` Step 5, `audits/deerflow-source-audit.md` and i
 - All model activity is a host-local offline `BaseChatModel` fixture. The test does **not** contain model credentials, invoke remote API endpoints or access a real mutable workspace/sandbox.
 - Independent details and residual limitations: `audits/step5eb-pinned-native-physical-poc.md`. Scoped installed-vendor offline GO must **not** substitute for live credentialed model/auth integration, full Scheduler-to-native signed binding, lockfile-proven dependency reproducibility or 5F trusted sandbox/evidence/quiescence.
 - PR #7 stays Draft/Open. Next: 5F evidence/mutation/quiescence + explicit 5G external credentialed preflight before full Step 5 close.
+
+## Step 5F-A host-owned readonly workspace evidence checkpoint (2026-10-09)
+
+- `execution_evidence.py`: begin under committed Scheduler WorkspaceAccess, compare Git state against Invocation revision, pre/post filesystem + Git snapshot, call trusted resource-supervisor after owned native task completes and guard is revoked, derive attempt-local `NodeWorkspaceDelta`, persist guarded hash-only TOOL_RECEIPT_LEDGER and WORKSPACE_CHANGESET refs outside workspace.
+- `ToolCallGuard` emits authoritative run-local handler invocation receipts, **not** native sandbox effect proofs. False/no mutation requires complete bounded scanner plus denial of all mutating/UNKNOWN tools, no pending handler, trustworthy independent supervisor scope. Excluded scan directories are incomplete; truncated authoritative mutation is UNKNOWN.
+- No external `ResourceSupervisor` shipped yet, so absent or fake-only sandbox witness cannot promote production quiescence. Real native 5E-B offline installed Harness verifies failure-closed evidence with no witness, not a positive process drain. See `audits/step5f-execution-evidence-quiescence-review.md`.
+- **5F-B still required:** real executor-owned completion/lease/tool-worker supervision and canonical foreground Bash command start/finish receipts & acceptance-verdict integration. Explicit 5G model/Authz real-credentials E2E after this. PR #7 remains Draft/Open.
