@@ -92,3 +92,11 @@ Reference: `plan/master-plan.md` Step 5, `audits/deerflow-source-audit.md` and i
 - `NodeExecutionBindingStore.bind` remains the post-commit entrance; no model/tool is assembled before a real Scheduler Invocation. `BoundToolView` exactly matches the compiled `ToolNode.tools_by_name` by key, object identity and seal; make_langchain_tool_policy_middleware is the only custom runtime tool middleware. `_ReservedContextGraph` carries Scheduler-owned execution_id and run_id into ToolCallRequest context alongside pinned Principal identity.
 - `NativeDeerFlowExecutionBackend` enables no execution by default; explicit PoC opt-in does NOT confer accepted TaskResult or quiescence. All NativeExecutionRecord outcomes report `quiescent=False,mutation_evidence=unknown` pending Step 5F's trusted sandbox, process and Workspace proof.
 - See `audits/step5e-native-assembly-review.md` and `tests/unit/test_deerflow_native_execution_step5e.py`. **5E installed-vendor/credential proof pending**; no PR merge / production GO.
+
+## Step 5E-B physical integration checkpoint (2026-10-09)
+
+- Added separate required `deerflow-pinned-native.yml` CI job (Python 3.12) with exact upstream source checkout and real harness install; incompatible Core-only CI 3.11/3.13 excludes these integration files.
+- Physical `tests/integration/test_deerflow_pinned_native_step5eb.py`: real native `SubagentExecutor`, AppConfig/SubagentConfig/LoadedExtensions, LangChain `create_agent`/compiled `ToolNode`, model → actual guarded synthetic read tool → model loop, source verifier, native `_aexecute` admission/stream/terminal lifecycle, bundled RBAC deny/allow and revocation.
+- All model activity is a host-local offline `BaseChatModel` fixture. The test does **not** contain model credentials, invoke remote API endpoints or access a real mutable workspace/sandbox.
+- Independent details and residual limitations: `audits/step5eb-pinned-native-physical-poc.md`. Scoped installed-vendor offline GO must **not** substitute for live credentialed model/auth integration, full Scheduler-to-native signed binding, lockfile-proven dependency reproducibility or 5F trusted sandbox/evidence/quiescence.
+- PR #7 stays Draft/Open. Next: 5F evidence/mutation/quiescence + explicit 5G external credentialed preflight before full Step 5 close.
