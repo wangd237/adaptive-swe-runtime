@@ -232,3 +232,22 @@ async def test_r126_reopen_wins_gate_before_late_claim_cannot_revive_old_authori
     assert first != core.states["writer"].accepted_handoff
     assert core.states["reviewer"].active_dispatch_ticket_id is None
     assert core.states["reviewer"].attempts == ()
+
+
+@pytest.mark.asyncio
+async def test_r119_stuck_physical_precommit_holder_times_out_to_quarantine(tmp_path):
+    core, manager = scheduler(tmp_path, node("locked"))
+    ticket = await core.claim("locked")
+    await core._advance(ticket.ticket_id, NodeDispatchTicketState.WAITING_WORKSPACE)
+    async with manager.access(WorkspaceAccess.WRITE):
+        await core._advance(ticket.ticket_id, NodeDispatchTicketState.LOCKED_PRECOMMIT)
+        async with core.state_mutex:
+            core._fail_close_locked("R119_PRECOMMIT_OWNER_STUCK")
+        # No committed backend exists to join, but this physical lock is real.
+        await core.drain_committed(timeout=0.01)
+        assert core.tickets[ticket.ticket_id].state is NodeDispatchTicketState.REVOKED
+        assert core.gate.state is TaskDispatchGateState.CLOSED
+        assert core.states["locked"].attempts == ()
+        assert manager.lifecycle.current.status is WorkspaceSessionStatus.QUARANTINED
+        assert core.task_logical_status is TaskLogicalStatus.FAILED
+    assert manager.lifecycle.current.status is WorkspaceSessionStatus.QUARANTINED
