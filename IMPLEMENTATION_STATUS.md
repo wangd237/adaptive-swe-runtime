@@ -1,3 +1,23 @@
+## Step 4 independent Design Freeze audit (2026-10-09)
+
+- Source-level independent audit complete: `audits/step4-independent-freeze-review.md` with frozen P0-5 machine coverage in `audits/step4-poc-coverage.json`.
+- **Scoped GO** for Stage-4 Core/Provider/DAG/Live-Preflight/FakeBackend baseline; **not** a claim that real DeerFlow adapter is accepted.
+- All four requested deliverables implemented: `providers/policy.py` (NodeExecutionPolicy + ProviderAssignment/TeamSpec), `providers/preflight.py` (precommit LiveInventory drift + pinned execution), `planning/descriptor.py` (CompiledPlanDescriptor and exact Acceptance identity), plus independent audit.
+- Independent P0 blockers closed: ProviderContract identity, self-signed dropped required bash, exact Acceptance command fingerprint, Contract global deny scopes, singleton model identity and Backend snapshot.
+- Latest **implementation** dual CI at `ca15d8e2` ran **335 passed** on Python 3.11 and Python 3.13. Audit-only updates must get green latest-head CI before merge.
+- P0-5 + R/F audit: **13 Core PASS / 5 PARTIAL / 12 STEP5-OWNED**; don't mark real DeerFlow integration all-pass.
+- Frozen Stage-3 semantic and physical C/P3 audit remains **22 PASS / 0 PARTIAL / 0 GAP** on PR #6 branch; new physical proofs await merge to appear on main.
+- Recommendation: merge PR #6 as *scoped Step-4 Core baseline* when latest-head CI + branch mergeability pass; Step 5 owns live assembly/tool surface/AuthorizationProvider/Skill middleware.
+
+## Step 4 physical P3 integration checkpoint (2026-10-09)
+
+- PR #5 **MERGED** into `main` at `584c1eae`, accepting Step-3 semantic compiler baseline only.
+- Step-4 branch `coding/step4-capability-provider-dag` implements canonical CapabilitySpec vocabulary, trusted static FakeBackendInventory/AgentProvider, ToolEffect / WorkspaceAccess, deterministic TaskDAG Materializer and real Git post-node Tester guard.
+- Five Step-3 deferred P3 cases are **PASS on this branch**: P3-01/02/03/04/11, with actual Scheduler and Git tests; frozen P3/C inventory now **22/22 scenario PASS**, awaiting PR #6 review/merge before main is updated.
+- Implementation CI `29cc2aef`: Python 3.11 and 3.13 **305 passed** each (run 37895498872).
+- **Step 4 is NOT CLOSED:** remaining provider preflight / live inventory / execution policy / descriptor / stage-4 P0-5 PoCs require separate review and coding. No DeerFlow adapter executed.
+- See `audits/step4-physical-poc-audit.md`.
+
 ## Step 3 P0 closure and Step 4 handoff (2026-10-09)
 
 - Scoped **GO** recommendation after P0-A..D source/negative test review. See `audits/step3-freeze-closure.md`.

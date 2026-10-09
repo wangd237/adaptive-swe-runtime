@@ -10,7 +10,7 @@ P0 Design: FROZEN (DeerFlow integration Go/No-Go pending)
 Coding Step 0: CLOSED / ACCEPTED
 Coding Step 1: CLOSED / ACCEPTED
 Coding Step 2: **CLOSED / ACCEPTED** — [PR #4](https://github.com/wangd237/adaptive-swe-runtime/pull/4) merged as `3d19541b`
-Coding Step 3: **IN PROGRESS** — Task / Contract / Planning Compiler ([draft PR #5](https://github.com/wangd237/adaptive-swe-runtime/pull/5))
+Coding Step 3: **SCOPED BASELINE ACCEPTED** — [PR #5](https://github.com/wangd237/adaptive-swe-runtime/pull/5) merged; frozen physical P3 integration tested on Step-4 branch
 DeerFlow / LLM integration: NOT STARTED (Step 5)
 
 Step 2 frozen PoC inventory: **65 PASS / 0 PARTIAL / 0 GAP**.
@@ -43,3 +43,10 @@ Install dev requirements and run:
     python -m pytest
 
 No DeerFlow dependency or LLM integration has been added.
+
+
+## Step 4 physical integration (work in progress)
+
+- Canonical provider-neutral Capability registry, FakeBackend Inventory, ToolEffect and WorkspaceAccess resolution, materialized phase TaskDAG / exclusive WRITEs, real Git Tester post-node guard.
+- Frozen Stage-3 P3 physical scenarios 01/02/03/04/11 PASS on Step-4 branch, but the complete Step-4 adapter / live preflight / policy descriptor is **not yet accepted**.
+- Review: [Step-4 physical PoCs](audits/step4-physical-poc-audit.md).

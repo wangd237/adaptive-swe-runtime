@@ -1,0 +1,192 @@
+{
+  "stage": "Coding Step 4",
+  "authority": "tests/poc-matrix.md P0-5 and R/F additions",
+  "scope": "source/fake-backend-only",
+  "counts": {
+    "PASS": 13,
+    "PARTIAL": 5,
+    "STEP5": 12
+  },
+  "entries": [
+    {
+      "id": "POC-27",
+      "status": "PASS",
+      "detail": "Static operator tool allowlist intersects compiled Node allowlist; mandatory tool denied before execution",
+      "test": "tests/unit/test_step4_live_preflight_descriptor.py::test_tool_and_provider_static_preflight_operator_deny_fails_closed"
+    },
+    {
+      "id": "POC-28",
+      "status": "PASS",
+      "detail": "Missing hard-required eager tool rejected by trusted fake inventory",
+      "test": "tests/unit/test_step4_live_preflight_descriptor.py::test_poc28_poc41_required_missing_or_deferred_tool_is_never_provider_feasible"
+    },
+    {
+      "id": "POC-29",
+      "status": "STEP5",
+      "detail": "Actual DeerFlow assembly descriptor and fingerprint unavailable until Adapter",
+      "test": ""
+    },
+    {
+      "id": "POC-30",
+      "status": "STEP5",
+      "detail": "Real middleware before-first-model-call required tool removal / synthetic short-circuit",
+      "test": ""
+    },
+    {
+      "id": "POC-31",
+      "status": "PARTIAL",
+      "detail": "Preferred Skill compatibility and discovery resolved; activation/usage attestation requires DeerFlow",
+      "test": "tests/unit/test_step4_live_preflight_descriptor.py::test_preferred_skill_incompatible_with_required_bash_is_not_exposed"
+    },
+    {
+      "id": "POC-32",
+      "status": "PARTIAL",
+      "detail": "Model:use deterministic preflight denial tested; actual direct-executor authorization requires Adapter",
+      "test": "tests/unit/test_step4_live_preflight_descriptor.py::test_model_unavailable_and_authorization_deny_preflight"
+    },
+    {
+      "id": "POC-33",
+      "status": "STEP5",
+      "detail": "Ordinary DeerFlow run behavior with installed extensions remains untested",
+      "test": ""
+    },
+    {
+      "id": "POC-34",
+      "status": "STEP5",
+      "detail": "Middleware-declared tool filtering requires live model-visible schema inspection",
+      "test": ""
+    },
+    {
+      "id": "POC-35",
+      "status": "STEP5",
+      "detail": "Actual tool-call authorization guard requires DeerFlow tool dispatch hook",
+      "test": ""
+    },
+    {
+      "id": "POC-36",
+      "status": "STEP5",
+      "detail": "tool_search/describe_skill infrastructure helper classification requires adapter",
+      "test": ""
+    },
+    {
+      "id": "POC-37",
+      "status": "STEP5",
+      "detail": "Managed-run policy store miss behavior requires live assembly store",
+      "test": ""
+    },
+    {
+      "id": "POC-38",
+      "status": "STEP5",
+      "detail": "Binding store cleanup on cancel/timeout requires actual DeerFlow executor",
+      "test": ""
+    },
+    {
+      "id": "POC-39",
+      "status": "PASS",
+      "detail": "Optional bash unselected keeps Explorer READ; WorkspaceAccess based on final tool set",
+      "test": "tests/unit/test_step4_physical_p3.py::test_optional_bash_does_not_upgrade_explorer_read_access"
+    },
+    {
+      "id": "POC-40",
+      "status": "PASS",
+      "detail": "Explicit optional bash selection upgrades READ→WRITE, fingerprint changes; live disappearance narrows without lock downgrade",
+      "test": "tests/unit/test_step4_live_preflight_descriptor.py::test_poc40_explicit_optional_bash_upgrades_physical_write_and_stamps_policy"
+    },
+    {
+      "id": "POC-41",
+      "status": "PASS",
+      "detail": "Required deferred MCP tool cannot satisfy eager hard capability",
+      "test": "tests/unit/test_step4_live_preflight_descriptor.py::test_poc28_poc41_required_missing_or_deferred_tool_is_never_provider_feasible"
+    },
+    {
+      "id": "POC-42",
+      "status": "STEP5",
+      "detail": "Live skill activation short-circuit before model call requires DeerFlow middleware",
+      "test": ""
+    },
+    {
+      "id": "POC-43",
+      "status": "STEP5",
+      "detail": "Terminal AIMessage ASWE marker / SubagentResult normalized failure requires DeerFlow",
+      "test": ""
+    },
+    {
+      "id": "POC-44",
+      "status": "STEP5",
+      "detail": "Ordinary-run policy-store-miss pass-through requires DeerFlow middleware",
+      "test": ""
+    },
+    {
+      "id": "POC-45",
+      "status": "PASS",
+      "detail": "Unrelated live inventory drift produces BACKEND_DRIFT_OBSERVED but allows prepared node",
+      "test": "tests/unit/test_step4_live_preflight_descriptor.py::test_unrelated_live_inventory_drift_revalidated_and_diagnostic"
+    },
+    {
+      "id": "POC-46",
+      "status": "PASS",
+      "detail": "Required tool removed before lock/commit => BACKEND_PREFLIGHT_STALE, no Attempt or FakeBackend execution",
+      "test": "tests/unit/test_step4_live_preflight_descriptor.py::test_live_preflight_stale_rejects_before_scheduler_commit"
+    },
+    {
+      "id": "POC-47",
+      "status": "PASS",
+      "detail": "Operator / Runtime ceilings only narrow; exact policy binding remains",
+      "test": "tests/unit/test_step4_live_preflight_descriptor.py::test_runtime_node_ceiling_can_only_narrow_operator_ceiling"
+    },
+    {
+      "id": "POC-48",
+      "status": "PARTIAL",
+      "detail": "Fake backend uses pinned preparation and one live snapshot; real AppConfig/Extensions pinning remains Step 5",
+      "test": "tests/unit/test_step4_live_preflight_descriptor.py::test_poc48_prepare_then_hot_reload_does_not_reselect_prepared_resources"
+    },
+    {
+      "id": "POC-49",
+      "status": "STEP5",
+      "detail": "Live tool-call authorization refresh after execution start requires DeerFlow runtime",
+      "test": ""
+    },
+    {
+      "id": "POC-50",
+      "status": "PASS",
+      "detail": "No implicit Provider rebinding when live required tool disappears",
+      "test": "tests/unit/test_step4_live_preflight_descriptor.py::test_live_preflight_never_rebinds_to_alternate_provider_when_required_tool_missing"
+    },
+    {
+      "id": "POC-51",
+      "status": "PARTIAL",
+      "detail": "Distinct Node identities from same Provider verified; actual one-shot DeerFlow conversation state requires Adapter",
+      "test": "tests/unit/test_step4_live_preflight_descriptor.py::test_poc53_same_provider_multiple_nodes_no_hidden_merge_or_context_reuse"
+    },
+    {
+      "id": "POC-52",
+      "status": "PARTIAL",
+      "detail": "Step-2 explicit NodeHandoff/Workspace dependency stamps tested; real model-context isolation is Adapter owned",
+      "test": "tests/unit/test_scheduler_foundation.py::test_commit_allocates_attempt_only_after_lock_and_publishes_handoff"
+    },
+    {
+      "id": "POC-53",
+      "status": "PASS",
+      "detail": "One Provider may cover two unchanged WorkItems; TeamSpec one member, DAG remains two Nodes",
+      "test": "tests/unit/test_step4_live_preflight_descriptor.py::test_poc53_same_provider_multiple_nodes_no_hidden_merge_or_context_reuse"
+    },
+    {
+      "id": "POC-R52",
+      "status": "PASS",
+      "detail": "Explicit TaskContract actions.forbidden tool deny overrides Provider generic permission",
+      "test": "tests/unit/test_step4_live_preflight_descriptor.py::test_explicit_contract_tool_deny_overrides_provider_operator_allowlist"
+    },
+    {
+      "id": "POC-R73",
+      "status": "PASS",
+      "detail": "Required Acceptance sandbox evidence feature unavailable => static preflight rejection",
+      "test": "tests/unit/test_step4_live_preflight_descriptor.py::test_acceptance_bash_exact_command_policy_and_sandbox_preflight"
+    },
+    {
+      "id": "POC-F03",
+      "status": "PASS",
+      "detail": "Descriptor consumes only CompiledTaskContract/ValidatedWorkPlan/Acceptance and rechecks authority; never raw WorkPlanProposal",
+      "test": "tests/unit/test_step4_live_preflight_descriptor.py::test_policy_and_descriptor_deterministic_same_source_ids"
+    }
+  ]
+}
