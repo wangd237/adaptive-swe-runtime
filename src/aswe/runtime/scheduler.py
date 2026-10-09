@@ -117,6 +117,8 @@ class SchedulerCore:
         self._task_failed = False
         self.task_logical_status = TaskLogicalStatus.RUNNING
         self._committed: dict[str, CommittedExecution] = {}
+        # Exact invocation objects remain authoritative only while active.
+        self._active_invocations: dict[str, NodeExecutionInvocation] = {}
         self._terminal_mutex = asyncio.Lock()
         self._quiescence_unknown = False
         self._locally_cancelled_nodes: set[str] = set()
@@ -304,12 +306,34 @@ class SchedulerCore:
             self._committed[invocation.execution_id] = CommittedExecution(
                 backend=backend, owner=asyncio.current_task(),
             )
+            self._active_invocations[invocation.execution_id] = invocation
             self._pending_attempt_kinds.pop(ticket.node_id, None)
             if kind is NodeAttemptKind.REPAIR:
                 self._repair_feedback_revision.pop(ticket.node_id, None)
                 self._repair_feedback_text.pop(ticket.node_id, None)
                 self._typed_repair_feedback.pop(ticket.node_id, None)
             return invocation
+
+    def is_committed_invocation(self, invocation: NodeExecutionInvocation) -> bool:
+        """Synchronous same-event-loop gate for a managed backend claim.
+
+        Must be called by the execution owner immediately after _commit and
+        before any await. A model-authored invocation or precommit ticket has
+        no matching authoritative entry. This is not a cross-process token.
+        """
+        if not isinstance(invocation, NodeExecutionInvocation):
+            return False
+        active = self._active_invocations.get(invocation.execution_id)
+        ticket = self.tickets.get(invocation.dispatch_ticket_id)
+        committed = self._committed.get(invocation.execution_id)
+        return (
+            active == invocation
+            and ticket is not None and ticket.state is NodeDispatchTicketState.COMMITTED
+            and committed is not None and committed.owner is asyncio.current_task()
+            and self.task_id == invocation.task_id
+            and ticket.node_id == invocation.node_id
+            and ticket.task_dispatch_epoch == invocation.task_dispatch_epoch
+        )
 
     async def _finish(self, invocation: NodeExecutionInvocation, result: Any,
                       handoff: NodeHandoff | None, *,
@@ -948,6 +972,7 @@ class SchedulerCore:
         """
         current_id = ticket.ticket_id
         invocation: NodeExecutionInvocation | None = None
+        preparation: Any | None = None
         completed_quiescent = False
         try:
             preparation = await backend.prepare_node(self.nodes[ticket.node_id])
@@ -1090,10 +1115,23 @@ class SchedulerCore:
                 await self.revoke(current_id)
             raise
         finally:
+            if invocation is None and preparation is not None:
+                # Any revoked/precommit-cancelled preparation must release its
+                # retained provider resources without creating an attempt.
+                # The optional hook is synchronous and must perform no I/O.
+                cleanup = getattr(backend, "discard_preparation", None)
+                if callable(cleanup):
+                    try:
+                        cleanup(preparation)
+                    except Exception:
+                        self.secondary_runtime_diagnostics.append(
+                            "PRECOMMIT_PREPARATION_CLEANUP_FAILED"
+                        )
             if invocation is not None:
                 item = self._committed[invocation.execution_id]
                 item.quiescent = completed_quiescent
                 item.done.set()
+                self._active_invocations.pop(invocation.execution_id, None)
             # A stale refresh can close the gate without a Writer attempt.
             await self._settle_if_drained()
 
