@@ -446,9 +446,12 @@ class NativeDeerFlowExecutionBackend:
         # DeerFlow background tasks or interrupt other work.
         self.store.release(execution_id)
         task = self._tasks.get(execution_id)
+        # Snapshot the independent signal BEFORE a concurrent run finalizer
+        # removes its registry entry. Cancellation must not mistake cleanup
+        # of a completed run for missing native coroutine completion.
+        signal = self._completion_events.get(execution_id)
         if task is not None:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
-            signal = self._completion_events.get(execution_id)
             if signal is None or not signal.is_set():
                 raise NativeExecutionError("NATIVE_EXECUTOR_COMPLETION_UNPROVEN")
