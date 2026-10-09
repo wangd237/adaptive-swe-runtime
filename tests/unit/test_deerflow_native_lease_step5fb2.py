@@ -28,10 +28,12 @@ async def test_scope_verification_denies_lease_in_use_and_unjoined_task(reposito
     provider=object()
     done={"value":False}
     async def no_process(_,__):return True
+    async def verified_release(_task,_execution,_owner):return True
     witness=NativeSandboxQuiescenceSupervisor(
         initialized_provider=lambda:provider,
         manager_lookup=lambda x:manager,
-        process_tree_probe=no_process)
+        process_tree_probe=no_process,
+        release_completion_probe=verified_release)
     owner=witness.register_execution(inv,native_finished=lambda:done["value"])
     assert owner=="subagent:"+native_lease_task_id(inv)
     assert owner==native_lease_owner(inv)
@@ -62,7 +64,7 @@ async def test_no_external_process_probe_never_positive_even_when_lease_removed(
     )
     witness.register_execution(inv,native_finished=lambda:True)
     result=await witness.inspect(task_id=inv.task_id,execution_id=inv.execution_id)
-    assert result.sandbox_lease_released is True
+    assert result.sandbox_lease_released is False
     assert result.process_tree_drained is False
     assert not result.complete
 
@@ -91,3 +93,19 @@ async def test_provider_unknown_wrong_execution_or_probe_failure_denied(reposito
     witness2.register_execution(inv,native_finished=lambda:True)
     failed=await witness2.inspect(task_id=inv.task_id,execution_id=inv.execution_id)
     assert not failed.complete
+
+
+@pytest.mark.asyncio
+async def test_binding_removed_but_provider_release_failed_never_proves_quiescence(repository_fixture):
+    _,inv,_ = _approved(repository_fixture,("pytest","-q"))
+    manager=Manager()
+    async def process(_task,_execution):return True
+    async def failed_release(_task,_execution,_owner):return False
+    observer=NativeSandboxQuiescenceSupervisor(
+        initialized_provider=lambda:object(),manager_lookup=lambda _:manager,
+        process_tree_probe=process,release_completion_probe=failed_release,
+    )
+    observer.register_execution(inv,native_finished=lambda:True)
+    report=await observer.inspect(task_id=inv.task_id,execution_id=inv.execution_id)
+    assert not report.sandbox_lease_released
+    assert not report.complete
