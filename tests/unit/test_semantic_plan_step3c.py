@@ -346,3 +346,30 @@ async def test_semantic_planner_backend_returns_only_untrusted_proposal():
     assert SemanticPlanValidator().validate(
         proposal=proposal,contract=c,authority=a,
     ).items[0].id=="explain"
+
+
+def test_independent_test_gate_cannot_be_replaced_by_regression_on_writer():
+    c,a,grant=gate_contract()
+    fail("PLAN_INVALID",c,a,
+         item("writer",WorkKind.IMPLEMENTATION,
+              ("code_modification","regression_testing"),claims=(grant,)),
+    )
+
+
+def test_review_capability_cannot_be_mixed_into_implementation_or_verification():
+    c,a,grant=mutation()
+    fail("PLAN_INVALID",c,a,
+         item("writer",WorkKind.IMPLEMENTATION,
+              ("code_modification","code_review"),claims=(grant,)),
+    )
+    fail("PLAN_INVALID",c,a,
+         item("tester",WorkKind.VERIFICATION,("regression_testing","code_review")),
+    )
+
+
+def test_runtime_gate_overbudget_is_rejected_before_deep_cyclic_graph():
+    c,a,grant=gate_contract()
+    nodes=[item(f"writer{i}",WorkKind.IMPLEMENTATION,("code_modification",),
+                deps=(f"writer{i+1}",) if i<6 else ("writer0",),
+                claims=(grant,)) for i in range(7)]
+    fail("PLAN_INVALID",c,a,*nodes)

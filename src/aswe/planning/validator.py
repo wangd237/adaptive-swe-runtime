@@ -158,6 +158,7 @@ class SemanticPlanValidator:
         lookup = {x.id: x for x in proposal.items}
         by_id = {c.id: c for c in contract.constraints}
         positive = {c.id for c in contract.constraints if _positive(c)}
+        independent_verify_required, _ = _required_gates(contract)
         if any(x.id != x.id.strip() for x in proposal.items):
             raise PlanValidationError("PLAN_INVALID", "noncanonical work item id")
         for item in proposal.items:
@@ -180,6 +181,13 @@ class SemanticPlanValidator:
                 raise PlanValidationError("PLAN_INVALID", f"business mutation capability in non-implementation: {item.id}")
             if item.work_kind is WorkKind.IMPLEMENTATION and not modifying:
                 raise PlanValidationError("PLAN_INVALID", f"implementation without business mutation capability: {item.id}")
+            if modifying and "code_review" in caps:
+                raise PlanValidationError("PLAN_INVALID", f"review capability combined with business implementation: {item.id}")
+            if (independent_verify_required and item.work_kind is WorkKind.IMPLEMENTATION
+                    and "regression_testing" in caps):
+                raise PlanValidationError("PLAN_INVALID", f"independent verification merged into writer: {item.id}")
+            if (item.work_kind is WorkKind.VERIFICATION and "code_review" in caps):
+                raise PlanValidationError("PLAN_INVALID", f"verification merged with review: {item.id}")
             if item.work_kind is WorkKind.VERIFICATION and "regression_testing" not in caps:
                 raise PlanValidationError("PLAN_INVALID", f"verification lacks regression_testing: {item.id}")
             if item.work_kind is WorkKind.REVIEW and "code_review" not in caps:
@@ -218,11 +226,11 @@ class SemanticPlanValidator:
         from aswe.planning.compiler import project_execution_authority
         if authority != project_execution_authority(contract):
             raise PlanValidationError("CAPABILITY_AUTHORITY_VIOLATION", "authority does not match contract projection")
-        lookup, positive = self._precheck(proposal, contract, authority)
         verify_required, review_required = _required_gates(contract)
         reserve = int(verify_required) + int(review_required)
         if len(proposal.items) > self.max_work_items - reserve:
             raise PlanValidationError("PLAN_INVALID", "planner exceeded reserved gate budget")
+        lookup, positive = self._precheck(proposal, contract, authority)
         warnings: list[PlanWarning] = []
         repairs: list[PlanRepair] = []
         items: list[ValidatedWorkItem] = []
