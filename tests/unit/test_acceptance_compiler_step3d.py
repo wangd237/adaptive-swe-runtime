@@ -21,6 +21,7 @@ from aswe.planning.acceptance import (
     TrustedEvaluationFinding, VerificationCommandKind, SANDBOX_FEATURE,
     assert_final_contract_binding, bind_execution_contract,
     evaluate_compiled_contract, CanonicalCheckBinding, verified_canonical_check_finding,
+    finalize_bound_task,
 )
 from aswe.planning.compiler import ConstraintCompiler, RuntimePolicyConfig, RuntimePolicyRule
 from aswe.planning.contracts import make_task_request
@@ -286,11 +287,23 @@ async def test_c09_c10_real_canonical_attested_proof_and_finalization_binding(te
         observed_execution_binding_fingerprint=binding.fingerprint,verdict=cv,
     )
     await core.complete_task()
-    result=finalize_task(scheduler=core,binding=repo_binding,evidence_store=store,
-                         contract_verdict=cv,expected_contract_fingerprint=binding.task_contract_fingerprint)
+    result=finalize_bound_task(
+        scheduler=core,repository_binding=repo_binding,evidence_store=store,
+        contract=c,validated_plan=p,acceptance=acceptance,
+        execution_binding=binding,observed_execution_binding_fingerprint=binding.fingerprint,
+        trusted_findings=verified,
+        canonical_verifier=checker,canonical_receipts=(canonical_identity,),
+    )
     assert result.status is TaskLogicalStatus.SUCCEEDED
     assert result.final_contract_verdict is not None
     assert store.get(result.final_contract_verdict)["task_contract_fingerprint"]==c.fingerprint
+    with pytest.raises(AcceptanceCompilationError,match="TASK_CONTRACT_FINGERPRINT_MISMATCH"):
+        finalize_bound_task(
+            scheduler=core,repository_binding=repo_binding,evidence_store=store,
+            contract=c,validated_plan=p,acceptance=acceptance,
+            execution_binding=binding,observed_execution_binding_fingerprint="0"*64,
+            canonical_verifier=checker,canonical_receipts=(canonical_identity,),
+        )
     # Same EvidenceRef from different compiled contract never authorizes success.
     c2,_=compiled(("verification.required",("integration",)))
     wrong=finalize_task(scheduler=core,binding=repo_binding,evidence_store=store,
@@ -379,3 +392,17 @@ def test_c09_nonzero_real_canonical_check_is_contract_violation(canonical_worksp
         ),),
     )
     assert not v.all_required_satisfied and v.blocking_constraint_ids==(get_constraint(c).id,)
+
+
+def test_c09_not_applicable_without_verified_proof_remains_unverified():
+    contract,_=compiled(("review.required",True))
+    c=get_constraint(contract,"review.required")
+    verdict=evaluate_compiled_contract(
+        contract=contract,
+        findings=(TrustedEvaluationFinding(
+            constraint_id=c.id,status=ContractLeafStatus.NOT_APPLICABLE,
+        ),),
+    )
+    assert not verdict.all_required_satisfied
+    assert verdict.leaves[0].status is ContractLeafStatus.UNVERIFIED
+    assert verdict.blocking_constraint_ids==(c.id,)
