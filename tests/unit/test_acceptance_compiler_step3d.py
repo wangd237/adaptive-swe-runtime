@@ -32,6 +32,8 @@ from aswe.runtime.finalization import TaskLogicalStatus, finalize_task
 from aswe.evidence import LocalEvidenceStore
 from tests.fakes import FakeExecutionBackend, FakeExecutionScenario
 from tests.unit.test_scheduler_foundation import accept
+from tests.unit.test_task_finalization import terminal_fixture
+from tests.unit.test_canonical_verifier import canonical_workspace
 
 
 BASE = "a" * 40
