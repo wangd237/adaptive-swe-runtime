@@ -38,6 +38,12 @@ def capture_filesystem_snapshot(root: str | Path, *, max_paths: int = 10000,
     entries: list[SnapshotEntry] = []
     complete = True
     for current, dirs, files in os.walk(root_path, topdown=True, followlinks=False):
+        # Ignoring caches/build directories is a performance choice, not a
+        # proof that they remained unchanged. An excluded directory makes the
+        # observation incomplete, except .git itself (Git HEAD/tree are
+        # independently attested by RepositoryStateDigest).
+        if any(d in _EXCLUDED and d != ".git" for d in dirs):
+            complete = False
         dirs[:] = sorted(d for d in dirs if d not in _EXCLUDED)
         for filename in sorted(files + [d for d in dirs if (Path(current) / d).is_symlink()]):
             path = Path(current) / filename
