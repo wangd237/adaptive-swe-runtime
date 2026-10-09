@@ -301,6 +301,8 @@ async def test_real_subagent_executor_aexecute_native_lifecycle_offline():
     binding = physical_binding(execution_id="native-execute-poc")
     executor = assembler.build(binding)
     result = await executor._aexecute("Read README.md")
+    from aswe.integrations.deerflow.native_lease_supervisor import native_lease_task_id
+    assert result.task_id == native_lease_task_id(binding.invocation)
     assert getattr(result.status, "value", "") == "completed", (
         "Native lifecycle status must be completed, not merely graph-compiled"
     )
@@ -361,3 +363,59 @@ async def test_real_installed_native_graph_persists_guard_receipt_and_unknown_qu
     assert ledger["receipts"][0]["tool_call_id"]=="native-pinned-tool-call-1"
     assert ledger["receipts"][0]["arguments_digest"]
     assert "README.md" not in str(ledger)
+
+
+@pytest.mark.asyncio
+async def test_vendor_real_lease_manager_reports_owner_until_async_release(tmp_path):
+    """Physical Python 3.12 vendor lease manager, NOT just a simulated map.
+
+    A lease manager's owner-release signal alone cannot certify subprocesses:
+    process_tree_probe=None makes the native quiescence result NO-GO.
+    """
+    import subprocess
+    from deerflow.sandbox.lease import get_sandbox_lease_manager
+    from deerflow.sandbox.local.local_sandbox_provider import LocalSandboxProvider
+    from aswe.integrations.deerflow.native_lease_supervisor import (
+        NativeSandboxQuiescenceSupervisor, native_lease_owner)
+    from aswe.repository import bootstrap_repository
+    from tests.unit.test_deerflow_execution_evidence_step5f import invocation
+
+    root=tmp_path/"lease-source"
+    root.mkdir()
+    def git(*args):
+        subprocess.run(["git","-C",str(root),*args],check=True,
+                       stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    git("init","-b","main")
+    git("config","user.name","Lease Integration")
+    git("config","user.email","lease@example.invalid")
+    (root/"README.md").write_text("fixture")
+    git("add","-A")
+    git("commit","-m","base")
+    repo=bootstrap_repository(root,tmp_path/"lease-worktree",requested_ref="main")
+    inv=invocation(repo)
+    provider=LocalSandboxProvider()
+    manager=get_sandbox_lease_manager(provider)
+    finished={"value":False}
+    observer=NativeSandboxQuiescenceSupervisor(
+        initialized_provider=lambda:provider,
+        manager_lookup=get_sandbox_lease_manager,
+        process_tree_probe=None,
+    )
+    owner=observer.register_execution(inv,native_finished=lambda:finished["value"])
+    assert owner == native_lease_owner(inv)
+    sandbox_id=await manager.acquire_async(
+        owner,thread_id="physical-5fb2",user_id="native-test")
+    try:
+        assert manager.binding_for(owner)==sandbox_id
+        finished["value"]=True
+        busy=await observer.inspect(task_id=inv.task_id,execution_id=inv.execution_id)
+        assert not busy.complete
+        assert not busy.sandbox_lease_released
+    finally:
+        await manager.release_async(owner)
+    assert manager.binding_for(owner) is None
+    observed=await observer.inspect(task_id=inv.task_id,execution_id=inv.execution_id)
+    assert observed.sandbox_lease_released is True
+    assert observed.process_tree_drained is False
+    assert observed.complete is False
+    observer.release_execution(inv.execution_id)
