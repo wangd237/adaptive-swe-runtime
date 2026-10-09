@@ -1,3 +1,11 @@
+## Step 3 P0 closure and Step 4 handoff (2026-10-09)
+
+- Scoped **GO** recommendation after P0-A..D source/negative test review. See `audits/step3-freeze-closure.md`.
+- Real pinned Git RepositoryProfile, source-validating TaskAnalyzer, read-only Context Gate, conservative natural-language mutation authority, recursive frozen compiled payloads are implemented.
+- CI at implementation `4e76a9c9`: Python 3.11 = 297 passed, Python 3.13 = 297 passed.
+- **Do not confuse a scoped Stage-3 compiler merge with frozen 22/22 final acceptance.** P3-01/02/03/04/11 remain assigned to Step 4.
+- Next: approve/merge PR #5 only after latest-head CI, then establish Step 4 branch from accepted main.
+
 # Implementation Status
 
 ## Stage status
@@ -5,7 +13,7 @@
 - Step 0 — CLOSED / ACCEPTED
 - Step 1 — CLOSED / ACCEPTED
 - Step 2 — CLOSED / ACCEPTED (PR #4 merged as `3d19541bb9f0f7e345ec0f4fb8af3a5415b5ed53`)
-- Step 3 — IN PROGRESS (Task / Contract / Planning Compiler; [draft PR #5](https://github.com/wangd237/adaptive-swe-runtime/pull/5))
+- Step 3 — **Scoped baseline GO / PR #5 final merge gate**: P0-A..D closed and dual CI green; **17 PASS / 5 PARTIAL / 0 GAP**; remaining five physical PoCs are Step 4-owned. See `audits/step3-freeze-closure.md`.
 - Step 4 and later — NOT STARTED
 
 ## Step 2 accepted implementation (PR #4 merged)
@@ -78,12 +86,35 @@
 - Implementation HEAD `2b4061d`: Python 3.11 and 3.13 each 199 passed. Frozen PoC matrix 65 PASS / 0 PARTIAL / 0 GAP.
 - **Step 2 CLOSED:** independent source/Design Freeze consistency sweep documented, latest-head CI verified, PR #4 merged.
 
-## Step 3 coding in progress — draft PR #5
+## Step 3 Global Design Freeze (2026-10-09)
+
+- Independent review: **PR #5 NO-GO** despite passing unit tests. `audits/step3-global-freeze-review.md` is authoritative audit disposition.
+- Required before scoped Step-3 merge: deterministic Git RepositoryProfile, TaskAnalyzer/Rule Validation/Context Gate, ordinary SWE natural-language effect provenance, recursive compiled-artifact immutability, and independent latest-head review.
+- Mitigated in PR: forged non-test HARD EvidenceRef now remains UNVERIFIED; stale final receipt rejected; compiler version and loaded Repository Guidance are included in contract hash.
+- Frozen 22-case Step-3 inventory: **17 PASS / 5 PARTIAL / 0 GAP**. P3-01/02/03/04/11 have explicit Step-4 physical DAG ownership, not waived.
+- Step 4 entry scope: `plan/step4-implementation-entry.md`; no real DeerFlow permission. Step 3 not CLOSED, PR #5 stays DRAFT.
+
+## Step 3C semantic planning checkpoint
+
+- `WorkPlanProposal` remains untrusted; `SemanticPlanValidator` issues immutable normalized `ValidatedWorkPlan` bound to TaskContract fingerprint.
+- Runtime-owned mandatory Verification/Review gates, dependency dedupe and PlanRepair/PlanCoverage evidence tested.
+- Stage 3 22-case frozen audit: **17 PASS / 5 PARTIAL / 0 GAP**; see `audits/step3-poc-coverage.json`.
+- P3-01/02/03/04/11 retain physical/phase DAG obligations for Step 4. C09/C10 now PASS direct Step 3D tests with attested CanonicalVerifier and terminal fingerprint binding.
+- Do not merge PR #5 or label Step 3 CLOSED.
+
+## Step 3D Acceptance checkpoint
+
+- `VerificationCommand` is compiler-owned and immutable; `tests_passed:<command>`, Bash exact allowlist, and CanonicalCommandPolicy derive from one identity. Only TEST commands may compile to tests_passed; BUILD/IMPORT/STATIC fail closed.
+- Local authenticated canonical receipts drive trusted verification leaves; HARD/LOCKED UNVERIFIED and unproven NOT_APPLICABLE block Task success.
+- `ExecutionContractBinding` ties contract, validated work plan, acceptance policy, and Git base; `finalize_bound_task` rejects a changed observed execution stamp.
+- Step 3D real Git/CanonicalVerifier terminal test completed; Python 3.11 and 3.13 **273 passed** on `2a4b952c` (run 37880285730).
+- Current frozen Step 3 inventory: **17 PASS / 5 PARTIAL / 0 GAP**. Remaining cases need Step 4 physical DAG integration.
+- Do not merge PR #5 or mark Step 3 CLOSED until independent review and remaining physical PoCs.
+
+## Step 3 next coding gate
 
 - Implement the frozen `specs/01-task-planning.md` Task/Constraint/Planning compiler in `src/aswe/planning/` on an isolated coding branch.
-- Step 3A initial implementation is on `coding/step3-planning-compiler`: immutable Request/Profile/TaskSpec/ConstraintCandidate, ReasoningBackend contract, Compiler-owned provenance. Initial POC-C01/C04 plus negatives covered.
-- Draft PR #5 Python 3.11 and 3.13: **207 passed** on `72b6abc23163d17c6c38fa97790f81f84b27e5a1`.
-- Next Step 3B: full Constraint merge algebra POC-C02/C03/C05–C07; then PlanValidator/Normalizer and Acceptance compiler.
+- First: compiler-owned immutable Request/Provenance contracts; then Constraint merge algebra POC-C01–C06; then PlanValidator/Normalizer and Acceptance compiler.
 - Step 3 must satisfy POC-P3-01..12 and POC-C01..10, with deterministic FakeReasoningBackend tests, before its own closure.
 - Step 4 DAG/Provider compilation and Step 5 DeerFlow integration remain out of scope.
 

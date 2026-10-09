@@ -7,14 +7,9 @@ from enum import Enum
 from pydantic import model_validator
 
 from aswe.core.contracts._base import FrozenModel
+from aswe.core.contracts.constraint import ConstraintEnforcement
 from aswe.core.contracts import EvidenceRef, TaskEvidenceRef
 from aswe.core.fingerprint import fingerprint
-
-
-class ConstraintEnforcement(str, Enum):
-    LOCKED = "locked"
-    HARD = "hard"
-    SOFT = "soft"
 
 
 class ContractLeafStatus(str, Enum):
