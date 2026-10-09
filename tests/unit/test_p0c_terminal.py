@@ -55,6 +55,13 @@ async def test_r101_r102_mutating_own_repair_exhausted_freezes_with_unaccepted_r
     state = core.states["writer"]
     assert state.repair_count == 1 and state.next_attempt == 3
     assert len(state.attempts) == 2
+    # Repair exhaustion must not discard the final attested failure proof.
+    final_acceptance_refs = tuple(
+        ref for ref in state.attempts[-1].evidence_refs
+        if ref.kind is AttemptEvidenceKind.ACCEPTANCE_VERDICT
+    )
+    assert len(final_acceptance_refs) == 1
+    assert final_acceptance_refs[0] != first_fb.acceptance_verdict
     assert state.logical_status is NodeLogicalStatus.FAILED
     assert state.terminal_failure_kind == "REPAIR_BUDGET_EXHAUSTED"
     assert core.failed and core.failure_kinds == ["REPAIR_BUDGET_EXHAUSTED"]
@@ -72,6 +79,7 @@ async def test_r101_r102_mutating_own_repair_exhausted_freezes_with_unaccepted_r
     assert outcome.final_repository_changeset is not None
     assert "STILL_BROKEN_AFTER_REPAIR" in store.get(outcome.final_repository_changeset)["tracked_diff"]
     assert outcome.final_repository_state is not None
+    assert final_acceptance_refs[0] in outcome.last_trusted_evidence_refs
 
 
 @pytest.mark.asyncio
