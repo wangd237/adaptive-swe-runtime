@@ -41,6 +41,7 @@ class ForegroundReceipt:
     command_id: str
     command_fingerprint: str
     policy_fingerprint: str
+    command_policy_fingerprint: str
     argv_fingerprint: str
     returncode: int | None
     timed_out: bool
@@ -243,6 +244,7 @@ class ManagedForegroundVerifier:
                     execution_id=invocation.execution_id, attempt=invocation.attempt,
                     command_id=selected.id, command_fingerprint=selected.fingerprint,
                     policy_fingerprint=self.policy.fingerprint,
+                    command_policy_fingerprint=self.plan.canonical_policies[0].fingerprint,
                     argv_fingerprint=fingerprint(selected.argv), returncode=exitcode,
                     timed_out=timed_out, completion_observed=True,
                     process_group_drained=drained, status=status,
