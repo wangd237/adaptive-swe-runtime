@@ -385,3 +385,16 @@ def test_runtime_soft_preference_does_not_mislabel_user_hard_exact_constraint():
     assert target.enforcement is ConstraintEnforcement.HARD
     assert target.provenance.origin is ConstraintOrigin.USER_EXPLICIT
     assert target.value == "src/new.py"
+
+
+def test_external_side_effect_requirement_is_explicit_policy_conflict():
+    with pytest.raises(ContractCompilationError) as err:
+        compiled(quotes=("deliverables.required: external_side_effect | deploy production",))
+    assert err.value.code == "CONTRACT_POLICY_CONFLICT"
+
+
+def test_locked_wildcard_action_deny_conflicts_with_requested_mutation():
+    with pytest.raises(ContractCompilationError) as err:
+        compiled(policy=(("actions.forbidden", ("*",)),),
+                 quotes=("deliverables.required: repository_mutation | fix code",))
+    assert err.value.code == "CONTRACT_POLICY_CONFLICT"

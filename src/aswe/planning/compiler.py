@@ -218,8 +218,13 @@ def _check_conflicts(by_key: dict[str, CompiledConstraint], raw: list[CompiledCo
     required = by_key.get("deliverables.required")
     forbidden = by_key.get("actions.forbidden")
     denied = set(forbidden.value) if forbidden else set()
+    if required and any(d.effect is DeliverableEffect.EXTERNAL_SIDE_EFFECT for d in required.value):
+        # P1 operator safety policy denies all external writes by default.
+        raise ContractCompilationError(
+            "CONTRACT_POLICY_CONFLICT", "external side effect deliverable is locked-denied in P1",
+        )
     if required and any(d.effect is DeliverableEffect.REPOSITORY_MUTATION for d in required.value):
-        if "repository_mutation" in denied or "repo.write" in denied:
+        if {"repository_mutation", "repo.write", "*"}.intersection(denied):
             code = ("CONTRACT_POLICY_CONFLICT" if forbidden.enforcement is ConstraintEnforcement.LOCKED
                     else "CONTRACT_UNSATISFIABLE")
             raise ContractCompilationError(code, "repository mutation deliverable conflicts with forbidden actions")
