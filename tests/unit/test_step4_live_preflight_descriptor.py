@@ -287,3 +287,41 @@ def test_runtime_model_rebinding_and_required_schema_drift_fail_closed():
     with pytest.raises(LivePreflightError,match="PROVIDER_TOOL_IDENTITY_MISMATCH"):
         revalidate_live(policy=p,planning=inv,live=live,
           operator=next(o for o in ops if o.provider_id=="tester"))
+
+
+def test_core_tool_exposed_name_mismatch_is_not_identity_authority():
+    from aswe.planning.compiler import project_execution_authority
+    c,p,r,d,inv,a,providers,ops,policies,_=artifacts(
+        ("explorer",WorkKind.DISCOVERY,"repo_exploration"))
+    changed=inv.candidate_tools["read_file"].model_copy(
+        update={"resolved_exposed_name":"unsafe_overlay"})
+    rogue=changed_inventory(inv,tool_override=("read_file",changed))
+    with pytest.raises(Exception):
+        resolve_workplan(plan=p,contract=c,authority=project_execution_authority(c),
+                         providers=providers,inventory=rogue)
+
+
+def test_explicit_contract_tool_deny_overrides_provider_operator_allowlist():
+    from aswe.planning.compiler import (
+        ConstraintCompiler,RuntimePolicyConfig,RuntimePolicyRule,project_execution_authority)
+    from aswe.planning.contracts import make_task_request
+    from aswe.planning.planner import WorkPlanProposal,WorkItemProposal
+    from aswe.planning.validator import SemanticPlanValidator
+    from aswe.core.contracts.task import WorkKind
+    c,authority=ConstraintCompiler(RuntimePolicyConfig(policy_id="deny-bash",rules=(
+        RuntimePolicyRule(key="actions.forbidden",value=("bash",)),
+    ))).compile(request=make_task_request(request_id="r",raw_text="Analyze"),
+               repository_base_sha="a"*40)
+    plan=SemanticPlanValidator().validate(
+        proposal=WorkPlanProposal(items=(WorkItemProposal(
+            id="tester",objective="test",work_kind=WorkKind.VERIFICATION,
+            capability_hints=("regression_testing",)),),rationale=""),
+        contract=c,authority=authority)
+    inv=fake_inventory()
+    res=resolve_workplan(plan=plan,contract=c,authority=authority,
+                         providers=stage4_providers(),inventory=inv)
+    with pytest.raises(AdmissionError,match="CONTRACT_TOOL_DENIED"):
+        compile_policies(contract=c,plan=plan,resolved=res,inventory=inv,
+            acceptance=AcceptanceCompiler().compile(contract=c),
+            providers=stage4_providers(),
+            operators=(OperatorSurface(provider_id="tester",allowed_tools=("bash",)),))

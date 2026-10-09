@@ -116,6 +116,10 @@ def compile_policies(*,contract:CompiledTaskContract,plan:ValidatedWorkPlan,
     by_provider={p.id:p for p in providers}
     op={o.provider_id:o for o in operators}
     resources={r.node_id:r for r in resolved.nodes}
+    denied_actions=set()
+    for constraint in contract.constraints:
+        if constraint.key=="actions.forbidden":
+            denied_actions.update(constraint.value)
     result=[]
     for item in plan.items:
         r=resources[item.id]
@@ -125,7 +129,13 @@ def compile_policies(*,contract:CompiledTaskContract,plan:ValidatedWorkPlan,
             or r.provider_contract_fingerprint!=p.fingerprint):
             raise AdmissionError("PROVIDER_STATIC_CONTRACT_MISMATCH")
         allow_set=set(o.allowed_tools) if o.allowed_tools is not None else set(r.allowed_tools)
-        allow=tuple(t for t in r.allowed_tools if t in allow_set and t not in o.denied_tools)
+        allow=tuple(t for t in r.allowed_tools
+                    if t in allow_set and t not in o.denied_tools
+                    and (not o.auth_enabled or t in o.authorized_tools))
+        if set(r.required_tools).intersection(denied_actions) or "*" in denied_actions:
+            raise AdmissionError("CONTRACT_TOOL_DENIED")
+        if any(t in denied_actions for t in allow):
+            raise AdmissionError("CONTRACT_TOOL_DENIED")
         if not set(r.required_tools).issubset(allow):
             raise AdmissionError("PROVIDER_STATIC_CONTRACT_MISMATCH")
         infos=tuple(inventory.candidate_tools.get(t) for t in allow)
@@ -150,7 +160,8 @@ def compile_policies(*,contract:CompiledTaskContract,plan:ValidatedWorkPlan,
                     skills.append(skill)
         infra=("submit_review_verdict",) if item.work_kind is WorkKind.REVIEW else ()
         if infra and (bool(set(infra).intersection(o.denied_tools))
-                      or o.allowed_tools is not None and not set(infra).issubset(o.allowed_tools)):
+                      or o.allowed_tools is not None and not set(infra).issubset(o.allowed_tools)
+                      or o.auth_enabled and not set(infra).issubset(o.authorized_tools)):
             raise AdmissionError("REQUIRED_INFRASTRUCTURE_TOOL_DENIED")
         if node_max_turns<1 or node_timeout_seconds<=0:
             raise AdmissionError("INVALID_RUNTIME_BUDGET")

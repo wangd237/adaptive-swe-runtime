@@ -17,6 +17,7 @@ STANDARD_EFFECTS={f"config:{k}":(
 def trusted_effect(info)->ToolEffect:
     expected=STANDARD_EFFECTS.get(info.implementation_id)
     if (expected is None or info.implementation_id!="config:"+info.contract_id
+            or info.resolved_exposed_name!=info.contract_id
             or info.delivery!="eager" or info.effect!=expected):
         return ToolEffect.UNKNOWN
     return expected

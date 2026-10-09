@@ -13,6 +13,7 @@ def revalidate_live(*,policy,planning,live,operator):
     allowed=set(operator.allowed_tools) if operator.allowed_tools is not None else set(policy.allowed_business_tools)
     narrowed=tuple(k for k in policy.allowed_business_tools
         if (k in allowed and k not in operator.denied_tools
+            and (not operator.auth_enabled or k in operator.authorized_tools)
             and (k in policy.required_business_tools
                  or (k in live.candidate_tools
                      and trusted_effect(live.candidate_tools[k]) not in
@@ -45,7 +46,9 @@ def revalidate_live(*,policy,planning,live,operator):
         raise LivePreflightError("BACKEND_PREFLIGHT_STALE")
     if (set(policy.required_infrastructure_tools).intersection(operator.denied_tools)
             or operator.allowed_tools is not None
-            and not set(policy.required_infrastructure_tools).issubset(operator.allowed_tools)):
+            and not set(policy.required_infrastructure_tools).issubset(operator.allowed_tools)
+            or operator.auth_enabled
+            and not set(policy.required_infrastructure_tools).issubset(operator.authorized_tools)):
         raise LivePreflightError("REQUIRED_INFRASTRUCTURE_TOOL_DENIED")
     if operator.max_turns<1 or operator.timeout_seconds<=0:
         raise LivePreflightError("INVALID_LIVE_CEILING")
