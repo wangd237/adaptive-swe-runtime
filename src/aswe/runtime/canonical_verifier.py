@@ -160,6 +160,72 @@ class CanonicalVerifier:
         )
         return ref, receipt
 
+    def attest_foreground_observation(
+        self, *, observed: object, policy: CanonicalCommandPolicy,
+        revision: WorkspaceRevision,
+    ) -> tuple[EvidenceRef, CanonicalCommandReceipt]:
+        """5F-B2: seal a completed Runtime-owned foreground command observation.
+
+        This is a privileged Runtime-to-Runtime handoff, NEVER exposed to
+        model/sandbox code. The foreground runner owns the process, stdout/
+        stderr digests, process-group drain and pre/post Git captures.
+        CanonicalVerifier owns the independent signing key, frozen policy and
+        EvidenceStore. Unjoined or failed cleanup can only be UNVERIFIED.
+        """
+        from aswe.integrations.deerflow.managed_foreground import ForegroundReceipt
+
+        if not isinstance(observed, ForegroundReceipt):
+            raise ValueError("CANONICAL_FOREGROUND_RECEIPT_UNTRUSTED")
+        if (observed.task_id != self.task_id
+                or observed.command_id != policy.check_id
+                or observed.command_policy_fingerprint != policy.fingerprint
+                or observed.argv_fingerprint != fingerprint(policy.argv)
+                or observed.observed_revision != revision
+                or observed.execution_id == "" or observed.attempt < 1
+                or observed.pre_repository_fingerprint != revision.repository_state_fingerprint
+                or observed.post_repository_fingerprint != revision.repository_state_fingerprint
+                or not observed.completion_observed):
+            raise ValueError("CANONICAL_FOREGROUND_PROVENANCE_MISMATCH")
+        if (observed.status == "holds"
+                and (not observed.process_group_drained
+                     or observed.timed_out or observed.returncode != 0)):
+            raise ValueError("CANONICAL_FOREGROUND_FALSE_SUCCESS")
+        if observed.status == "failed" and (
+                not observed.process_group_drained or observed.timed_out
+                or observed.returncode in (None, 0)):
+            raise ValueError("CANONICAL_FOREGROUND_INVALID_FAILURE")
+        if observed.status not in ("holds", "failed", "unverified"):
+            raise ValueError("CANONICAL_FOREGROUND_STATUS_INVALID")
+        # Even a caller-supplied 'holds' cannot be signed as success after
+        # any unexpected process/lease cleanup or workspace drift.
+        status = observed.status if observed.process_group_drained else "unverified"
+        fields = dict(
+            task_id=self.task_id, node_id=observed.node_id,
+            execution_id=observed.execution_id, attempt=observed.attempt,
+            check_id=policy.check_id, command_policy_fingerprint=policy.fingerprint,
+            argv_fingerprint=fingerprint(policy.argv), returncode=observed.returncode,
+            timed_out=observed.timed_out, stdout_sha256=observed.stdout_sha256,
+            stderr_sha256=observed.stderr_sha256,
+            pre_repository_fingerprint=observed.pre_repository_fingerprint,
+            post_repository_fingerprint=observed.post_repository_fingerprint,
+            observed_revision=revision, status=status,
+        )
+        digest = fingerprint(fields)
+        receipt = CanonicalCommandReceipt(
+            **fields, fingerprint=digest, attestation_hmac=self._mac(digest)
+        )
+        ref = self.store.put_attempt(
+            task_id=self.task_id, node_id=observed.node_id,
+            execution_id=observed.execution_id, attempt=observed.attempt,
+            kind=AttemptEvidenceKind.TOOL_RECEIPT_LEDGER,
+            payload=receipt, workspace_revision=revision,
+        )
+        self.validate(
+            ref, node_id=observed.node_id, execution_id=observed.execution_id,
+            attempt=observed.attempt, revision=revision, check_id=policy.check_id,
+        )
+        return ref, receipt
+
     def validate(self, ref: EvidenceRef, *, node_id: str, execution_id: str,
                  attempt: int, revision: WorkspaceRevision,
                  check_id: str) -> CanonicalCommandReceipt:
