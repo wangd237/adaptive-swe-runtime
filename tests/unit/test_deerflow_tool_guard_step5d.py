@@ -86,6 +86,7 @@ async def bind_during_scheduler(tmp_path, *, configure=None, provider=None):
         principal_supplier=lambda resources: SimpleNamespace(user_id="host-uid", is_internal=False),
         provider_supplier=lambda config: provider,
         auth_request_factory=AuthRequest,
+        execution_live_checker=lambda invocation: True,
     )
     fake = FakeExecutionBackend([FakeExecutionScenario()])
     result = {}
@@ -222,6 +223,7 @@ async def test_dynamic_skill_mcp_plugin_provenance_refused(tmp_path, change, cod
         principal_supplier=lambda _: SimpleNamespace(user_id="host", is_internal=False),
         provider_supplier=lambda _: None,
         auth_request_factory=AuthRequest,
+        execution_live_checker=lambda invocation: True,
     )
     fake = FakeExecutionBackend([FakeExecutionScenario()])
     error = None
@@ -329,7 +331,8 @@ async def test_untrusted_principal_and_missing_auth_provider(tmp_path):
         preparation_backend=backend,
         principal_supplier=lambda _: SimpleNamespace(user_id=None, is_internal=False),
         provider_supplier=lambda _: None,
-        auth_request_factory=AuthRequest)
+        auth_request_factory=AuthRequest,
+        execution_live_checker=lambda invocation: True)
     fake=FakeExecutionBackend([FakeExecutionScenario()])
     seen=[]
     class B:
@@ -425,3 +428,62 @@ async def test_langchain_middleware_shaped_interceptor_checks_actual_tool_and_ru
             SimpleNamespace(tool_call={"id":"closed","name":"read_file","args":{}},
                             tool=tool,runtime=runtime),
             lambda _: record_async(executed,"bad"))
+
+@pytest.mark.asyncio
+async def test_real_scheduler_liveness_rejects_stale_binding_after_attempt(tmp_path):
+    backend,node,env,tool=setup()
+    core,_=scheduler(tmp_path,node)
+    backend.task_id=core.task_id
+    backend.commit_checker=core.is_committed_invocation
+    store=NodeExecutionBindingStore(
+        preparation_backend=backend,
+        principal_supplier=lambda _:SimpleNamespace(user_id="verified",is_internal=False),
+        provider_supplier=lambda _:None,
+        auth_request_factory=AuthRequest,
+        execution_live_checker=core.is_active_execution,
+    )
+    fake=FakeExecutionBackend([FakeExecutionScenario()])
+    received=[]
+    class B:
+        async def prepare_node(self,n): return await backend.prepare_node(n)
+        async def execute_prepared(self,p,i):
+            assert core.is_active_execution(i)
+            binding=await store.bind(preparation=p,invocation=i)
+            received.append(binding)
+            assert await binding.guard.ainvoke(
+                tool=tool,tool_call_id="inside-commit",tool_input={"path":"x"},
+                handler=lambda:record_async([], "inside"))=="inside"
+            raw=await fake.prepare_node(node)
+            return await fake.execute_prepared(raw,i)
+        async def cancel_node(self,x): await fake.cancel_node(x)
+    inv=await core.run_claim(await core.claim(node.id), B(),accept=accept)
+    assert inv is not None and not core.is_active_execution(inv)
+    with pytest.raises(ToolBindingError,match="EXECUTION_BINDING_NOT_ACTIVE"):
+        store.lookup(inv.execution_id)
+    with pytest.raises(ToolBindingError,match="EXECUTION_BINDING_NOT_ACTIVE"):
+        await received[0].guard.ainvoke(
+            tool=tool,tool_call_id="after-terminal",tool_input={"path":"x"},
+            handler=lambda:record_async([], "fail"))
+    store.release(inv.execution_id)
+
+
+@pytest.mark.asyncio
+async def test_async_authorization_liveness_rechecked_after_await(tmp_path):
+    def enabled(env): env["app"].authorization.enabled=True
+    provider=Provider()
+    result,store,backend,core,node,env,tool,_,inv=(
+        await bind_during_scheduler(tmp_path,configure=enabled,provider=provider))
+    gate=result["binding"].guard
+    state={"live":True}
+    gate.execution_live_checker=lambda _:state["live"]
+    provider.started=asyncio.Event()
+    provider.resume=asyncio.Event()
+    called=[]
+    pending=asyncio.create_task(gate.ainvoke(tool=tool,tool_call_id="race",
+        tool_input={"path":"x"},handler=lambda:record_async(called,"bad")))
+    await asyncio.wait_for(provider.started.wait(),2)
+    state["live"]=False
+    provider.resume.set()
+    with pytest.raises(ToolBindingError,match="EXECUTION_BINDING_NOT_ACTIVE"):
+        await pending
+    assert not called
