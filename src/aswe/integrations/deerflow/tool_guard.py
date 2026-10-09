@@ -14,6 +14,7 @@ from typing import Any, Awaitable, Callable, Mapping
 
 from aswe.core.contracts.backend import NodeExecutionInvocation, NodeExecutionPreparation
 from aswe.capabilities.effects import DEERFLOW_USE_BY_CONTRACT, STANDARD_EFFECTS, ToolEffect
+from aswe.integrations.deerflow.controlled_swe import ControlledSWEWorkspace
 from aswe.integrations.deerflow.preparation import (
     DeerFlowPreparationBackend, DeerFlowPreparationError, PinnedNodeResources,
     _tool_seal, _extension_seal, _digest,
@@ -183,10 +184,18 @@ class ToolCallGuard:
                  principal: Any, provider: Any,
                  request_factory: Callable[..., Any], auth_enabled: bool,
                  policy: Any,
-                 execution_live_checker: Callable[[NodeExecutionInvocation], bool]):
+                 execution_live_checker: Callable[[NodeExecutionInvocation], bool],
+                 swe_runtime: ControlledSWEWorkspace | None = None):
         self.invocation = invocation
         self.resources = resources
         self.view = view
+        self.swe_runtime = swe_runtime
+        if swe_runtime is not None and (
+            not isinstance(swe_runtime, ControlledSWEWorkspace)
+            or swe_runtime.invocation is not invocation
+            or swe_runtime.policy is not policy
+        ):
+            _deny("SWE_RUNTIME_AUTHORITY_MISMATCH")
         self.principal = principal
         self._principal_digest = _digest(principal)
         self.provider = provider
@@ -249,10 +258,18 @@ class ToolCallGuard:
         # 5D has no authenticated Sandbox/Workspace argument policy hook.
         # Do not permit even authorized WRITE/Bash calls until 5E/5F bind the
         # canonical path/command verifier and mutation evidence lifecycle.
-        if effect is not ToolEffect.READ_ONLY:
-            _deny("MUTATING_TOOL_EXECUTION_NOT_ENABLED")
-        if (self.policy.allowed_paths is not None or self.policy.forbidden_paths):
-            _deny("TOOL_PATH_POLICY_UNBOUND")
+        if self.swe_runtime is None:
+            if effect is not ToolEffect.READ_ONLY:
+                _deny("MUTATING_TOOL_EXECUTION_NOT_ENABLED")
+            if self.policy.allowed_paths is not None or self.policy.forbidden_paths:
+                _deny("TOOL_PATH_POLICY_UNBOUND")
+        else:
+            if name not in ("read_file","write_file","str_replace","bash"):
+                _deny("SWE_TOOL_UNSUPPORTED")
+            if effect not in (ToolEffect.READ_ONLY,ToolEffect.WORKSPACE_MUTATING):
+                _deny("SWE_TOOL_EFFECT_UNTRUSTED")
+            if name == "bash" and self.swe_runtime.command_backend is None:
+                _deny("SWE_BASH_ISOLATION_REQUIRED")
         if tool_call_id in self._pending_calls:
             _deny("TOOL_CALL_REPLAY")
         # Disallow malformed opaque arguments that native AuthorizationProvider
@@ -450,6 +467,7 @@ class NodeExecutionBinding:
     resources: PinnedNodeResources
     tool_view: BoundToolView
     guard: ToolCallGuard
+    swe_runtime: ControlledSWEWorkspace | None = None
 
 
 class NodeExecutionBindingStore:
@@ -465,8 +483,10 @@ class NodeExecutionBindingStore:
                  principal_supplier: Callable[[PinnedNodeResources], Any],
                  provider_supplier: Callable[[Any], Any],
                  auth_request_factory: Callable[..., Any],
-                 execution_live_checker: Callable[[NodeExecutionInvocation], bool]): 
+                 execution_live_checker: Callable[[NodeExecutionInvocation], bool],
+                 swe_workspace_factory: Callable[[NodeExecutionInvocation, PinnedNodeResources, Any], ControlledSWEWorkspace] | None = None):
         self.preparation_backend = preparation_backend
+        self.swe_workspace_factory = swe_workspace_factory
         self.principal_supplier = principal_supplier
         self.provider_supplier = provider_supplier
         self.auth_request_factory = auth_request_factory
@@ -531,11 +551,16 @@ class NodeExecutionBindingStore:
             restricted = tuple(name for name in admitted
                 if STANDARD_EFFECTS.get("config:" + name) is not ToolEffect.READ_ONLY)
             required = self.preparation_backend.policy.required_business_tools
-            if set(required).intersection(restricted):
-                _deny("MUTATING_TOOL_EXECUTION_NOT_ENABLED")
-            # Optional mutating tools must not even appear in the model's view
-            # when the physical Workspace/policy/receipt guard is absent.
-            names = tuple(name for name in admitted if name not in restricted)
+            swe_factory = self.swe_workspace_factory
+            if swe_factory is None:
+                if set(required).intersection(restricted):
+                    _deny("MUTATING_TOOL_EXECUTION_NOT_ENABLED")
+                names = tuple(name for name in admitted if name not in restricted)
+            else:
+                if any(name not in ("read_file", "write_file", "str_replace", "bash")
+                       for name in admitted):
+                    _deny("SWE_PROFILE_TOOL_SET_UNSUPPORTED")
+                names = admitted
             principal = deepcopy(self.principal_supplier(resources))
             if not _principal_ok(principal):
                 _deny("HOST_PRINCIPAL_UNTRUSTED")
@@ -570,7 +595,20 @@ class NodeExecutionBindingStore:
                     _deny("MODEL_AUTHORIZATION_FAILED")
                 if not _decision_ok(verdict):
                     _deny("MODEL_AUTHORIZATION_DENIED")
-            view_tools = tuple(t for t in resources.tools if t.name in visible)
+            source_tools = tuple(t for t in resources.tools if t.name in visible)
+            swe_runtime = None
+            if swe_factory is not None:
+                swe_runtime = swe_factory(invocation, resources, self.preparation_backend.policy)
+                if (not isinstance(swe_runtime, ControlledSWEWorkspace)
+                        or swe_runtime.invocation is not invocation
+                        or swe_runtime.policy is not self.preparation_backend.policy):
+                    _deny("SWE_RUNTIME_AUTHORITY_MISMATCH")
+                view_tools = swe_runtime.make_tools(tuple(t.name for t in source_tools))
+                if (len(view_tools) != len(source_tools)
+                        or any(t.name != orig.name for t,orig in zip(view_tools, source_tools))):
+                    _deny("SWE_RUNTIME_TOOL_IDENTITY_MISMATCH")
+            else:
+                view_tools = source_tools
             view = BoundToolView(
                 names=tuple(t.name for t in view_tools),
                 objects=view_tools,
@@ -595,12 +633,14 @@ class NodeExecutionBindingStore:
                 request_factory=self.auth_request_factory, auth_enabled=enabled,
                 policy=self.preparation_backend.policy,
                 execution_live_checker=self.execution_live_checker,
+                swe_runtime=swe_runtime,
             )
             record = NodeExecutionBinding(
                 execution_id=invocation.execution_id,
                 preparation_id=preparation.preparation_id,
                 invocation=invocation, resources=resources,
                 tool_view=view, guard=guard,
+                swe_runtime=swe_runtime,
             )
             self._active[invocation.execution_id] = record
             return record
