@@ -17,6 +17,7 @@ from typing import Any, Callable, Mapping
 
 from aswe.core.contracts import EvidenceRef
 from aswe.capabilities.effects import STANDARD_EFFECTS, ToolEffect
+from aswe.integrations.deerflow.controlled_swe import SWEDevelopmentSummary
 from aswe.integrations.deerflow.execution_evidence import ExecutionEvidenceCollector
 from aswe.integrations.deerflow.native_lease_supervisor import native_lease_task_id
 from aswe.core.contracts.backend import (
@@ -54,6 +55,7 @@ class NativeExecutionRecord:
     workspace_evidence_ref: EvidenceRef | None = None
     tool_receipt_ref: EvidenceRef | None = None
     workspace_delta_fingerprint: str | None = None
+    development_summary: SWEDevelopmentSummary | None = None
 
 
 def _assert_owner(binding: NodeExecutionBinding) -> None:
@@ -466,6 +468,13 @@ class NativeDeerFlowExecutionBackend:
                     workspace_delta_fingerprint=(
                         report.workspace_delta.fingerprint
                         if report.workspace_delta is not None else None
+                    ),
+                )
+            if binding.swe_runtime is not None:
+                record=replace(
+                    record,
+                    development_summary=binding.swe_runtime.development_summary(
+                        native_terminal_status=record.terminal_status.value
                     ),
                 )
             return record
