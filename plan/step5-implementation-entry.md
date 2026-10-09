@@ -61,3 +61,10 @@ Reference: `plan/master-plan.md` Step 5, `audits/deerflow-source-audit.md` and i
 - Invocation has fixed duration budget, cancellation propagates, model errors become typed `ModelInvocationError` with sanitized codes. Metrics are informational only; no model prose or emitted candidate earns execution authority.
 - `tests/unit/test_deerflow_reasoning_step5b.py` exercises model API-shaped mocks, live model-use auth denial, reasoner/analyzer/validator crossover and no silent fallback. This does **not** prove actual remote model API availability/authorization or end-to-end DeerFlow Subagent operation.
 - Independent review: `audits/step5b-model-invocation-review.md`. The next required implementation checkpoint is **5C immutable preparation + AppConfig/Tool/Model/Extensions pinning**.
+
+## Step 5C implementation checkpoint (2026-10-09)
+
+- Implemented a fail-closed, **execution-disabled** NodeExecutionPreparation facade in `src/aswe/integrations/deerflow/preparation.py`; unit test scenarios in `tests/unit/test_deerflow_preparation_step5c.py`.
+- Frozen AppConfig deep copy, selected SubagentConfig, explicit resolved ModelConfig, eager config-tool objects, LoadedExtensions object reference, semantic policy/Descriptor/Inventory identities and effective ceilings produce a content-addressed opaque backend snapshot and preparation token. `claim_for_execution` is a future 5D/5E trusted handoff (not called by 5C execution). No execution ID allocated during preparation.
+- Security boundary: tool object seals cover identity/callables/schema, not arbitrary mutable closure state; loaded extension generation is referenced, not internally frozen. 5D must enforce runtime tool call guard and bind run extension context. Imported source checkout is a compatibility check, not a full supply-chain attestation.
+- Real execution remains disabled; required review output and selected skills intentionally refuse until 5D–5F supply trusted bindings. Deterministic test suite is not native installed DeerFlow integration, and latest-head CI still needs verification. PR #7 stays Draft/Open.
