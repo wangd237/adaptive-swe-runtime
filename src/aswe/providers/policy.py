@@ -121,7 +121,8 @@ def compile_policies(*,contract:CompiledTaskContract,plan:ValidatedWorkPlan,
         r=resources[item.id]
         p=by_provider.get(r.provider_id)
         o=op.get(r.provider_id)
-        if p is None or o is None or p.backend_agent_type not in inventory.candidate_agent_types:
+        if (p is None or o is None or p.backend_agent_type not in inventory.candidate_agent_types
+            or r.provider_contract_fingerprint!=p.fingerprint):
             raise AdmissionError("PROVIDER_STATIC_CONTRACT_MISMATCH")
         allow_set=set(o.allowed_tools) if o.allowed_tools is not None else set(r.allowed_tools)
         allow=tuple(t for t in r.allowed_tools if t in allow_set and t not in o.denied_tools)

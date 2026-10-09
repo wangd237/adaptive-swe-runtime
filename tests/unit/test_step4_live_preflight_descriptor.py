@@ -260,3 +260,30 @@ def test_live_preflight_never_rebinds_to_alternate_provider_when_required_tool_m
         revalidate_live(policy=policies[0],planning=inv,live=live,
             operator=next(o for o in ops if o.provider_id=="tester"))
     assert policies[0].provider_id=="tester"
+
+
+def test_adversarial_provider_same_id_but_changed_bindings_is_not_authorized():
+    c,p,r,d,inv,a,providers,ops,policies,_=artifacts(
+        ("tester",WorkKind.VERIFICATION,"regression_testing"))
+    replaced=provider("tester",(CapabilityBinding(
+        capability_id="regression_testing",required_tools=("read_file",)),))
+    # Valid signature under a new contract is insufficient: the Planner's
+    # resource binding explicitly seals the ORIGINAL provider identity.
+    with pytest.raises(AdmissionError,match="PROVIDER_STATIC_CONTRACT_MISMATCH"):
+        compile_policies(contract=c,plan=p,resolved=r,inventory=inv,
+                         acceptance=a,providers=(replaced,),
+                         operators=(next(o for o in ops if o.provider_id=="tester"),))
+
+
+def test_runtime_model_rebinding_and_required_schema_drift_fail_closed():
+    *_,inv,a,providers,ops,policies,desc=artifacts(
+       ("tester",WorkKind.VERIFICATION,"regression_testing"))
+    p=policies[0]
+    with pytest.raises(LivePreflightError,match="BACKEND_PREFLIGHT_STALE"):
+        revalidate_live(policy=p,planning=inv,live=inv,
+          operator=OperatorSurface(provider_id="tester",model_name="different"))
+    changed=inv.candidate_tools["bash"].model_copy(update={"schema_hash":"schema-drift"})
+    live=changed_inventory(inv,tool_override=("bash",changed))
+    with pytest.raises(LivePreflightError,match="PROVIDER_TOOL_IDENTITY_MISMATCH"):
+        revalidate_live(policy=p,planning=inv,live=live,
+          operator=next(o for o in ops if o.provider_id=="tester"))

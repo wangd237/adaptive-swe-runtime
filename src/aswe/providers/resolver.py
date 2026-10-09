@@ -17,6 +17,7 @@ class ProviderFeasibilityError(ValueError):
 class NodeResources(FrozenModel):
     node_id:str
     provider_id:str
+    provider_contract_fingerprint:str
     required_tools:tuple[str,...]
     selected_optional_tools:tuple[str,...]
     allowed_tools:tuple[str,...]
@@ -84,6 +85,7 @@ def resolve_workplan(*,plan:ValidatedWorkPlan,contract:CompiledTaskContract,
                 continue
             physical=access_for(item.capability_hints,tuple(infos))
             body=dict(node_id=item.id,provider_id=provider.id,
+              provider_contract_fingerprint=provider.fingerprint,
               required_tools=tuple(required),selected_optional_tools=optional,
               allowed_tools=tuple(required)+optional,workspace_access=physical)
             possible.append(NodeResources(**body,policy_fingerprint=fingerprint(body)))
