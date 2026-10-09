@@ -259,10 +259,24 @@ async def test_c09_c10_real_canonical_attested_proof_and_finalization_binding(te
             attempt=attempt.attempt,observed_revision=core.revision,
         ),),
     ),)
+    canonical_identity=CanonicalCheckBinding(
+        command_id=acceptance.commands[0].id,proof=ref,
+        node_id="writer",execution_id=attempt.execution_id,
+        attempt=attempt.attempt,observed_revision=core.revision,
+    )
+    # Even a legitimate-looking external SATISFIED finding cannot bypass
+    # runtime receipt authentication at the final evaluation boundary.
+    untrusted=evaluate_compiled_contract(
+        contract=c,findings=verified,
+        execution_binding=binding,acceptance=acceptance,
+        observed_execution_binding_fingerprint=binding.fingerprint,
+    )
+    assert not untrusted.all_required_satisfied
     cv=evaluate_compiled_contract(
         contract=c,findings=verified,
         execution_binding=binding,acceptance=acceptance,
         observed_execution_binding_fingerprint=binding.fingerprint,
+        canonical_verifier=checker,canonical_receipts=(canonical_identity,),
     )
     assert cv.all_required_satisfied
     assert_final_contract_binding(
@@ -300,7 +314,16 @@ def test_c09_unresolved_required_check_never_passes_even_with_other_attested_rec
         ),),
     )
     assert finding.status is ContractLeafStatus.UNVERIFIED
-    verdict=evaluate_compiled_contract(contract=c,findings=(finding,))
+    verdict=evaluate_compiled_contract(
+        contract=c,findings=(finding,),acceptance=acceptance,
+        canonical_verifier=checker,canonical_receipts=(
+            CanonicalCheckBinding(
+                command_id=acceptance.commands[0].id,proof=ref,
+                node_id="verify",execution_id="run",attempt=1,
+                observed_revision=revision,
+            ),
+        ),
+    )
     assert not verdict.all_required_satisfied
     assert get_constraint(c).id in verdict.blocking_constraint_ids
 
@@ -340,5 +363,13 @@ def test_c09_nonzero_real_canonical_check_is_contract_violation(canonical_worksp
         ),),
     )
     assert f.status is ContractLeafStatus.VIOLATED
-    v=evaluate_compiled_contract(contract=c,findings=(f,))
+    v=evaluate_compiled_contract(
+        contract=c,findings=(f,),acceptance=acceptance,
+        canonical_verifier=checker,
+        canonical_receipts=(CanonicalCheckBinding(
+            command_id=acceptance.commands[0].id,proof=ref,
+            node_id="verify",execution_id="run-f",attempt=1,
+            observed_revision=revision,
+        ),),
+    )
     assert not v.all_required_satisfied and v.blocking_constraint_ids==(get_constraint(c).id,)
