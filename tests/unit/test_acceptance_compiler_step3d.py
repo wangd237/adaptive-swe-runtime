@@ -300,8 +300,9 @@ async def test_c09_c10_real_canonical_attested_proof_and_finalization_binding(te
 
 def test_c09_unresolved_required_check_never_passes_even_with_other_attested_receipt(canonical_workspace):
     _,revision,store,checker=canonical_workspace
-    c,_=compiled(("verification.required",("unit","regression")))
+    c,authority=compiled(("verification.required",("unit","regression")))
     acceptance=AcceptanceCompiler(rules=(unit_rule(),)).compile(contract=c)
+    binding=bind_execution_contract(contract=c,plan=validator_plan(c,authority),acceptance=acceptance)
     assert acceptance.unresolved_check_keys==("regression",)
     ref,receipt=checker.run(
         node_id="verify",execution_id="run",attempt=1,
@@ -318,6 +319,7 @@ def test_c09_unresolved_required_check_never_passes_even_with_other_attested_rec
     assert finding.status is ContractLeafStatus.UNVERIFIED
     verdict=evaluate_compiled_contract(
         contract=c,findings=(finding,),acceptance=acceptance,
+        execution_binding=binding,observed_execution_binding_fingerprint=binding.fingerprint,
         canonical_verifier=checker,canonical_receipts=(
             CanonicalCheckBinding(
                 command_id=acceptance.commands[0].id,proof=ref,
@@ -350,8 +352,9 @@ def test_c09_invalid_or_cross_attempt_receipt_never_authenticates(canonical_work
 
 def test_c09_nonzero_real_canonical_check_is_contract_violation(canonical_workspace):
     _,revision,store,checker=canonical_workspace
-    c,_=verify_contract()
+    c,authority=verify_contract()
     acceptance=AcceptanceCompiler(rules=(unit_rule(exit_code=1),)).compile(contract=c)
+    binding=bind_execution_contract(contract=c,plan=validator_plan(c,authority),acceptance=acceptance)
     ref,receipt=checker.run(
         node_id="verify",execution_id="run-f",attempt=1,
         policy=acceptance.canonical_policies[0],revision=revision,
@@ -367,6 +370,7 @@ def test_c09_nonzero_real_canonical_check_is_contract_violation(canonical_worksp
     assert f.status is ContractLeafStatus.VIOLATED
     v=evaluate_compiled_contract(
         contract=c,findings=(f,),acceptance=acceptance,
+        execution_binding=binding,observed_execution_binding_fingerprint=binding.fingerprint,
         canonical_verifier=checker,
         canonical_receipts=(CanonicalCheckBinding(
             command_id=acceptance.commands[0].id,proof=ref,
