@@ -264,7 +264,9 @@ class SemanticPlanValidator:
                                       affected_work_item_ids=("__aswe_verify",),
                                       details={"compiled_contract": contract.fingerprint}))
             injected_verify = True
-        if review_required and not legal_review:
+        if review_required and (not legal_review or injected_verify):
+            # An originally valid Review may not depend on our newly added
+            # verifier. Never let Review satisfy the gate before verification.
             upstream = (tuple(x.id for x in items if x.work_kind is WorkKind.VERIFICATION)
                         if (verification or injected_verify) else implementation)
             items.append(ValidatedWorkItem(
@@ -310,8 +312,31 @@ class SemanticPlanValidator:
                 continue
             if c.key in ("verification.required", "review.required"):
                 kind = (WorkKind.VERIFICATION if c.key == "verification.required" else WorkKind.REVIEW)
-                gate_ids = tuple(x.id for x in items if x.work_kind is kind and
-                                 (x.runtime_owned or c.id in x.coverage_claims))
+                # A semantically valid independent existing gate is
+                # compiler-recognized even if the Planner omitted an explicit
+                # coverage claim. It must transitively follow every relevant
+                # upstream package, otherwise only our own injected gate counts.
+                lookup = {x.id: x for x in items}
+                upstream = tuple(x.id for x in items if x.work_kind is (
+                    WorkKind.IMPLEMENTATION if kind is WorkKind.VERIFICATION
+                    else WorkKind.VERIFICATION
+                ))
+                if kind is WorkKind.REVIEW and not upstream:
+                    upstream = tuple(x.id for x in items if x.work_kind is WorkKind.IMPLEMENTATION)
+                def predecessors(item_id):
+                    seen = set()
+                    pending = list(lookup[item_id].depends_on)
+                    while pending:
+                        dep = pending.pop()
+                        if dep in seen:
+                            continue
+                        seen.add(dep)
+                        pending.extend(lookup[dep].depends_on)
+                    return seen
+                gate_ids = tuple(
+                    x.id for x in items if x.work_kind is kind and
+                    (x.runtime_owned or set(upstream).issubset(predecessors(x.id)))
+                )
                 if gate_ids:
                     covered.append(PlanCoverageEntry(
                         constraint_id=c.id, mode=CoverageMode.RUNTIME_ENFORCED,
