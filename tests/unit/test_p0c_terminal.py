@@ -259,10 +259,18 @@ async def _scope_cancel_fixture(terminal_fixture, *, quiescent=True):
     runner = asyncio.create_task(core.run_claim(
         await core.claim("consumer"), backend, accept=accept,
     ))
-    for _ in range(300):
-        if core.states["consumer"].logical_status is NodeLogicalStatus.RUNNING:
+    # A fixed number of sleep(0) iterations can exhaust before a queued
+    # asyncio.to_thread evidence probe is scheduled on a loaded CI runner.
+    # Wait for the actual state transition, with a bounded wall-clock limit,
+    # and surface unexpected runner errors instead of hiding them.
+    deadline = asyncio.get_running_loop().time() + 5.0
+    while core.states["consumer"].logical_status is not NodeLogicalStatus.RUNNING:
+        if runner.done():
+            await runner
             break
-        await asyncio.sleep(0)
+        if asyncio.get_running_loop().time() >= deadline:
+            break
+        await asyncio.sleep(0.005)
     assert core.states["consumer"].logical_status is NodeLogicalStatus.RUNNING
     with pytest.raises(RepairScopeInvalidated, match="ACTIVE_DOWNSTREAM_DISPATCH"):
         await core.reopen_writer_from_verification(
