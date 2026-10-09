@@ -76,6 +76,7 @@ def guard(*,closed=True,pending=0):
     return SimpleNamespace(
         closed=closed,_pending_calls={str(i) for i in range(pending)},
         _call_lock=threading.RLock(),
+        receipt_snapshot=lambda: (),
     )
 
 
@@ -107,6 +108,8 @@ async def test_external_supervisor_fixture_plus_complete_clean_git_scans_prove_n
     assert result.workspace_delta.changed_paths == ()
     assert result.workspace_delta.repository_changed_paths == ()
     assert result.evidence_ref.source_execution_id == inv.execution_id
+    assert result.tool_receipt_ref.kind.value == "tool_receipt_ledger"
+    assert store.evidence_store.get(result.tool_receipt_ref)["receipts"] == []
     payload=store.evidence_store.get(result.evidence_ref)
     assert payload["authority"] == "host-snapshot-not-agent"
     assert payload["execution_id"] == inv.execution_id
