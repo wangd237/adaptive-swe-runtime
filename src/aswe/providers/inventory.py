@@ -5,6 +5,19 @@ from aswe.core.contracts._base import FrozenModel
 from aswe.core.fingerprint import fingerprint
 from aswe.capabilities.effects import ToolEffect,STANDARD_EFFECTS
 
+def inventory_fingerprint(values) -> str:
+    """Canonical identity independent of Pydantic set/datetime serialization."""
+    data=dict(values)
+    date=data["captured_at"]
+    if isinstance(date,str):
+        date=datetime.fromisoformat(date.replace("Z","+00:00"))
+    data["captured_at"]=date.isoformat()
+    for name in ("candidate_agent_types","candidate_skill_names",
+                 "configured_model_names","sandbox_features"):
+        data[name]=frozenset(data[name])
+    return fingerprint(data)
+
+
 class BackendToolInfo(FrozenModel):
     contract_id:str
     configured_name:str|None
@@ -29,7 +42,7 @@ class BackendInventorySnapshot(FrozenModel):
     fingerprint:str
     @model_validator(mode="after")
     def checked(self):
-        if self.fingerprint!=fingerprint(self.model_dump(mode="json",exclude={"fingerprint"})):
+        if self.fingerprint!=inventory_fingerprint(self.model_dump(mode="python",exclude={"fingerprint"})):
             raise ValueError("inventory fingerprint mismatch")
         if any(k!=v.contract_id for k,v in self.candidate_tools.items()):
             raise ValueError("inventory Tool Contract ID mismatch")
@@ -46,4 +59,4 @@ def fake_inventory(*,agent_types=("coder","tester","reviewer","explorer"),
         candidate_agent_types=frozenset(agent_types),candidate_tools=ts,
         candidate_skill_names=frozenset(),configured_model_names=frozenset({"fake"}),
         sandbox_features=frozenset(features),max_parallel_executions=4)
-    return BackendInventorySnapshot(**body,fingerprint=fingerprint(body))
+    return BackendInventorySnapshot(**body,fingerprint=inventory_fingerprint(body))
