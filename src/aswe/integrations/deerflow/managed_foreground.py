@@ -83,6 +83,7 @@ class ManagedForegroundVerifier:
         self.root = Path(repository.repository_root).resolve()
         if (not self.root.is_dir()
                 or policy.acceptance_fingerprint != plan.fingerprint
+                or len(plan.commands) != 1  # bounded 5F-B: single command per execution
                 or policy.verification_exact_commands != tuple(
                     item.command for item in plan.commands
                 )
@@ -192,14 +193,17 @@ class ManagedForegroundVerifier:
         exitcode: int | None = None
         drained = False
         try:
-            marker.process = await asyncio.create_subprocess_exec(
-                *selected.argv, cwd=str(self.root),
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-                start_new_session=True,
-                env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
-            )
+            try:
+                marker.process = await asyncio.create_subprocess_exec(
+                    *selected.argv, cwd=str(self.root),
+                    stdin=asyncio.subprocess.DEVNULL,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                    start_new_session=True,
+                    env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+                )
+            except OSError:
+                raise ForegroundExecutionError("FOREGROUND_EXEC_SPAWN_FAILED") from None
             try:
                 exitcode = await asyncio.wait_for(
                     marker.process.wait(),
