@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Mapping
 
@@ -15,7 +16,7 @@ from aswe.core.contracts.backend import NodeExecutionInvocation, NodeExecutionPr
 from aswe.capabilities.effects import DEERFLOW_USE_BY_CONTRACT, STANDARD_EFFECTS, ToolEffect
 from aswe.integrations.deerflow.preparation import (
     DeerFlowPreparationBackend, DeerFlowPreparationError, PinnedNodeResources,
-    _tool_seal, _extension_seal,
+    _tool_seal, _extension_seal, _digest,
 )
 
 
@@ -187,11 +188,16 @@ class ToolCallGuard:
         self.resources = resources
         self.view = view
         self.principal = principal
+        self._principal_digest = _digest(principal)
         self.provider = provider
+        self._pinned_provider = provider
         self.request_factory = request_factory
         self.auth_enabled = auth_enabled
+        self._auth_enabled_anchor = auth_enabled
         self.policy = policy
+        self._pinned_policy = policy
         self.execution_live_checker = execution_live_checker
+        self._liveness_anchor = execution_live_checker
         if (policy.fingerprint != resources.policy_fingerprint or
                 not set(view.names).issubset(policy.allowed_business_tools)):
             _deny("TOOL_POLICY_IDENTITY_MISMATCH")
@@ -206,6 +212,8 @@ class ToolCallGuard:
             self.closed = True
 
     def _live(self) -> None:
+        if self.execution_live_checker is not self._liveness_anchor:
+            _deny("EXECUTION_LIVENESS_GUARD_MUTATED")
         try:
             running = self.execution_live_checker(self.invocation) is True
         except Exception:
@@ -217,6 +225,11 @@ class ToolCallGuard:
         if self.closed:
             _deny("EXECUTION_BINDING_CLOSED")
         self._live()
+        if (self.provider is not self._pinned_provider
+                or self.policy is not self._pinned_policy
+                or self.auth_enabled is not self._auth_enabled_anchor
+                or _digest(self.principal) != self._principal_digest):
+            _deny("RUN_AUTHORITY_MUTATED")
         if not isinstance(tool_call_id, str) or not tool_call_id.strip():
             _deny("TOOL_CALL_ID_REQUIRED")
         if tool_call_id in self._used_call_ids:
@@ -287,6 +300,10 @@ class ToolCallGuard:
             if self.closed:
                 _deny("EXECUTION_BINDING_CLOSED")
             self._live()
+            if (_digest(self.principal) != self._principal_digest
+                    or self.provider is not self._pinned_provider
+                    or self.auth_enabled is not self._auth_enabled_anchor):
+                _deny("RUN_AUTHORITY_MUTATED")
             self.resources.assert_intact()
             return await handler()
         finally:
@@ -309,6 +326,10 @@ class ToolCallGuard:
             if self.closed:
                 _deny("EXECUTION_BINDING_CLOSED")
             self._live()
+            if (_digest(self.principal) != self._principal_digest
+                    or self.provider is not self._pinned_provider
+                    or self.auth_enabled is not self._auth_enabled_anchor):
+                _deny("RUN_AUTHORITY_MUTATED")
             self.resources.assert_intact()
             return handler()
         finally:
@@ -459,7 +480,7 @@ class NodeExecutionBindingStore:
             # Optional mutating tools must not even appear in the model's view
             # when the physical Workspace/policy/receipt guard is absent.
             names = tuple(name for name in admitted if name not in restricted)
-            principal = self.principal_supplier(resources)
+            principal = deepcopy(self.principal_supplier(resources))
             if not _principal_ok(principal):
                 _deny("HOST_PRINCIPAL_UNTRUSTED")
             provider = None
