@@ -1,3 +1,13 @@
+## Step 5F-C-A — Controlled SWE Coding Loop / Opt-in Docker Bash (2026-10-09)
+
+- User-requested MVP priority shift: complete physical Quiescence Attestation deferred. Existing Core Scheduler UNKNOWN/quarantine is **not** falsely promoted to success. No blanket weakening of ToolCallGuard or hard Handoff verification.
+- New `controlled_swe.py`: Runtime-bound developer tools `read_file/write_file/str_replace/bash`. READ-before-WRITE, Workspace root, no traversal/symlink, file counts, size budgets; dynamic Bash only through explicit network-disabled, read-only-root, disposable Docker image by resolved SHA-256 digest. Per-file/max-changed-file policies prohibit Bash where it could bypass their restrictions.
+- `NodeExecutionBindingStore` exposes SWE runtime only via an opt-in postcommit host factory plus required Scheduler workspace root. The *original* 5C source tool objects remain sealed; freshly wrapped tool identities are checked in compiled LangGraph ToolNode; 5D AuthorizationProvider/liveness/replay guards still run per-call. Default path remains read-only.
+- `NativeDeerFlowExecutionBackend` permits tool mutation only when the exact bound SWE runtime is present. It returns a clearly **non-certified** `SWEDevelopmentSummary` with changed-file tool observations and dynamic Bash exit status (not canonical TaskResult).
+- Source-pinned DeerFlow Python 3.12 CI executes real native LangGraph multi-turn offline coding: read → wrong edit → failing test → re-read → correct edit → passing test → finish. Separate physical Docker CI actually executes dynamic Bash in no-network container against disposable mounted worktree.
+- Tests + safety notes: `tests/unit/test_deerflow_controlled_swe_step5fc.py`, `tests/integration/test_deerflow_pinned_native_step5eb.py`, `tests/integration/test_deerflow_docker_swe_step5fc.py`, `audits/step5fc-controlled-swe-coding-review.md`.
+- **5F-C-A scoped offline physical GO only after latest HEAD CI succeeds**. Not proven: one complete trusted Scheduler/5C/5D Writer through real model to independent Canonical pytest to final MVP TaskResult, real credentialed AuthorizationProvider, production Sandbox drain or real model API. PR #7 Draft/Open/unmerged.
+
 ## Step 5F-B2 — Native Lease Owner / Canonical HMAC Foreground Receipts (2026-10-09)
 
 - Added `native_lease_supervisor.py` with Scheduler-derived native `SubagentResult.task_id` / `subagent:<task_id>` owner identity; real bounded `SubagentExecutor._aexecute` receives that host-generated result holder while keeping vendor admission/stream/teardown code. Runtime-scoped supervisor reads actual frozen `SandboxLeaseManager.binding_for`, and refuses positive quiescence without separate provider-release-completion and process-tree-drain proofs.
