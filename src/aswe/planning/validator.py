@@ -14,6 +14,7 @@ from aswe.core.contracts._base import FrozenModel
 from aswe.core.contracts.constraint import ConstraintEnforcement
 from aswe.core.contracts.task import WorkKind
 from aswe.core.fingerprint import fingerprint
+from aswe.planning.immutable import deep_freeze
 from aswe.planning.compiler import _scope_contains
 from aswe.planning.contracts import (
     CompiledConstraint, CompiledTaskContract, TaskExecutionAuthority,
@@ -61,11 +62,21 @@ class PlanRepair(FrozenModel):
     affected_work_item_ids: tuple[str, ...] = ()
     details: dict[str, Any] = Field(default_factory=dict)
 
+    @model_validator(mode="after")
+    def deep_immutable(self):
+        object.__setattr__(self,"details",deep_freeze(self.details))
+        return self
+
 
 class PlanWarning(FrozenModel):
     code: str = Field(min_length=1)
     affected_work_item_ids: tuple[str, ...] = ()
     details: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def deep_immutable(self):
+        object.__setattr__(self,"details",deep_freeze(self.details))
+        return self
 
 
 class ValidatedWorkItem(FrozenModel):

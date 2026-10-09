@@ -13,6 +13,7 @@ from pydantic import Field, model_validator
 
 from aswe.core.contracts._base import FrozenModel
 from aswe.core.contracts.constraint import ConstraintEnforcement
+from aswe.planning.immutable import deep_freeze
 
 
 class TaskRequestEnvelope(FrozenModel):
@@ -89,6 +90,7 @@ class CompiledConstraint(FrozenModel):
         )[:24]
         if self.id != expected:
             raise ValueError("compiled constraint identity mismatch")
+        object.__setattr__(self,"value",deep_freeze(self.value))
         return self
 
 
@@ -119,6 +121,8 @@ class CompiledTaskContract(FrozenModel):
         keys = tuple(c.key for c in self.constraints)
         if len(set(ids)) != len(ids) or keys != tuple(sorted(set(keys))):
             raise ValueError("compiled constraint order/identity not canonical")
+        object.__setattr__(self,"compiler_repairs",deep_freeze(self.compiler_repairs))
+        object.__setattr__(self,"warnings",deep_freeze(self.warnings))
         return self
 
 

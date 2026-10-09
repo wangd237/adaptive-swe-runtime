@@ -7,6 +7,8 @@ from typing import Any, Protocol
 from pydantic import Field
 
 from aswe.core.contracts._base import FrozenModel
+from aswe.planning.immutable import deep_freeze
+from pydantic import model_validator
 
 
 class TaskType(str, Enum):
@@ -53,6 +55,12 @@ class StructuredReasoningResult(FrozenModel):
     provider_model: str | None = None
     usage: dict[str, int | float] = Field(default_factory=dict)
     warnings: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def freeze_payload(self):
+        object.__setattr__(self,"data",deep_freeze(self.data))
+        object.__setattr__(self,"usage",deep_freeze(self.usage))
+        return self
 
 
 class ReasoningBackend(Protocol):

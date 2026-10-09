@@ -5,6 +5,8 @@ from typing import Literal
 from pydantic import Field
 
 from aswe.core.contracts._base import FrozenModel
+from aswe.planning.immutable import deep_freeze
+from pydantic import model_validator
 
 
 class AnchorMatch(FrozenModel):
@@ -29,3 +31,8 @@ class RepositoryProfile(FrozenModel):
     build_system_hints: tuple[str, ...]
     task_anchor_matches: tuple[AnchorMatch, ...]
     truncated: bool
+
+    @model_validator(mode="after")
+    def freeze_languages(self):
+        object.__setattr__(self,"languages",deep_freeze(self.languages))
+        return self
