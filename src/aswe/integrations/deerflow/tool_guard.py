@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from copy import deepcopy
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Mapping
 
@@ -190,6 +191,7 @@ class ToolCallGuard:
         self.resources = resources
         self.view = view
         self.swe_runtime = swe_runtime
+        self._swe_runtime_anchor = swe_runtime
         if swe_runtime is not None and (
             not isinstance(swe_runtime, ControlledSWEWorkspace)
             or swe_runtime.invocation is not invocation
@@ -234,6 +236,8 @@ class ToolCallGuard:
     def _validate(self, *, tool: Any, tool_call_id: str, tool_input: Any) -> str:
         if self.closed:
             _deny("EXECUTION_BINDING_CLOSED")
+        if self.swe_runtime is not self._swe_runtime_anchor:
+            _deny("SWE_RUNTIME_BINDING_MUTATED")
         self._live()
         if (self.provider is not self._pinned_provider
                 or self.policy is not self._pinned_policy
@@ -484,9 +488,16 @@ class NodeExecutionBindingStore:
                  provider_supplier: Callable[[Any], Any],
                  auth_request_factory: Callable[..., Any],
                  execution_live_checker: Callable[[NodeExecutionInvocation], bool],
-                 swe_workspace_factory: Callable[[NodeExecutionInvocation, PinnedNodeResources, Any], ControlledSWEWorkspace] | None = None):
+                 swe_workspace_factory: Callable[[NodeExecutionInvocation, PinnedNodeResources, Any], ControlledSWEWorkspace] | None = None,
+                 expected_swe_workspace_root: Path | None = None):
+        if swe_workspace_factory is not None and expected_swe_workspace_root is None:
+            raise ValueError("trusted Scheduler Workspace root required for SWE profile")
         self.preparation_backend = preparation_backend
         self.swe_workspace_factory = swe_workspace_factory
+        self.expected_swe_workspace_root = (
+            Path(expected_swe_workspace_root).resolve(strict=True)
+            if expected_swe_workspace_root is not None else None
+        )
         self.principal_supplier = principal_supplier
         self.provider_supplier = provider_supplier
         self.auth_request_factory = auth_request_factory
@@ -601,7 +612,8 @@ class NodeExecutionBindingStore:
                 swe_runtime = swe_factory(invocation, resources, self.preparation_backend.policy)
                 if (not isinstance(swe_runtime, ControlledSWEWorkspace)
                         or swe_runtime.invocation is not invocation
-                        or swe_runtime.policy is not self.preparation_backend.policy):
+                        or swe_runtime.policy is not self.preparation_backend.policy
+                        or swe_runtime.root != self.expected_swe_workspace_root):
                     _deny("SWE_RUNTIME_AUTHORITY_MISMATCH")
                 view_tools = swe_runtime.make_tools(tuple(t.name for t in source_tools))
                 if (len(view_tools) != len(source_tools)
