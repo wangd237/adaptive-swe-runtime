@@ -1,0 +1,1 @@
+"""Canonical semantic capability registry."""
