@@ -504,3 +504,28 @@ def test_provider_assignment_canonical_resources_represent_actual_node_closure()
     assert assignment.policy_fingerprint==policies[0].fingerprint
     with pytest.raises(ValidationError,match="ProviderAssignment identity mismatch"):
         assignment.model_copy(update={"preflight_diagnostics":("forged",)})
+
+
+@pytest.mark.asyncio
+async def test_poc48_prepare_then_hot_reload_does_not_reselect_prepared_resources(tmp_path):
+    _,_,_,dag,inv,_,_,operators,policies,descriptor=artifacts(
+        ("tester",WorkKind.VERIFICATION,"regression_testing"))
+    calls={"read":0}
+    state={"current":inv}
+    def read_inventory():
+        calls["read"]+=1
+        return state["current"]
+    class HotReloadBackend(FakeExecutionBackend):
+        async def execute_prepared(self,preparation,invocation):
+            state["current"]=changed_inventory(inv,remove_tools=("bash",))
+            return await super().execute_prepared(preparation,invocation)
+    raw=HotReloadBackend([FakeExecutionScenario()])
+    wrapped=LivePreflightBackend(raw,descriptor=descriptor,policy=policies[0],
+        planning_inventory=inv,live_inventory=read_inventory,
+        live_operator=lambda:next(o for o in operators if o.provider_id=="tester"))
+    core,_=scheduler(tmp_path,*dag.nodes)
+    await core.run_claim(await core.claim("tester"),wrapped,accept=accept)
+    assert core.states["tester"].logical_status is NodeLogicalStatus.SUCCEEDED
+    assert calls["read"]==1
+    assert len(raw.records)==1
+    assert raw.preparations[0].node_id=="tester"
