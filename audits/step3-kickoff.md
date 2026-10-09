@@ -1,6 +1,6 @@
 # Coding Step 3 — Task / Contract / Planning Compiler Kickoff
 
-**Stage: IN PROGRESS (Step 3A). Step 2 is CLOSED on main and must not be reopened merely to accommodate Planner output.**
+**Stage: IN PROGRESS (Step 3B implementation; Step 3C/3D pending). Step 2 remains CLOSED on main.**
 
 ## Authority
 
@@ -11,14 +11,14 @@
 ## Workstream order
 
 1. **Step 3A source/provenance boundary:** immutable `TaskRequestEnvelope`, `RepositoryProfile`, `TaskSpec`, provider-neutral `ReasoningBackend`, `TaskContractDraft` and compiler-issued evidence stamps. Tests C01/C04 + tamper and reproducibility negatives.
-2. **Step 3B full ConstraintCompiler:** recognized typed registry and strict provenance, enforced policy versus user versus guidance, set intersection for allow scopes, union for denies/required checks, min for ceilings, exact-value conflict, `CompiledTaskContract` hash, `TaskExecutionAuthority`. Tests C02/C03/C05/C06/C07.
+2. **Step 3B ConstraintCompiler — implementation submitted:** typed registry, operator Policy/HARD user/soft guidance, allowed scope intersection, forbidden/required union, budgets min, exact conflicts, signed-by-digest contract/authority; deterministic source-line parsing and runtime-derived high-risk review. C02/C03/C05/C06 have direct tests. C07's TaskExecutionAuthority half is tested; its PLAN_INVALID work-item half remains Step 3C.
 3. **Step 3C semantic planning:** `WorkPlanProposal` is untrusted, `PlanValidator/Normalizer` checks phase direction and coverage, injects reserved verify/review gates monotonically, yields frozen `ValidatedWorkPlan` and deterministic fingerprints. Tests P3-01..12 and C08.
 4. **Step 3D AcceptanceCompiler:** compiler-owned immutable `VerificationCommand`, policy fingerprint and sandbox evidence requirements; P0-C09/C10 contract terminal compatibility. Scheduler receives only validated upstream authority.
 
 ## Explicit exclusions
 
 - Do not promote `ConstraintCandidate.origin_hint` or `modality_hint` to evidence or enforcement. User quotes must match the immutable raw request. Repository natural language never self-promotes above SOFT.
-- The Step 3A early compiler only handles verified user **semantic fallback** and repository guidance SOFT. It is NOT yet a full contract compiler and must not issue an executable TaskExecutionAuthority or a `ValidatedWorkPlan`.
+- The Step 3B compiler can now issue a coarse-grained TaskExecutionAuthority only after deterministic source/merge checks. It must **not** issue a ValidatedWorkPlan, execute tools, or convert an analyzer's capability_hints into authority. Natural-language intent extraction is intentionally conservative; only unquoted full-line recognized directives are canonicalized to typed executable constraints.
 - No DeerFlow, no model-derived scheduling authority, no dynamic DAG mutation, no unsafe shortcut from `TaskSpec.capability_hints` into execution tools.
 
 ## Step 3 exit gate
