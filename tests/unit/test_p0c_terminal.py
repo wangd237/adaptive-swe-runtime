@@ -181,6 +181,8 @@ async def test_r100_review_request_changes_preserves_writer_patch_but_not_accept
     assert len(result.root_failures) == 1
     assert result.root_failures[0].node_id == "review"
     assert result.root_failures[0].failure_kind == "REVIEW_GATE_REJECTED"
+    assert result.root_failures[0].supporting_evidence_refs == review_attempt.evidence_refs
+    assert review_attempt.evidence_refs[0] in result.last_trusted_evidence_refs
     assert "VALID_PATCH_PENDING_REVIEW" in store.get(result.final_repository_changeset)["tracked_diff"]
 
 
