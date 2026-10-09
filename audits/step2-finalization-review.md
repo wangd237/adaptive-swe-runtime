@@ -1,40 +1,34 @@
-# Step 2 — Runtime Canonical Verifier / RepairFeedback / TaskResult Review
+# Coding Step 2 — Final Source and Design Freeze Consistency Review
 
-**Decision:** Step 2 implementation increment may be reviewed and CI tested, but the Stage 2 exit gate is **NOT MET** (31 PASS / 18 PARTIAL / 16 GAP among 65 frozen PoCs).
+## Review scope
 
-## Canonical verification
+Inspected the PR #4 implementation against `AGENTS.md`, `specs/03-execution-runtime.md`, `specs/04-evidence-evaluation.md`, the immutable 65-row frozen PoC inventory, and full Python 3.11/3.13 GitHub Actions. This review is separate from the incremental status labels but **is not a third-party security audit or live DeerFlow adapter test**.
 
-- Exact Runtime-owned command policy argv; `subprocess.run(shell=False)` with bounded timeout.
-- Pre-execution WorkspaceRevision must match real Git baseline/current digest; after execution the repository is re-observed.
-- Zero exit code / unchanged Git → HOLDS; nonzero / unchanged Git → FAILED; mutation or timeout → UNVERIFIED.
-- Canonical attempt TOOL_RECEIPT_LEDGER proof lives in LocalEvidenceStore, full SHA-256 payload binding, HMAC issued with task-scoped key outside workspace.
-- Strict RepairAttribution resolver independently checks tool receipt authenticity and matching execution/check/revision; unauthenticated fixture proof rejected unless explicit **test-only** Scheduler override.
-- Local subprocess foreground success/timeout does not establish native DeerFlow admission/receipt-policy or distributed tool quiescence; defer to Step 5.
+## Findings addressed prior to merge
 
-## Typed RepairFeedback
+1. **Audit-record integrity.** The original Markdown audit had incorrectly concatenated and duplicated PoC table entries and an obsolete header. Rebuilt it deterministically from the 65 unique machine-readable entries and added a regression to prevent recurrence.
+2. **Obsolete stage evidence.** Old review/status material still referenced early 31/18/16 counts and 158-test CI despite the later 65/0/0 matrix. Replaced with current acceptance state and explicit limitations.
+3. **Cancel-versus-COMPLETED race.** A backend can settle COMPLETED after the task's or a node's cancellation. Previously the invalidated handoff could manufacture a new business failure. Runtime now treats these late results as cancellation consequences, with tests for task fail-close and local cancellation. Quiescence and mutation evidence still govern Workspace safety.
+4. **Physical Workspace holder quiescence.** The P0-D suite verified cancellation drains both committed backend executions and outstanding physical LOCKED_PRECOMMIT holders; waiting timeout conservatively yields QUARANTINED, not FROZEN.
+5. **Synchronous evidence resolver scheduling.** Potentially blocking EvidenceChecker work was moved off the event loop; final ticket/epoch/dependency stamps are still checked at dispatch commit under SchedulerStateMutex.
 
-- Implements frozen source/target attempt and trigger fields, observed revision, failed check IDs, verification_result, repair_attribution, typed ReceiptRefs and diagnostic projection.
-- Feedback's content fingerprint and receipt provenance are checked on construction; no model prose controls owner selection.
-- Scheduler publishes feedback atomically with Writer reopen, and checks revision under workspace lock before REPAIR attempt commit.
-- Remaining: feedback refresh if Workspace advances and no spurious Repair when refresh says holds (R23–R26).
+## Source authority and boundaries
 
-## Terminal semantics
+- No DeerFlow/LLM imports are permitted in core Runtime control; FakeExecutionBackend is the Step-2 execution test seam.
+- Immutable TaskNode/TaskDAG and EvidenceRef/TaskEvidenceRef identity remain separate from runtime NodeAttemptRecord and TaskResult.
+- Retry and Repair never spawn new DAG business nodes; automatic multi-writer repair remains prohibited.
+- Typed feedback must bind source and target attempt, WorkspaceRevision, immutable checker/attribution refs, and authority epochs; stale evidence cannot authorize a silent repair.
+- Scheduler dispatch ticket and accepted Handoff publication are fenced by the same mutex; success is not inferred from backend COMPLETED alone.
+- Dirty failed tasks may retain a Git-visible residual Patch without acceptance. QUARANTINED forbids current Workspace/Git reads.
 
-- ContractVerdict is BLOCKING if any LOCKED/HARD leaf is violated or unverified; successful TaskResult requires explicit **expected compiled contract fingerprint** and passing verdict.
-- TaskResult status, WorkspaceDisposition, RepositoryDisposition, PatchDisposition are independent. Failed/cancelled with patch: RESIDUAL_UNACCEPTED, never ACCEPTED.
-- Stable-FROZEN Runtime-only finalization emits `TaskEvidenceRef` for final Git state/changeset/contract verdict; final TaskResult itself is persisted separately, not fabricated as Node-attempt evidence.
-- On QUARANTINED there is **zero current Git inspection**; only existing integrity-validated historical attempt refs survive.
-- LocalTaskResultStore creates one immutable terminal result with atomic publication and restart integrity validation.
-- A stable but scanner-excluded/unknown physical attribution stays STABLE_WITH_UNCERTAINTY unless the caller supplies complete proof.
+## Step 2 conformance result
 
-## Risks and remaining conformance deficits
+The 65 frozen Step-2 PoCs are individually marked **PASS** in the machine-readable inventory. The associated suite is scenario-specific, including adversarial fake backend and temporary real Git repository tests. Verify latest PR SHA's two CI lanes before merge and record the exact final commit in `IMPLEMENTATION_STATUS.md`.
 
-- TaskResult is not an evaluator: CompiledTaskContract and full leaf-to-evidence evaluation belong to Step 3/7. Never self-create a passing contract verdict from LLM text.
-- Raw LocalVerifier command policies need higher-level compiled authority and sandbox policy; hash alone is not tool authorization.
-- Current execution state is in-process Scheduler; persistent state replay/distributed scheduling are outside P1.
-- 65-row exact PoC audit: audits/step2-poc-audit.md and machine-readable audits/step2-poc-coverage.json.
-- **Do not close Step 2 or claim end-to-end autonomous SWE execution** until all 34 PARTIAL/GAP rows are resolved.
+## Deferred, not claimed
 
-## Commit and CI
+- Real DeerFlow/LLM tool admission, command-policy reconciliation, and shared sandbox lifecycle: Step 5.
+- Compiler-owned task constraint provenance, mutation authority, and execution command policy: Steps 3/4.
+- Distributed/restart-safe Scheduler replay and cross-machine locks: explicit P1 non-goals.
 
-- Source of truth: PR #4; inspect the latest head and its Python 3.11/3.13 Actions jobs before any merge.
+**Recommendation:** merge only when the latest PR head is green and the audit integrity test passes; then mark Step 2 CLOSED on main, without treating deferred integration PoCs as complete.

@@ -4,8 +4,9 @@
 
 - Step 0 — CLOSED / ACCEPTED
 - Step 1 — CLOSED / ACCEPTED
-- Step 2 — IN PROGRESS (PR #3 Scheduler substrate merged; PR #4 verification/finalization proposed)
-- Step 3 and later — NOT STARTED
+- Step 2 — EXIT GATE SATISFIED / PR #4 MERGE PENDING (FakeBackend PoCs; final CI required)
+- Step 3 — NOT STARTED (will commence after Step 2 merge)
+- Step 4 and later — NOT STARTED
 
 ## PR #4 new functionality (subject to review and merge)
 
@@ -30,13 +31,13 @@
 - PASS: 65
 - PARTIAL: 0
 - GAP: 0
-- **Step 2 CLOSED is forbidden while PARTIAL/GAP remains.**
+- **Step 2 may be CLOSED only after latest-head CI + final source review + merge into main.**
 
-## Step 2 latest CI
+## Step 2 final acceptance evidence
 
-- Commit `947839feec301f446289cebbcc5e6767b2c0cd08` passed Python 3.11 and 3.13 Actions matrix.
-- Newly covered POC-R21: test `tests/unit/test_scheduler_local_cancel.py`.
-- R23 now has an explicit `REPAIR_FEEDBACK_STALE` fail-close fallback test; this is not a complete refresh/reverify implementation and remains PARTIAL.
+- Frozen inventory: 65 PASS / 0 PARTIAL / 0 GAP; exact one-row-per-PoC Markdown audit is built from machine-readable manifest.
+- Final source review: `audits/step2-finalization-review.md`. Race condition in cancellation-versus-COMPLETED addressed with regression tests.
+- Latest PR implementation CI (including new race tests and audit consistency guard) must be green on Python 3.11/3.13 before merge.
 
 ## High-priority remaining P0 blockers
 
@@ -51,7 +52,8 @@
 - [x] R100 trusted typed ReviewGate REQUEST_CHANGES callback + persisted attempt REVIEW_VERDICT; FakeBackend-only API, integration with DeerFlow remains Step 5
 - [x] R103 typed TaskLogicalStatus FAILED/CANCELLED publication within Scheduler mutex transaction
 - [x] P0-D deterministic concurrency barriers R119–R121/R125–R126, including noncommitted physical Workspace join and timeout quarantine
-- [ ] Finish every audit PARTIAL/GAP with evidence and independent implementation review
+- [x] All 65 audit PoCs have test evidence and independent source/Design Freeze consistency sweep is documented
+- [ ] GitHub latest-head CI and PR #4 merge/Step 2 CLOSED publication
 
 ## P0-B incremental status
 
