@@ -13,6 +13,9 @@ import asyncio
 from dataclasses import dataclass
 import hashlib
 import os
+import secrets
+import sys
+import tempfile
 from pathlib import Path
 from typing import Protocol, Any
 
@@ -79,8 +82,14 @@ class DockerCommandBackend:
             raise SWEExecutionDenied("SWE_WORKSPACE_ROOT_DRIFT")
         # Docker CLI arguments are constructed by the Runtime, never the LLM.
         # The dynamic shell is INSIDE the disposable container only.
+        if sys.platform != "linux":
+            raise SWEExecutionDenied("SWE_DOCKER_PLATFORM_UNSUPPORTED")
+        if "," in str(self.workspace_root):
+            raise SWEExecutionDenied("SWE_DOCKER_WORKSPACE_PATH_INVALID")
+        container_name="aswe-"+secrets.token_hex(12)
         args=[
             "docker","run","--rm","--pull=never","--network=none",
+            "--name",container_name,
             "--read-only","--cap-drop=ALL","--security-opt=no-new-privileges",
             "--pids-limit",str(self.pids_limit),
             "--memory",f"{self.memory_mb}m","--cpus=1",
@@ -90,30 +99,49 @@ class DockerCommandBackend:
             "--workdir","/workspace",self.image,
             "/bin/sh","-lc",command,
         ]
-        # Avoid pipes held open by detached children. Output is bounded with
-        # communicate timeout; container subprocess is killed on timeout.
-        try:
-            process=await asyncio.create_subprocess_exec(
-                *args,stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.STDOUT,
+        # Write to an unlinked host file, not a potentially unbounded
+        # subprocess PIPE. A timeout/cancel also issues docker rm -f against
+        # the Runtime-generated container identity (not a model argument).
+        with tempfile.TemporaryFile(mode="w+b") as output:
+            try:
+                process=await asyncio.create_subprocess_exec(
+                    *args,stdin=asyncio.subprocess.DEVNULL,
+                    stdout=output,stderr=asyncio.subprocess.STDOUT,
+                )
+            except OSError:
+                raise SWEExecutionDenied("SWE_DOCKER_UNAVAILABLE") from None
+            try:
+                try:
+                    await asyncio.wait_for(process.wait(),timeout=timeout)
+                    timed_out=False
+                except asyncio.TimeoutError:
+                    timed_out=True
+                except asyncio.CancelledError:
+                    timed_out=True
+                    raise
+            finally:
+                if process.returncode is None:
+                    process.kill()
+                    await process.wait()
+                if timed_out:
+                    try:
+                        cleaner=await asyncio.create_subprocess_exec(
+                            "docker","rm","-f",container_name,
+                            stdout=asyncio.subprocess.DEVNULL,
+                            stderr=asyncio.subprocess.DEVNULL,
+                        )
+                        cleanup_status=await asyncio.wait_for(cleaner.wait(),timeout=5)
+                        if cleanup_status!=0:
+                            raise SWEExecutionDenied("SWE_DOCKER_CLEANUP_UNVERIFIED")
+                    except (OSError,asyncio.TimeoutError):
+                        raise SWEExecutionDenied("SWE_DOCKER_CLEANUP_UNVERIFIED") from None
+            output.seek(0)
+            raw=output.read(max_output)
+            return ShellOutcome(
+                exit_code=None if timed_out else process.returncode,
+                output=raw.decode("utf-8","replace"),
+                timed_out=timed_out,
             )
-        except OSError:
-            raise SWEExecutionDenied("SWE_DOCKER_UNAVAILABLE") from None
-        try:
-            raw,_=await asyncio.wait_for(process.communicate(),timeout=timeout)
-            timed_out=False
-        except (asyncio.TimeoutError,asyncio.CancelledError) as exc:
-            process.kill()
-            await process.communicate()
-            if isinstance(exc,asyncio.CancelledError):
-                raise
-            raw=b""
-            timed_out=True
-        return ShellOutcome(
-            exit_code=None if timed_out else process.returncode,
-            output=raw[:max_output].decode("utf-8","replace"),
-            timed_out=timed_out,
-        )
 
 
 class ControlledSWEWorkspace:
