@@ -421,3 +421,58 @@ def test_compiled_policy_applies_negative_path_scope_and_file_budget_to_every_no
     with pytest.raises(DescriptorMismatch,match="EXECUTION_DESCRIPTOR_POLICY_DRIFT"):
         compile_plan_descriptor(contract=c,plan=p,resolved=resolved,inventory=inv,
              acceptance=AcceptanceCompiler().compile(contract=c),policies=(forged,))
+
+
+def test_poc28_poc41_required_missing_or_deferred_tool_is_never_provider_feasible():
+    from aswe.planning.compiler import project_execution_authority
+    from aswe.providers.resolver import ProviderFeasibilityError
+    c,p,r,d,inv,a,providers,ops,policies,_=artifacts(
+        ("tester",WorkKind.VERIFICATION,"regression_testing"))
+    for broken in ("removed","deferred"):
+        if broken=="removed":
+            bad=changed_inventory(inv,remove_tools=("bash",))
+        else:
+            altered=inv.candidate_tools["bash"].model_copy(update={
+                "delivery":"deferred","source":"mcp"})
+            bad=changed_inventory(inv,tool_override=("bash",altered))
+        with pytest.raises(ProviderFeasibilityError,match="PROVIDER_UNAVAILABLE"):
+            resolve_workplan(plan=p,contract=c,authority=project_execution_authority(c),
+                             inventory=bad,providers=providers)
+
+
+def test_poc53_same_provider_multiple_nodes_no_hidden_merge_or_context_reuse():
+    from aswe.planning.compiler import (
+        ConstraintCompiler,RuntimePolicyConfig,project_execution_authority)
+    from aswe.planning.contracts import make_task_request
+    from aswe.planning.planner import WorkPlanProposal,WorkItemProposal
+    from aswe.planning.validator import SemanticPlanValidator
+    from aswe.planning.dag import materialize_task_dag
+    c,a=ConstraintCompiler(RuntimePolicyConfig(policy_id="reuse")).compile(
+        request=make_task_request(request_id="q",raw_text="Analyze repo"),
+        repository_base_sha="a"*40)
+    proposal=WorkPlanProposal(items=(
+        WorkItemProposal(id="discover",objective="inspect",work_kind=WorkKind.DISCOVERY,
+                         capability_hints=("repo_exploration",)),
+        WorkItemProposal(id="search",objective="locate",work_kind=WorkKind.DISCOVERY,
+                         capability_hints=("code_search",)),
+    ),rationale="two distinct bounded actions")
+    plan=SemanticPlanValidator().validate(proposal=proposal,contract=c,authority=a)
+    reused=provider("explorer",(
+        CapabilityBinding(capability_id="repo_exploration",required_tools=("read_file",)),
+        CapabilityBinding(capability_id="code_search",required_tools=("read_file",)),
+    ))
+    inv=fake_inventory()
+    r=resolve_workplan(plan=plan,contract=c,authority=a,inventory=inv,
+        providers=(reused,))
+    accept_plan=AcceptanceCompiler().compile(contract=c)
+    ps=compile_policies(contract=c,plan=plan,resolved=r,inventory=inv,
+        providers=(reused,),acceptance=accept_plan,
+        operators=(OperatorSurface(provider_id="explorer",
+                                    allowed_tools=("read_file",)),))
+    desc=compile_plan_descriptor(contract=c,plan=plan,resolved=r,
+        inventory=inv,acceptance=accept_plan,policies=ps)
+    assert len(desc.team.members)==1
+    assert desc.team.members[0].selected_for_nodes==("discover","search")
+    assert {x.id for x in desc.task_dag.nodes}=={"discover","search"}
+    assert len(desc.assignments)==2
+    assert len({x.node_id for x in ps})==2
