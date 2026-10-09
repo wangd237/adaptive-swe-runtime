@@ -255,3 +255,33 @@ async def test_real_scheduler_commit_native_guard_and_durable_workspace_evidence
     if not with_supervisor:
         assert core.workspace.lifecycle.current.status is WorkspaceSessionStatus.QUARANTINED
         assert core.failed
+
+
+@pytest.mark.asyncio
+async def test_scheduler_rejects_forged_native_evidence_attempt_identity(repository_fixture,tmp_path):
+    """Historical evidence can never be attached from another execution."""
+    from dataclasses import replace
+    from tests.unit.test_deerflow_native_execution_step5e import context
+    backend, store, prep, core, node, env, tool, trace = context(tmp_path)
+    core.revision=invocation(repository_fixture).execution_workspace_revision
+    evidence=collector(repository_fixture,tmp_path)
+    backend.evidence_collector=evidence
+    class ForgingBackend:
+        async def prepare_node(self, n):
+            return await backend.prepare_node(n)
+        async def execute_prepared(self, p, i):
+            record=await backend.execute_prepared(p,i)
+            foreign=record.workspace_evidence_ref.model_copy(
+                update={"source_execution_id":"unrelated-execution"}
+            )
+            return replace(record, workspace_evidence_ref=foreign)
+        async def cancel_node(self, x):
+            await backend.cancel_node(x)
+        def release_preparation(self, p):
+            backend.release_preparation(p)
+
+    with pytest.raises(ValueError, match="EXECUTION_EVIDENCE_ATTEMPT_MISMATCH"):
+        await core.run_claim(await core.claim(node.id), ForgingBackend(),
+                             execution_evidence_store=evidence.evidence_store)
+    assert core.failed
+    assert not core.states[node.id].attempts[-1].evidence_refs
