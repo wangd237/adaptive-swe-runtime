@@ -775,22 +775,28 @@ class SchedulerCore:
             raise
 
     async def cancel_task(self) -> None:
-        """Cancellation is not a business failure; residual patches stay unaccepted."""
+        """Cancellation owns terminalization only while task dispatch is OPEN.
+
+        A later user cancellation must never rewrite an already failed or
+        normally completed task into CANCELLED.
+        """
         async with self.state_mutex:
-            if self.gate.state is not TaskDispatchGateState.CLOSED:
+            if self.gate.state is TaskDispatchGateState.OPEN:
                 self._fail_close_locked("TASK_USER_CANCELLED")
-            self._task_cancelled = True
-            self.task_logical_status = TaskLogicalStatus.CANCELLED
-            for node_id, state in tuple(self.states.items()):
-                if state.logical_status in (
-                    NodeLogicalStatus.PENDING, NodeLogicalStatus.READY,
-                    NodeLogicalStatus.REMEDIATION_PENDING, NodeLogicalStatus.BLOCKED,
-                ):
-                    self.states[node_id] = state.model_copy(update={
-                        "logical_status": NodeLogicalStatus.CANCELLED,
-                        "active_dispatch_ticket_id": None,
-                        "block_reason": None, "blocked_by": (),
-                    })
+                self._task_cancelled = True
+                self.task_logical_status = TaskLogicalStatus.CANCELLED
+                for node_id, state in tuple(self.states.items()):
+                    if state.logical_status in (
+                        NodeLogicalStatus.PENDING, NodeLogicalStatus.READY,
+                        NodeLogicalStatus.REMEDIATION_PENDING, NodeLogicalStatus.BLOCKED,
+                    ):
+                        self.states[node_id] = state.model_copy(update={
+                            "logical_status": NodeLogicalStatus.CANCELLED,
+                            "active_dispatch_ticket_id": None,
+                            "block_reason": None, "blocked_by": (),
+                        })
+            # CLOSED means prior terminalization owns the task's status.
+            # A repeated cancellation may join work, never replace its cause.
         await self.drain_committed()
 
     @property
