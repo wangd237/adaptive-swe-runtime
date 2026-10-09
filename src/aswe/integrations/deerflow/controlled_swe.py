@@ -14,7 +14,6 @@ from dataclasses import dataclass
 import hashlib
 import os
 from pathlib import Path
-import shlex
 from typing import Protocol, Any
 
 from aswe.core.contracts.backend import NodeExecutionInvocation
@@ -144,6 +143,12 @@ class ControlledSWEWorkspace:
             raise SWEExecutionDenied("SWE_ISOLATED_BASH_BACKEND_REQUIRED")
         if "bash" in policy.allowed_business_tools and command_backend is None:
             raise SWEExecutionDenied("SWE_BASH_ISOLATION_REQUIRED")
+        if "bash" in policy.allowed_business_tools and (
+            policy.allowed_paths is not None or policy.forbidden_paths
+        ):
+            # A general shell inside the workspace can bypass per-file path
+            # rules; until container-level submounts exist this is incompatible.
+            raise SWEExecutionDenied("SWE_BASH_PATH_POLICY_UNSUPPORTED")
         self.invocation=invocation
         self.policy=policy
         self.root=root
@@ -171,9 +176,7 @@ class ControlledSWEWorkspace:
         # Avoid following links to host files. This is a locked single-owner
         # worktree requirement; a hostile concurrent writer still needs OS
         # isolation and cannot be justified by Python path checks alone.
-        for parent in (self.root,*list(resolved.relative_to(self.root).parents)[::-1]):
-            pass
-        current=self.root
+         current=self.root
         for part in rel.parts:
             current=current/part
             if current.is_symlink():
@@ -215,6 +218,10 @@ class ControlledSWEWorkspace:
             old=self._read(target)
             if self._reads.get(name)!=hashlib.sha256(old.encode()).hexdigest():
                 raise SWEExecutionDenied("SWE_READ_BEFORE_WRITE_REQUIRED")
+        if self.policy.max_changed_files is not None and (
+            name not in self._changes and len(self._changes)>=self.policy.max_changed_files
+        ):
+            raise SWEExecutionDenied("SWE_CHANGED_FILE_LIMIT_EXCEEDED")
         target.parent.mkdir(parents=True,exist_ok=True)
         target,name=self._path(name,create=True)
         try:
@@ -225,9 +232,6 @@ class ControlledSWEWorkspace:
             raise SWEExecutionDenied("SWE_WRITE_FAILED") from None
         self._reads.pop(name,None)
         self._changes.add(name)
-        if self.policy.max_changed_files is not None and len(self._changes)>self.policy.max_changed_files:
-            # Fail-closed *before* allowing a new changed path in next call.
-            raise SWEExecutionDenied("SWE_CHANGED_FILE_LIMIT_EXCEEDED")
         return f"updated {name}"
 
     async def write_file(self, *, path:str, content:str) -> str:
