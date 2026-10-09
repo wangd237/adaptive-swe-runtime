@@ -244,7 +244,10 @@ async def test_native_stream_cancel_revokes_guard_and_is_not_proven_quiescent(tm
     await asyncio.wait_for(trace["started"].wait(),4)
     ids=tuple(store._active)
     assert len(ids)==1
+    signal=backend._completion_events[ids[0]]
+    assert not signal.is_set()  # the stream is blocked, future may be cancelled
     await backend.cancel_node(ids[0])
+    assert signal.is_set()  # native outer coroutine truly left its finally
     with pytest.raises(asyncio.CancelledError):
         await runner
     assert store.active_count==0
