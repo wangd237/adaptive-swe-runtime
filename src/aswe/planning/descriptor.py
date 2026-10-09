@@ -68,8 +68,11 @@ def compile_plan_descriptor(*,contract:CompiledTaskContract,plan:ValidatedWorkPl
             or not set(r.required_tools).issubset(p.allowed_business_tools)
             or p.workspace_access!=r.workspace_access):
             raise DescriptorMismatch("EXECUTION_DESCRIPTOR_POLICY_DRIFT")
+    checks=tuple(sorted(command.id for command in acceptance.commands))
+    if verification_check_ids and tuple(sorted(verification_check_ids))!=checks:
+        raise DescriptorMismatch("VERIFICATION_REPAIR_COMMAND_DRIFT")
     dag=materialize_task_dag(plan=plan,resolved=resolved,inventory=inventory,
-                             verification_check_ids=verification_check_ids)
+                             verification_check_ids=checks)
     assignments=build_assignments(policies)
     team=build_team(plan,policies)
     body=dict(execution_contract_binding=binding,

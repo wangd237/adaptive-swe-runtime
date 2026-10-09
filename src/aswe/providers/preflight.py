@@ -61,7 +61,16 @@ def revalidate_live(*,policy,planning,live,operator):
 
 class LivePreflightBackend:
     """FakeBackend-compatible adapter; execute only a pinned prepared binding."""
-    def __init__(self,backend,*,policy,planning_inventory,live_inventory,live_operator):
+    def __init__(self,backend,*,descriptor,policy,planning_inventory,live_inventory,live_operator):
+        selected={p.node_id:p for p in descriptor.policies}
+        nodes={n.id:n for n in descriptor.task_dag.nodes}
+        if (selected.get(policy.node_id)!=policy
+                or policy.node_id not in nodes
+                or nodes[policy.node_id].provider_id!=policy.provider_id
+                or nodes[policy.node_id].workspace_access!=policy.workspace_access
+                or descriptor.planning_inventory_fingerprint!=planning_inventory.fingerprint):
+            raise LivePreflightError("DESCRIPTOR_POLICY_IDENTITY_MISMATCH")
+        self.descriptor=descriptor
         self.backend=backend
         self.policy=policy
         self.planning=planning_inventory

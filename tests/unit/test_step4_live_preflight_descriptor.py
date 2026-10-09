@@ -179,11 +179,11 @@ def test_live_operator_can_narrow_ceiling_but_cannot_remove_required_or_model_au
 
 @pytest.mark.asyncio
 async def test_live_preflight_stale_rejects_before_scheduler_commit(tmp_path):
-    _,_,_,dag,inv,_,_,ops,policies,_=artifacts(
+    _,_,_,dag,inv,_,_,ops,policies,descriptor=artifacts(
         ("tester",WorkKind.VERIFICATION,"regression_testing"))
     core,manager=scheduler(tmp_path,*dag.nodes)
     backend=FakeExecutionBackend([FakeExecutionScenario()])
-    wrapped=LivePreflightBackend(backend,policy=policies[0],planning_inventory=inv,
+    wrapped=LivePreflightBackend(backend,descriptor=descriptor,policy=policies[0],planning_inventory=inv,
        live_inventory=lambda:changed_inventory(inv,remove_tools=("bash",)),
        live_operator=lambda:next(o for o in ops if o.provider_id=="tester"))
     ticket=await core.claim("tester")
@@ -197,12 +197,12 @@ async def test_live_preflight_stale_rejects_before_scheduler_commit(tmp_path):
 
 @pytest.mark.asyncio
 async def test_live_drift_unrelated_preparation_pinned_even_if_deployment_changes(tmp_path):
-    _,_,_,dag,inv,_,_,ops,policies,_=artifacts(
+    _,_,_,dag,inv,_,_,ops,policies,descriptor=artifacts(
         ("tester",WorkKind.VERIFICATION,"regression_testing"))
     core,_=scheduler(tmp_path,*dag.nodes)
     backend=FakeExecutionBackend([FakeExecutionScenario()])
     state={"live":changed_inventory(inv,add_agent="unrelated")}
-    wrapped=LivePreflightBackend(backend,policy=policies[0],planning_inventory=inv,
+    wrapped=LivePreflightBackend(backend,descriptor=descriptor,policy=policies[0],planning_inventory=inv,
         live_inventory=lambda:state["live"],
         live_operator=lambda:next(o for o in ops if o.provider_id=="tester"))
     await core.run_claim(await core.claim("tester"),wrapped,accept=accept)
@@ -371,3 +371,16 @@ def test_runtime_node_ceiling_can_only_narrow_operator_ceiling():
     assert small[0].max_turns==3
     assert small[0].timeout_seconds==8.
     assert small[0].fingerprint!=policies[0].fingerprint
+
+
+def test_live_backend_rejects_self_signed_policy_from_other_descriptor():
+    _,_,_,dag,inv,_,_,ops,policies,descriptor=artifacts(
+        ("tester",WorkKind.VERIFICATION,"regression_testing"))
+    altered=policies[0].model_dump(mode="json",exclude={"fingerprint"})
+    altered["max_turns"]=1
+    forged=NodeExecutionPolicy(**altered,fingerprint=fingerprint(altered))
+    with pytest.raises(LivePreflightError,match="DESCRIPTOR_POLICY_IDENTITY_MISMATCH"):
+        LivePreflightBackend(FakeExecutionBackend(),descriptor=descriptor,
+            policy=forged,planning_inventory=inv,
+            live_inventory=lambda:inv,
+            live_operator=lambda:next(o for o in ops if o.provider_id=="tester"))
