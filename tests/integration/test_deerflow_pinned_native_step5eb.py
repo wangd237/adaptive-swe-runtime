@@ -92,7 +92,8 @@ def physical_binding(*, visible_tool=read_file, execution_id="native-run-1"):
         oauth_provider=None, oauth_id=None, channel_user_id=None,
         is_internal=False, attributes={},
     )
-    invocation = SimpleNamespace(execution_id=execution_id, run_id="pinned-run")
+    invocation = SimpleNamespace(task_id="physical-task", node_id="node-poc",
+                                 attempt=1, execution_id=execution_id, run_id="pinned-run")
     view = BoundToolView(
         names=("read_file",), objects=(visible_tool,),
         object_seals=(_tool_seal(visible_tool),),
