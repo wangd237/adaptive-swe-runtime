@@ -91,7 +91,7 @@ async def test_model_only_invoker_invokes_trusted_exact_name_and_schema():
         '{"items":["x"]}',usage={"input_tokens":22,"output_tokens":11,
                                  "total_tokens":33,"bad":"ignore"}))
     backend=DeerFlowReasoningBackend(item)
-    assert isinstance(backend,ReasoningBackend)
+    assert callable(backend.generate_structured)  # Protocol intentionally lacks @runtime_checkable
     out=await call(item)
     assert out.data=={"items":("x",)}
     assert out.model_role=="task_analyzer"
