@@ -180,7 +180,8 @@ class ToolCallGuard:
                  resources: PinnedNodeResources, view: BoundToolView,
                  principal: Any, provider: Any,
                  request_factory: Callable[..., Any], auth_enabled: bool,
-                 policy: Any):
+                 policy: Any,
+                 execution_live_checker: Callable[[NodeExecutionInvocation], bool]):
         self.invocation = invocation
         self.resources = resources
         self.view = view
@@ -189,6 +190,7 @@ class ToolCallGuard:
         self.request_factory = request_factory
         self.auth_enabled = auth_enabled
         self.policy = policy
+        self.execution_live_checker = execution_live_checker
         if (policy.fingerprint != resources.policy_fingerprint or
                 not set(view.names).issubset(policy.allowed_business_tools)):
             _deny("TOOL_POLICY_IDENTITY_MISMATCH")
@@ -200,9 +202,18 @@ class ToolCallGuard:
         """Revoke future calls. In-flight provider/native tool quiescence is 5E."""
         self.closed = True
 
+    def _live(self) -> None:
+        try:
+            running = self.execution_live_checker(self.invocation) is True
+        except Exception:
+            running = False
+        if not running:
+            _deny("EXECUTION_BINDING_NOT_ACTIVE")
+
     def _validate(self, *, tool: Any, tool_call_id: str, tool_input: Any) -> str:
         if self.closed:
             _deny("EXECUTION_BINDING_CLOSED")
+        self._live()
         if not isinstance(tool_call_id, str) or not tool_call_id.strip():
             _deny("TOOL_CALL_ID_REQUIRED")
         if tool_call_id in self._used_call_ids:
@@ -264,6 +275,7 @@ class ToolCallGuard:
             # a tool. No await between this check and dispatch to handler.
             if self.closed:
                 _deny("EXECUTION_BINDING_CLOSED")
+            self._live()
             self.resources.assert_intact()
             return await handler()
         finally:
@@ -287,6 +299,7 @@ class ToolCallGuard:
                     _deny("AUTHORIZATION_CALL_DENIED")
             if self.closed:
                 _deny("EXECUTION_BINDING_CLOSED")
+            self._live()
             self.resources.assert_intact()
             return handler()
         finally:
@@ -365,17 +378,22 @@ class NodeExecutionBindingStore:
     def __init__(self, *, preparation_backend: DeerFlowPreparationBackend,
                  principal_supplier: Callable[[PinnedNodeResources], Any],
                  provider_supplier: Callable[[Any], Any],
-                 auth_request_factory: Callable[..., Any]):
+                 auth_request_factory: Callable[..., Any],
+                 execution_live_checker: Callable[[NodeExecutionInvocation], bool]): 
         self.preparation_backend = preparation_backend
         self.principal_supplier = principal_supplier
         self.provider_supplier = provider_supplier
         self.auth_request_factory = auth_request_factory
+        if not callable(execution_live_checker):
+            raise ValueError("trusted Scheduler execution-live checker required")
+        self.execution_live_checker = execution_live_checker
         self._active: dict[str, NodeExecutionBinding] = {}
         self._used: set[str] = set()
 
     @classmethod
     def from_deerflow(cls, *, preparation_backend: DeerFlowPreparationBackend,
-                      host_identity_supplier: Callable[[], Mapping[str, Any]]):
+                      host_identity_supplier: Callable[[], Mapping[str, Any]],
+                      execution_live_checker: Callable[[NodeExecutionInvocation], bool]):
         """Native pinned AuthorizationProvider protocol; no user-supplied ID."""
         try:
             from deerflow.authz.principal import build_principal_from_context
@@ -409,6 +427,7 @@ class NodeExecutionBindingStore:
             principal_supplier=principal_supplier,
             provider_supplier=provider_supplier,
             auth_request_factory=AuthzRequest,
+            execution_live_checker=execution_live_checker,
         )
 
     async def bind(self, *, preparation: NodeExecutionPreparation,
@@ -462,14 +481,21 @@ class NodeExecutionBindingStore:
                 objects=view_tools,
                 object_seals=tuple(_tool_seal(t) for t in view_tools),
             )
-            # Bind once after all waits. Scheduler's owning task remains
-            # active; the actual gate is the 5C claim before authorization.
+            # Authorization may await external systems. Fail closed if the
+            # Scheduler already terminalized this committed attempt.
+            try:
+                still_running = self.execution_live_checker(invocation) is True
+            except Exception:
+                still_running = False
+            if not still_running:
+                _deny("EXECUTION_BINDING_NOT_ACTIVE")
             resources.assert_intact()
             guard = ToolCallGuard(
                 invocation=invocation, resources=resources,
                 view=view, principal=principal, provider=provider,
                 request_factory=self.auth_request_factory, auth_enabled=enabled,
                 policy=self.preparation_backend.policy,
+                execution_live_checker=self.execution_live_checker,
             )
             record = NodeExecutionBinding(
                 execution_id=invocation.execution_id,
@@ -492,6 +518,7 @@ class NodeExecutionBindingStore:
         binding = self._active.get(execution_id)
         if binding is None or binding.guard.closed:
             _deny("EXECUTION_BINDING_UNAVAILABLE")
+        binding.guard._live()
         return binding
 
     def release(self, execution_id: str) -> None:
