@@ -492,3 +492,48 @@ async def test_inherited_native_skills_are_narrowed_in_pinned_snapshot(tmp_path)
     assert pinned.subagent_config.skills == []
     assert pinned.app_config.authorization.enabled is False
     backend.release_preparation(prepared)
+
+@pytest.mark.asyncio
+async def test_same_tool_call_id_concurrent_sync_threads_runs_at_most_once(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    result,store,backend,core,node,env,tool,provider,inv=(
+        await bind_during_scheduler(tmp_path))
+    gate=result["binding"].guard
+    side_effects=[]
+    def call():
+        try:
+            gate.invoke(tool=tool,tool_call_id="same-call-id",
+                tool_input={"path":"x"},handler=lambda:side_effects.append("ran"))
+            return "ok"
+        except ToolBindingError as exc:
+            return exc.code
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses=list(pool.map(lambda _:call(),range(2)))
+    assert sorted(responses)==["TOOL_CALL_REPLAY","ok"]
+    assert side_effects==["ran"]
+
+
+@pytest.mark.asyncio
+async def test_guard_denies_mutating_tool_even_if_host_view_injected(tmp_path):
+    from aswe.integrations.deerflow.tool_guard import BoundToolView,ToolCallGuard
+    from aswe.integrations.deerflow.preparation import _tool_seal
+    result,store,backend,core,node,env,tool,provider,inv=(
+        await bind_during_scheduler(tmp_path))
+    pinned=result["binding"].resources
+    # A hostile adapter that tries to add a mutating tool to a view cannot
+    # authorize its execution; this is independent of normal static filtering.
+    bash=SimpleNamespace(name="bash",func=lambda:None,coroutine=None,args_schema=None)
+    view=BoundToolView(names=("bash",),objects=(bash,),object_seals=(_tool_seal(bash),))
+    policy=SimpleNamespace(fingerprint=pinned.policy_fingerprint,
+        allowed_business_tools=("bash",),denied_tools=(),
+        prohibited_actions=(),allowed_paths=None,forbidden_paths=())
+    gate=ToolCallGuard(invocation=inv,resources=pinned,view=view,
+        principal=SimpleNamespace(user_id="host",is_internal=False),
+        provider=None,request_factory=AuthRequest,auth_enabled=False,
+        policy=policy,execution_live_checker=lambda _:True)
+    ran=[]
+    with pytest.raises(ToolBindingError,match="MUTATING_TOOL_EXECUTION_NOT_ENABLED"):
+        await gate.ainvoke(tool=bash,tool_call_id="unsafe",tool_input={"command":"rm -rf /"},
+            handler=lambda:record_async(ran,"bad"))
+    assert not ran
