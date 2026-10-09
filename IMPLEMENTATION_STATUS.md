@@ -5,7 +5,7 @@
 - Step 0 — CLOSED / ACCEPTED
 - Step 1 — CLOSED / ACCEPTED
 - Step 2 — CLOSED / ACCEPTED (PR #4 merged as `3d19541bb9f0f7e345ec0f4fb8af3a5415b5ed53`)
-- Step 3 — IN PROGRESS (draft PR #5, Step 3A–3D implementation checkpoints pass; 5 Step-4-owned P3 physical cases remain PARTIAL)
+- Step 3 — **NO-GO for closure/merge**: draft PR #5, Step 3A–3D checkpoint tests green, but independent P0 upstream/immutability gaps and 5 physical P3 PARTIAL; see `audits/step3-global-freeze-review.md`
 - Step 4 and later — NOT STARTED
 
 ## Step 2 accepted implementation (PR #4 merged)
@@ -77,6 +77,14 @@
 - Slow synchronous EvidenceChecker is dispatched via asyncio.to_thread instead of blocking Scheduler's event loop, with final ticket authority rechecked before dispatch.
 - Implementation HEAD `2b4061d`: Python 3.11 and 3.13 each 199 passed. Frozen PoC matrix 65 PASS / 0 PARTIAL / 0 GAP.
 - **Step 2 CLOSED:** independent source/Design Freeze consistency sweep documented, latest-head CI verified, PR #4 merged.
+
+## Step 3 Global Design Freeze (2026-10-09)
+
+- Independent review: **PR #5 NO-GO** despite passing unit tests. `audits/step3-global-freeze-review.md` is authoritative audit disposition.
+- Required before scoped Step-3 merge: deterministic Git RepositoryProfile, TaskAnalyzer/Rule Validation/Context Gate, ordinary SWE natural-language effect provenance, recursive compiled-artifact immutability, and independent latest-head review.
+- Mitigated in PR: forged non-test HARD EvidenceRef now remains UNVERIFIED; stale final receipt rejected; compiler version and loaded Repository Guidance are included in contract hash.
+- Frozen 22-case Step-3 inventory: **17 PASS / 5 PARTIAL / 0 GAP**. P3-01/02/03/04/11 have explicit Step-4 physical DAG ownership, not waived.
+- Step 4 entry scope: `plan/step4-implementation-entry.md`; no real DeerFlow permission. Step 3 not CLOSED, PR #5 stays DRAFT.
 
 ## Step 3C semantic planning checkpoint
 

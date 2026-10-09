@@ -30,7 +30,7 @@ This report is **not** an authorization to relax frozen specs, waive a PoC or be
 | DF3-09 — Five frozen phase/physical PoCs remain partial | **Deferred, gated** | P3-01/02/03/04/11 | Semantic validators cover their own phases. Auto materialized phase edges, deterministic same-phase WRITE ordering and real bash/Git tester mutation detection remain absent | **Step 4/Runtime integration owners**; keep these PARTIAL, never claim stage-wide 22 PASS |
 | DF3-10 — ExecutionContractBinding lacks real dispatch source | **Deferred, gated** | §4.13/4.15 / Step 4 | Step 3 produces a digest-sealed `ExecutionContractBinding`, but `observed_execution_binding_fingerprint` is provided by the caller, not a persisted/pinned Provider admission snapshot | **Step 4 must supply a Runtime-owned immutable dispatch binding** |
 | DF3-11 — Native DeerFlow evidence semantics not proven | **Deferred, gated** | §4.15 / Step 5 | Local CanonicalVerifier ≠ pinned DeerFlow `tests_passed` which requires correct per-attempt `bash_executions`, `shell_persistent=False`, and pre-execution evidence collection | **Step 5 explicit Go/No-Go** |
-| DF3-12 — Branch integration conflict and docs freshness | **Release blocker until reconciled** | PR #5 / main | PR #5 initially reported `mergeable_state=dirty` after main advanced with Step-3 status/README updates. Branch inherited an older README phase label and stale status paragraphs | **Resolve main→PR integration; latest-head CI + refresh audit and PR metadata before merge** |
+| DF3-12 — Branch integration conflict and docs freshness | **Reconciled in parent merge; CI pending** | PR #5 / main | PR #5 initially reported `mergeable_state=dirty`. Main's README/Stage status is explicitly incorporated via merge-parent integration; stale branch status replaced with NO-GO audit gate | **Require GitHub mergeability recheck and latest-head CI; this does not authorize PR merge** |
 
 ## Frozen PoC inventory: do not confuse executable evidence with scoped completion
 
@@ -52,7 +52,7 @@ C09/C10 PASS is **scoped** to deterministic Acceptance commands, HMAC-attested l
 
 **Permissible staged merge only after P0-A..D**: PR #5 may be merged as **Step-3 semantic/compiler baseline accepted for Step-4 consumption**, but *only with* frozen P3-01/02/03/04/11 explicitly deferred to Step 4 and no "Step 3 full 22-PoC CLOSED" label. If project policy insists Step 3 CLOSED requires all 22 PASS, defer formal Step 3 CLOSED until Step-4 materializer proves these cases. **No Design Freeze relaxation or silent PoC waiver.**
 
-Do not pull physical DAG materialization or DeerFlow execution into PR #5 to make its stats look complete. Do not merge while `mergeable_state=dirty`, any new CI failure, or any P0 Step-3-owned item remains unresolved.
+Do not pull physical DAG materialization or DeerFlow execution into PR #5 to make its stats look complete. Do not merge while GitHub reports unmergeable, any latest-head CI failure, or any P0 Step-3-owned item remains unresolved.
 
 ## Step 4 Go/No-Go and coding entry
 
