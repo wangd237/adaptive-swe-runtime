@@ -27,8 +27,8 @@
 ## Full frozen PoC exit audit
 
 - Audited cases: 65 (R16–R26, R75–R128)
-- PASS: 60
-- PARTIAL: 5
+- PASS: 65
+- PARTIAL: 0
 - GAP: 0
 - **Step 2 CLOSED is forbidden while PARTIAL/GAP remains.**
 
@@ -50,7 +50,7 @@
 - [x] R91/R94/R95/R99/R123/R128 physical dirty-failure, quarantine and fail-close cancellation result integration
 - [x] R100 trusted typed ReviewGate REQUEST_CHANGES callback + persisted attempt REVIEW_VERDICT; FakeBackend-only API, integration with DeerFlow remains Step 5
 - [x] R103 typed TaskLogicalStatus FAILED/CANCELLED publication within Scheduler mutex transaction
-- [ ] True concurrent mutex / claim / accepted-publish race stresses R119–R121, R125–R126
+- [x] P0-D deterministic concurrency barriers R119–R121/R125–R126, including noncommitted physical Workspace join and timeout quarantine
 - [ ] Finish every audit PARTIAL/GAP with evidence and independent implementation review
 
 ## P0-B incremental status
@@ -66,6 +66,14 @@
 - Fail-close cancelled Consumer is CANCELLED rather than another business FAILED root; its observed mutation is a secondary diagnostic and appears in final repository patch.
 - Unsafe/quiescence-unknown consumer or user cancellation causes QUARANTINED, so terminalizer does not probe current Git.
 - R100 and R103 now PASS for deterministic Step-2 FakeBackend scenarios; real DeerFlow reviewer adapter remains out of scope.
+
+## P0-D concurrency closeout (2026-10-09)
+
+- Deterministic asyncio.Event/physical-lock interleaving tests now cover R119/R120/R121/R125/R126.
+- Real bug repaired: fail-close now joins active physical Workspace holders as well as committed backend attempts before declaring FROZEN. Timeout quarantines safely.
+- Slow synchronous EvidenceChecker is dispatched via asyncio.to_thread instead of blocking Scheduler's event loop, with final ticket authority rechecked before dispatch.
+- Implementation HEAD `2b4061d`: Python 3.11 and 3.13 each 199 passed. Frozen PoC matrix 65 PASS / 0 PARTIAL / 0 GAP.
+- **No merge/Step 2 CLOSED:** independent implementation audit, frozen design consistency sweep, and PR merge authorization still pending.
 
 ## Strict limits
 

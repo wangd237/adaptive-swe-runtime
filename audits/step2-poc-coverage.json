@@ -8,8 +8,8 @@
     "GAP": "specific scenario has no direct executable regression; blocks Step 2 closure"
   },
   "counts": {
-    "PASS": 60,
-    "PARTIAL": 5,
+    "PASS": 65,
+    "PARTIAL": 0,
     "GAP": 0
   },
   "entries": [
@@ -457,25 +457,25 @@
       "id": "R119",
       "description": "task-wide fail-close 时已有 WAITING/LOCKED_PRECOMMIT tickets",
       "criterion": "TaskDispatchGate epoch 改变；所有旧 ticket commit fail",
-      "status": "PARTIAL",
-      "test": "tests/unit/test_scheduler_foundation.py::test_gate_close_after_claim_before_execution_creates_no_attempt",
-      "assessment": "gate epoch fence 已测，WAITING+LOCKED 同时并发缺复现"
+      "status": "PASS",
+      "test": "tests/unit/test_p0d_concurrency.py::test_r119_waiting_and_locked_tickets_revoked_by_same_failclose_epoch",
+      "assessment": "真实物理 WRITE lock 下 WAITING + LOCKED_PRECOMMIT 同时存在；fail-close 同一 gate epoch 撤销两票且禁止 commit；额外测试 stuck holder timeout → QUARANTINED"
     },
     {
       "id": "R120",
       "description": "prepare_node 期间 ticket 被 revoke",
       "criterion": "prepare_node 不产生 model/tool/workspace side effect；结果可直接 discard",
-      "status": "PARTIAL",
-      "test": "tests/unit/test_scheduler_repair.py::test_preparing_ticket_is_revoked_without_precommit_attempt",
-      "assessment": "已有 PREPARING revoke，prepare_node 内阻塞屏障用例未测"
+      "status": "PASS",
+      "test": "tests/unit/test_p0d_concurrency.py::test_r120_prepare_barrier_revoked_before_workspace_or_execution",
+      "assessment": "asyncio.Event 阻塞 prepare_node，期间 fail-close；恢复后无 attempt / execute / Workspace 访问；票据保持 REVOKED"
     },
     {
       "id": "R121",
       "description": "SchedulerStateMutex 持有期间",
       "criterion": "不等待 Workspace lock/backend capacity/I/O；避免 SchedulerMutex→Workspace 反向等待",
-      "status": "PARTIAL",
-      "test": "tests/unit/test_scheduler_foundation.py::test_concurrent_claims_linearize_at_mutex",
-      "assessment": "mutex 短事务已审；缺恶意 hook 持锁 I/O/死锁反例"
+      "status": "PASS",
+      "test": "tests/unit/test_p0d_concurrency.py::test_r121_blocking_dependency_evidence_io_does_not_hold_state_mutex_or_loop",
+      "assessment": "threading.Event 同步慢 EvidenceChecker 在 to_thread 中执行；不持 SchedulerStateMutex / 不阻塞 event loop；并发 fail-close 及时发布且旧票不能 commit"
     },
     {
       "id": "R122",
@@ -505,17 +505,17 @@
       "id": "R125",
       "description": "Writer logical success publication 与 downstream READY recompute 并发",
       "criterion": "accepted_attempt/handoff + acceptance_epoch increment + READY recompute 在同一 SchedulerStateMutex transaction",
-      "status": "PARTIAL",
-      "test": "tests/unit/test_scheduler_foundation.py::test_commit_allocates_attempt_only_after_lock_and_publishes_handoff",
-      "assessment": "accepted + READY under mutex；publish/claim 并发专测缺失"
+      "status": "PASS",
+      "test": "tests/unit/test_p0d_concurrency.py::test_r125_acceptance_publication_barrier_never_exposes_partial_stamp",
+      "assessment": "asyncio.Event 冻结 Writer trusted acceptance；consumer 尚 PENDING 时拒绝 claim；接受公布后 READY + accepted_attempt + accepted_handoff + epoch 原子一致"
     },
     {
       "id": "R126",
       "description": "READY Node claim 与 Writer reopen 并发",
       "criterion": "READY check + dependency stamps capture + single ticket claim 原子化；ticket 不混合两代 authority",
-      "status": "PARTIAL",
-      "test": "tests/unit/test_scheduler_foundation.py::test_concurrent_claims_linearize_at_mutex",
-      "assessment": "claim atomicity 已测；与 reopen 同时争抢 ticket/stamps 的压力测试缺失"
+      "status": "PASS",
+      "test": "tests/unit/test_p0d_concurrency.py::test_r126_claim_wins_mutex_before_reopen_revokes_complete_old_epoch_ticket",
+      "assessment": "SchedulerMutex 排队使 claim 赢得旧完整 stamp，reopen 随即 revoke；反序 reopen 先赢时 claim 不可再用旧 epoch；两路径均无非法 attempt"
     },
     {
       "id": "R127",
