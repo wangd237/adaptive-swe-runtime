@@ -107,7 +107,8 @@ class CompiledTaskContract(FrozenModel):
         if self.fingerprint != fingerprint(self.model_dump(mode="json", exclude={"fingerprint"})):
             raise ValueError("compiled contract fingerprint mismatch")
         ids = tuple(c.id for c in self.constraints)
-        if ids != tuple(sorted(set(ids))):
+        keys = tuple(c.key for c in self.constraints)
+        if len(set(ids)) != len(ids) or keys != tuple(sorted(set(keys))):
             raise ValueError("compiled constraint order/identity not canonical")
         return self
 
