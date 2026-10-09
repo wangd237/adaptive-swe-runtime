@@ -106,5 +106,14 @@ class LivePreflightBackend:
         # resources from the same execution snapshot.
         return await self.backend.execute_prepared(entry[0],invocation)
 
+    def discard_preparation(self,preparation):
+        """Release precommit snapshots through nested provider-neutral adapters."""
+        entry=self.prepared.pop(preparation.preparation_id,None)
+        if entry is None or entry[1]!=preparation:
+            raise LivePreflightError("PREPARED_EXECUTION_BINDING_MISMATCH")
+        dispose=getattr(self.backend,"discard_preparation",None)
+        if callable(dispose):
+            dispose(entry[0])
+
     async def cancel_node(self,execution_id):
         return await self.backend.cancel_node(execution_id)
