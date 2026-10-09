@@ -371,12 +371,19 @@ class SchedulerCore:
                 and handoff.source_attempt == invocation.attempt
                 and handoff.observed_workspace_revision == post
             )
+            # An already closed task gate or a local cancel wins against a
+            # completed-but-too-late backend response. A handoff produced by
+            # a racing acceptance callback is inert, not a second failure root.
+            cancel_consequence = (
+                invocation.node_id in self._locally_cancelled_nodes
+                or self.gate.state is TaskDispatchGateState.CLOSED
+            )
             if handoff is not None and not success:
-                # A forged/stale success artifact must never be accepted.
-                # Turn it into a terminal fail-closed outcome, not a thrown
-                # exception leaving a RUNNING attempt indefinitely.
-                self._fail_close_locked("HANDOFF_AUTHORITY_INVALID", root_node=invocation.node_id)
-                close_dispatch = True
+                if not cancel_consequence:
+                    # Only forged/stale handoffs while authority is OPEN are
+                    # independent trust violations.
+                    self._fail_close_locked("HANDOFF_AUTHORITY_INVALID", root_node=invocation.node_id)
+                    close_dispatch = True
                 handoff = None
             if success and self.nodes[invocation.node_id].workspace_access.value == "read" and mutation is not MutationEvidence.PROVEN_NONE:
                 success = False
@@ -384,8 +391,11 @@ class SchedulerCore:
                 self._fail_close_locked("READ_WORKSPACE_MUTATION", root_node=invocation.node_id)
                 close_dispatch = True
             local_cancel = invocation.node_id in self._locally_cancelled_nodes
-            cancelled = (local_cancel or
-                         getattr(result, "terminal_status", None) is BackendTerminalStatus.CANCELLED)
+            cancelled = (
+                local_cancel
+                or self.gate.state is TaskDispatchGateState.CLOSED
+                or getattr(result, "terminal_status", None) is BackendTerminalStatus.CANCELLED
+            )
             if review_verdict_ref is not None and (
                 self.nodes[invocation.node_id].work_kind is not WorkKind.REVIEW
                 or review_verdict_ref.kind is not AttemptEvidenceKind.REVIEW_VERDICT
