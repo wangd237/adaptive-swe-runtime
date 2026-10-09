@@ -1123,7 +1123,9 @@ class SchedulerCore:
                 # Any revoked/precommit-cancelled preparation must release its
                 # retained provider resources without creating an attempt.
                 # The optional hook is synchronous and must perform no I/O.
-                cleanup = getattr(backend, "discard_preparation", None)
+                cleanup = getattr(backend, "release_preparation", None)
+                if not callable(cleanup):
+                    cleanup = getattr(backend, "discard_preparation", None)
                 if callable(cleanup):
                     try:
                         cleanup(preparation)
