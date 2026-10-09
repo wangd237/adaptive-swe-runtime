@@ -31,9 +31,13 @@ from aswe.integrations.deerflow.tool_guard import (
 )
 
 
+TOOL_INVOCATIONS: list[str] = []
+
+
 @tool("read_file")
 def read_file(path: str) -> str:
     """Read a harmless synthetic fixture path only; no filesystem access."""
+    TOOL_INVOCATIONS.append(path)
     return "fixture:" + path
 
 
@@ -253,15 +257,20 @@ async def test_pinned_builtin_rbac_authorizes_and_denies_real_tool_call():
     state2, tools2, _ = await executor2._build_initial_state("read README")
     graph2 = await executor2._create_agent(tools2, deferred_setup=None, extensions=None)
     output2 = []
+    prior_invocations = len(TOOL_INVOCATIONS)
+    caught_denial = False
     try:
         async for frame in graph2.astream(state2, context=identity,
                                           config={"recursion_limit": 20}):
             output2.append(frame)
-    except (ToolBindingError, Exception) as exc:
-        # Some native ToolNode versions convert middleware errors to a
-        # structured ToolMessage, others propagate it. Neither may execute
-        # the protected handler.
-        assert "AUTHORIZATION_CALL_DENIED" in str(exc) or isinstance(exc, Exception)
+    except Exception as exc:
+        assert "AUTHORIZATION_CALL_DENIED" in str(exc)
+        caught_denial = True
+    assert len(TOOL_INVOCATIONS) == prior_invocations
+    assert caught_denial or any(
+        "AUTHORIZATION_CALL_DENIED" in str(getattr(message, "content", ""))
+        for frame in output2 for message in frame.get("messages", [])
+    )
     assert denied.guard._used_call_ids == {"native-pinned-tool-call-1"}
     assert not any(
         getattr(msg, "content", None) == "fixture:README.md"
@@ -281,3 +290,17 @@ async def test_live_graph_refuses_revoked_binding_before_model_or_tool_call():
         async for _ in graph.astream(state, context={}, config={"recursion_limit": 20}):
             pass
     assert binding.guard._used_call_ids == set()
+
+
+@pytest.mark.asyncio
+async def test_real_subagent_executor_aexecute_native_lifecycle_offline():
+    """Full frozen _aexecute admission, graph streaming and terminalization."""
+    assembler, _ = native_assembler_with_offline_model()
+    binding = physical_binding(execution_id="native-execute-poc")
+    executor = assembler.build(binding)
+    result = await executor._aexecute("Read README.md")
+    assert getattr(result.status, "value", "") == "completed", (
+        "Native lifecycle status must be completed, not merely graph-compiled"
+    )
+    assert result.result == "offline-native-complete"
+    assert binding.guard._used_call_ids == {"native-pinned-tool-call-1"}
