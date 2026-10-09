@@ -441,7 +441,15 @@ class NodeExecutionBindingStore:
         self._used.add(invocation.execution_id)
         try:
             enabled = _auth_enabled(resources)
-            names = _static_surface(resources)
+            admitted = _static_surface(resources)
+            restricted = tuple(name for name in admitted
+                if STANDARD_EFFECTS.get("config:" + name) is not ToolEffect.READ_ONLY)
+            required = self.preparation_backend.policy.required_business_tools
+            if set(required).intersection(restricted):
+                _deny("MUTATING_TOOL_EXECUTION_NOT_ENABLED")
+            # Optional mutating tools must not even appear in the model's view
+            # when the physical Workspace/policy/receipt guard is absent.
+            names = tuple(name for name in admitted if name not in restricted)
             principal = self.principal_supplier(resources)
             if not _principal_ok(principal):
                 _deny("HOST_PRINCIPAL_UNTRUSTED")
