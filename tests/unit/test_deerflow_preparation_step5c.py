@@ -60,7 +60,7 @@ class Sub:
     timeout_seconds: int = 100
     tools: list[str] | None = None
     disallowed_tools: list[str] = field(default_factory=list)
-    skills: list[str] | None = None
+    skills: list[str] | None = field(default_factory=list)
 
 
 def setup(*, selected_model="fake", sub_model="inherit"):
@@ -77,7 +77,11 @@ def setup(*, selected_model="fake", sub_model="inherit"):
     obj = SimpleNamespace(name="read_file", func=lambda: None, coroutine=None, args_schema=None)
     tool_cfg = SimpleNamespace(name="read_file", use=DEERFLOW_USE_BY_CONTRACT["read_file"], group="file:read")
     app = App(tools=[tool_cfg], models=[Model(name="fake", use="test.provider:model", model="mock")],
-              plugins=[], extensions=ConfigPart(), subagent_runtime=SimpleNamespace(max_running=2))
+              plugins=[], extensions=ConfigPart(), subagent_runtime=SimpleNamespace(max_running=2),
+              tool_search=SimpleNamespace(enabled=False),
+              skill_evolution=SimpleNamespace(enabled=False),
+              authorization=SimpleNamespace(enabled=False, fail_closed=True, default_role="user",
+                                            provider=None))
     def resolve(use):
         assert use == tool_cfg.use
         return obj
