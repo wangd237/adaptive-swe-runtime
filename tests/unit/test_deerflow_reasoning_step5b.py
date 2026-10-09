@@ -293,3 +293,67 @@ def test_model_timeout_budget_and_empty_roles_rejected():
         invoker(timeout=-1)
     with pytest.raises(ValueError):
         invoker(role_models={"task_analyzer":""})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("unsafe",[
+    {"$ref":"https://untrusted.example/schema.json"},
+    {"$ref":"file:///etc/passwd"},
+    {"$dynamicRef":"https://untrusted.example/x"},
+    {"$id":"https://untrusted.example/anchor"},
+])
+async def test_schema_refs_must_remain_local_no_remote_resolution(unsafe):
+    item,model,created=invoker()
+    with pytest.raises(ModelInvocationError,match="EXTERNAL_SCHEMA_REFERENCE_FORBIDDEN"):
+        await call(item,schema=unsafe)
+    assert not created and not model.calls
+
+
+@pytest.mark.asyncio
+async def test_pydantic_local_defs_are_accepted_by_schema_policy():
+    class Result(BaseModel):
+        class Leaf(BaseModel):
+            answer:str
+        payload:Leaf
+    output=json.dumps({"payload":{"answer":"safe"}})
+    item,model,created=invoker(model=FakeModel(output))
+    result=await call(item,schema=Result.model_json_schema())
+    assert result.data["payload"]["answer"]=="safe"
+    assert len(created)==1
+
+
+@pytest.mark.asyncio
+async def test_task_analyzer_consumes_model_invoker_without_authority_promotion():
+    from aswe.planning.analyzer_runtime import TaskAnalyzer
+    from aswe.planning.contracts import make_task_request
+    from aswe.planning.profile import RepositoryProfile
+    raw={
+        "spec":{
+            "task_type":"bug_fix","description":"Fix login",
+            "domains":[],"repository_level":True,"complexity":"medium",
+            "risk":"medium","testing_required":False,"review_required":False,
+            "scope_hints":[],"capability_hints":[],"planning_uncertainties":[]
+        },
+        "draft":{"candidates":[]},
+    }
+    model=FakeModel(json.dumps(raw))
+    item,_,factory_calls=invoker(model=model)
+    profile=RepositoryProfile(
+        base_sha="a"*40,tracked_file_count=0,top_level_tree=(),
+        languages={},manifests=(),test_configs=(),build_configs=(),
+        ci_configs=(),guidance_files=(),test_framework_hints=(),
+        build_system_hints=(),task_anchor_matches=(),truncated=False,
+    )
+    result=await TaskAnalyzer(DeerFlowReasoningBackend(item)).analyze(
+        request=make_task_request(request_id="fix",raw_text="Fix login"),
+        profile=profile,
+    )
+    assert result.spec.task_type.value=="bug_fix"
+    assert "code_modification" in result.spec.capability_hints
+    # The hint is NOT an authorization grant; contract compilation alone owns it.
+    from aswe.planning.compiler import ConstraintCompiler,RuntimePolicyConfig
+    c,authority=ConstraintCompiler(RuntimePolicyConfig(policy_id="p")).compile(
+        request=make_task_request(request_id="a",raw_text="Analyze login"),
+        repository_base_sha="a"*40,task_spec=result.spec)
+    assert not authority.repository_mutation_allowed
+    assert len(factory_calls)==1

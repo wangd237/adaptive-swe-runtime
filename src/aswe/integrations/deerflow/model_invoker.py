@@ -40,6 +40,38 @@ def _reject_nonfinite(value: str) -> None:
     raise ValueError("non-finite JSON number")
 
 
+def _check_local_schema(schema: dict[str, Any]) -> None:
+    """Avoid remote JSON-Schema reference fetching; only local Pydantic refs.
+
+    Schema comes from Runtime TaskAnalyzer/SemanticPlanner, not the model, but
+    the Adapter boundary must not accidentally resolve HTTP(S) references.
+    """
+    try:
+        wire = json.dumps(schema, ensure_ascii=False, allow_nan=False)
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise ModelInvocationError("INVALID_REASONING_SCHEMA") from exc
+    if len(wire) > 120000:
+        raise ModelInvocationError("REASONING_SCHEMA_TOO_LARGE")
+    pending = [schema]
+    count = 0
+    while pending:
+        node = pending.pop()
+        count += 1
+        if count > 5000:
+            raise ModelInvocationError("REASONING_SCHEMA_TOO_COMPLEX")
+        if isinstance(node, dict):
+            if any(k in node for k in ("$dynamicRef", "$recursiveRef", "$id")):
+                raise ModelInvocationError("EXTERNAL_SCHEMA_REFERENCE_FORBIDDEN")
+            ref = node.get("$ref")
+            if ref is not None and (
+                not isinstance(ref, str) or not (ref == "#" or ref.startswith("#/"))
+            ):
+                raise ModelInvocationError("EXTERNAL_SCHEMA_REFERENCE_FORBIDDEN")
+            pending.extend(node.values())
+        elif isinstance(node, list):
+            pending.extend(node)
+
+
 def _decode_structured(content: Any, schema: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(content, str):
         raise ModelInvocationError("MODEL_OUTPUT_NOT_JSON_TEXT")
@@ -207,6 +239,7 @@ class ModelInvoker:
             raise ModelInvocationError("INVALID_REASONING_REQUEST")
         if len(system_prompt) > 20000 or len(data_context) > 300000:
             raise ModelInvocationError("REASONING_CONTEXT_TOO_LARGE")
+        _check_local_schema(response_schema)
         try:
             Draft202012Validator.check_schema(response_schema)
         except Exception as exc:
