@@ -365,7 +365,8 @@ class SchedulerCore:
                       certified_post: WorkspaceRevision | None = None,
                       own_acceptance_feedback: RepairFeedback | None = None,
                       own_evidence_refs: tuple[EvidenceRef, ...] = (),
-                      review_verdict_ref: EvidenceRef | None = None) -> None:
+                      review_verdict_ref: EvidenceRef | None = None,
+                      execution_evidence_refs: tuple[EvidenceRef, ...] = ()) -> None:
         close_dispatch = False
         async with self.state_mutex:
             state = self.states[invocation.node_id]
@@ -474,8 +475,9 @@ class SchedulerCore:
                 ),
                 "handoff": handoff if success else None,
                 "evidence_refs": (
-                    own_evidence_refs if own_certified_failure else
-                    running.evidence_refs + ((review_verdict_ref,) if review_verdict_ref else ())
+                    running.evidence_refs + execution_evidence_refs +
+                    (own_evidence_refs if own_certified_failure else ()) +
+                    ((review_verdict_ref,) if review_verdict_ref else ())
                 ),
             })
             changes: dict[str, Any] = {
@@ -989,6 +991,7 @@ class SchedulerCore:
         accept: Acceptance | None = None,
         review_gate: ReviewGate | None = None,
         review_evidence_store: LocalEvidenceStore | None = None,
+        execution_evidence_store: LocalEvidenceStore | None = None,
     ) -> NodeExecutionInvocation | None:
         """Deterministic FakeBackend orchestration; no model-derived acceptance.
 
@@ -1069,6 +1072,33 @@ class SchedulerCore:
                             "head_matches_baseline": state.head_matches_baseline,
                         })
                         certified_post = post
+                    # 5F-B: evidence references are native backend output
+                    # HINTS only. The Runtime supplies an independent evidence
+                    # store and verifies bytes/provenance before they may enter
+                    # an immutable historical Attempt. No automatic acceptance.
+                    native_refs = tuple(
+                        ref for ref in (
+                            getattr(result, "tool_receipt_ref", None),
+                            getattr(result, "workspace_evidence_ref", None),
+                        ) if ref is not None
+                    )
+                    if native_refs:
+                        if execution_evidence_store is None or len(set(native_refs)) != len(native_refs):
+                            raise ValueError("TRUSTED_EXECUTION_EVIDENCE_STORE_REQUIRED")
+                        for ref in native_refs:
+                            if (not isinstance(ref, EvidenceRef)
+                                    or ref.kind not in (
+                                        AttemptEvidenceKind.TOOL_RECEIPT_LEDGER,
+                                        AttemptEvidenceKind.WORKSPACE_CHANGESET,
+                                    )
+                                    or ref.source_node_id != invocation.node_id
+                                    or ref.source_execution_id != invocation.execution_id
+                                    or ref.source_attempt != invocation.attempt
+                                    or not ref.evidence_id.startswith(self.task_id + "__")):
+                                raise ValueError("EXECUTION_EVIDENCE_ATTEMPT_MISMATCH")
+                            await asyncio.to_thread(execution_evidence_store.get, ref)
+                    # A persisted diagnostic is not an Acceptance verdict and
+                    # cannot stand in for an independently verified Handoff.
                     if result.terminal_status is BackendTerminalStatus.COMPLETED and result.quiescent:
                         if (self.nodes[invocation.node_id].work_kind is WorkKind.REVIEW
                                 and review_gate is not None):
@@ -1112,6 +1142,7 @@ class SchedulerCore:
                         own_acceptance_feedback=own_fb,
                         own_evidence_refs=own_refs,
                         review_verdict_ref=review_ref,
+                        execution_evidence_refs=native_refs,
                     )
                 except BaseException:
                     await self._abort_committed(
