@@ -1,3 +1,13 @@
+## Step 5C deterministic/Design Freeze audit (2026-10-09)
+
+- Preparation-only Core scope: **SCOPED GO**, real DeerFlow execution **NO-GO**. PR #7 remains Draft/Open and unmerged.
+- Dedicated independent source/Design Freeze consistency sweep: `audits/step5c-independent-consistency-review.md`.
+- Fixed Python collection error, native Subagent tool allow/deny override, and insufficient snapshot integrity checks. `PinnedNodeResources.assert_intact()` revalidates copied AppConfig/SubagentConfig/ModelConfig, selected tool observable surfaces and frozen LoadedExtensions generation before future guarded use.
+- Scheduler is the sole execution identity allocator after Workspace lock and commit. Live `SchedulerCore.is_committed_invocation` demands exact object, ticket COMMITTED, active owner and task/epoch. 5C claim requires trusted injected checker; unknown/malformed/checker failure fails closed. Opaque preparation is consumed at most once.
+- Scheduler revocation, cancellation and precommit Workspace wait call frozen-spec `release_preparation`; LivePreflightBackend forwards resource cleanup. Adversarial runtime interleaving and model/tool/extension mutation tests are in `tests/unit/test_deerflow_preparation_step5c.py`.
+- Baseline test evidence: `c6fba6fc` GitHub Actions 37906425502: Python 3.11 **394 passed**, Python 3.13 **394 passed**. Latest HEAD, including checker-error negative, requires fresh green CI before final closure.
+- **Not proven:** arbitrary native Python callable closure/ExtensionData immutability, real DeerFlow package import, live AuthorizationProvider, actual model API invocation, tool-call middleware, execution quiescence, sandbox/Bash receipts, or real shared mutable Workspace. 5D–5G remain open.
+
 ## Step 5C pinned preparation checkpoint (2026-10-09)
 
 - PR #7 remains Draft/Open. New `src/aswe/integrations/deerflow/preparation.py` introduces `DeerFlowPreparationBackend`, opaque `PinnedNodeResources` and one-shot `claim_for_execution` as an explicitly **5C-only, execution-disabled** seam.
