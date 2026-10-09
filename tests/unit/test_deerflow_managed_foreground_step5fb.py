@@ -164,3 +164,23 @@ async def test_prestate_drift_failclosed_before_running(repository_fixture):
     with pytest.raises(ForegroundExecutionError,match="FOREGROUND_PRESTATE_DRIFT"):
         await runner.run(invocation=inv, command_id=cmd.id, command=cmd.command)
     assert runner._runs[inv.execution_id].process is None
+
+
+@pytest.mark.asyncio
+async def test_known_detached_entrypoints_are_rejected_before_spawn(repository_fixture):
+    runner, inv, cmd = _approved(repository_fixture, ("nohup", "sleep", "1"))
+    with pytest.raises(ForegroundExecutionError, match="UNSUPPORTED_BACKGROUND_EXECUTION"):
+        await runner.run(invocation=inv, command_id=cmd.id, command=cmd.command)
+    assert runner._runs == {}
+
+
+@pytest.mark.asyncio
+async def test_approved_but_missing_executable_fails_closed(repository_fixture):
+    runner, inv, cmd = _approved(
+        repository_fixture, ("a-swe-nonexistent-executable-5fb",)
+    )
+    with pytest.raises(ForegroundExecutionError, match="FOREGROUND_EXEC_SPAWN_FAILED"):
+        await runner.run(invocation=inv, command_id=cmd.id, command=cmd.command)
+    observed = await runner.await_completion(inv.execution_id)
+    assert observed is not None and observed.status == "unverified"
+    assert observed.process_group_drained is False
