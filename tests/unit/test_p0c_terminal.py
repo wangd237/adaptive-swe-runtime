@@ -24,6 +24,7 @@ from aswe.runtime.repair import (
     make_verification_result, resolve_verification_repair_attribution,
 )
 from aswe.runtime.dispatch import RepairScopeInvalidated, DispatchRevoked
+from aswe.runtime.review import ReviewVerdict, ReviewDecision, make_review_verdict
 from aswe.runtime.state import NodeLogicalStatus, NodeBlockReason
 from aswe.workspace.session import WorkspaceSessionStatus
 from tests.fakes import FakeExecutionBackend, FakeExecutionScenario, MutationEvidence
@@ -106,6 +107,7 @@ async def test_r91_r94_r95_r103_dirty_writer_failed_reviewer_never_runs_and_patc
     ready_elsewhere = await core.claim("independent")
     await core.run_claim(await core.claim("writer"), backend)
     assert core.failed and manager.lifecycle.current.status is WorkspaceSessionStatus.FROZEN
+    assert core.task_logical_status is TaskLogicalStatus.FAILED
     assert core.states["writer"].logical_status is NodeLogicalStatus.FAILED
     assert core.states["review"].logical_status is NodeLogicalStatus.BLOCKED
     assert core.states["independent"].logical_status is NodeLogicalStatus.BLOCKED
@@ -146,13 +148,28 @@ async def test_r100_review_request_changes_preserves_writer_patch_but_not_accept
         Writer([FakeExecutionScenario(mutation_evidence=MutationEvidence.OBSERVED)]),
         accept=accept,
     )
+    async def trusted_review(_result, invocation, revision):
+        return make_review_verdict(
+            node_id=invocation.node_id, execution_id=invocation.execution_id,
+            attempt=invocation.attempt, revision=revision,
+            decision=ReviewDecision.REQUEST_CHANGES,
+            findings=("patch needs contract-compatible behavior",),
+        )
     await core.run_claim(
         await core.claim("review"),
         FakeExecutionBackend([FakeExecutionScenario(
-            terminal_status=BackendTerminalStatus.FAILED,
-            failure_kind="REVIEW_GATE_REJECTED", mutation_evidence=MutationEvidence.PROVEN_NONE,
+            terminal_status=BackendTerminalStatus.COMPLETED,
+            result="model prose is not a repair authority",
+            mutation_evidence=MutationEvidence.PROVEN_NONE,
         )]),
+        review_gate=trusted_review, review_evidence_store=store,
     )
+    review_attempt = core.states["review"].attempts[-1]
+    assert len(review_attempt.evidence_refs) == 1
+    assert review_attempt.evidence_refs[0].kind is AttemptEvidenceKind.REVIEW_VERDICT
+    review_data = ReviewVerdict.model_validate(store.get(review_attempt.evidence_refs[0]))
+    assert review_data.decision is ReviewDecision.REQUEST_CHANGES
+    assert review_data.source_execution_id == review_attempt.execution_id
     assert core.states["writer"].logical_status is NodeLogicalStatus.SUCCEEDED
     assert core.states["review"].logical_status is NodeLogicalStatus.FAILED
     assert core.states["review"].terminal_failure_kind == "REVIEW_GATE_REJECTED"
@@ -251,6 +268,7 @@ async def _scope_cancel_fixture(terminal_fixture, *, quiescent=True):
         )
     await runner
     assert core.failed and not core.cancelled
+    assert core.task_logical_status is TaskLogicalStatus.FAILED
     assert core.states["consumer"].logical_status is NodeLogicalStatus.CANCELLED
     assert core.states["consumer"].attempts[-1].status.value == "cancelled"
     assert core.states["verify"].logical_status is NodeLogicalStatus.FAILED
@@ -347,6 +365,7 @@ async def test_r128_taskwide_user_cancel_uncertain_backend_results_in_quarantine
     await core.cancel_task()
     await runner
     assert core.cancelled and manager.lifecycle.current.status is WorkspaceSessionStatus.QUARANTINED
+    assert core.task_logical_status is TaskLogicalStatus.CANCELLED
     from aswe.runtime import finalization
     def disallow(*args, **kwargs):
         raise AssertionError("quarantine cannot read current workspace")
@@ -382,3 +401,32 @@ async def test_r102_verification_repair_budget_zero_closes_gate_without_new_writ
     assert core.states["writer"].attempts == writer.attempts
     assert core.states["verify"].logical_status is NodeLogicalStatus.FAILED
     assert manager.lifecycle.current.status is WorkspaceSessionStatus.FROZEN
+
+
+@pytest.mark.asyncio
+async def test_r100_review_gate_rejects_forged_or_unbound_request_changes(terminal_fixture):
+    baseline, _, binding, store = terminal_fixture
+    core, _ = scheduler(
+        Path(binding.repository_root),
+        node("review", kind=WorkKind.REVIEW, access=WorkspaceAccess.READ),
+    )
+    core.revision = baseline.revision
+    async def forged(_result, invocation, revision):
+        return make_review_verdict(
+            node_id=invocation.node_id,
+            execution_id="different-executor",
+            attempt=invocation.attempt,
+            revision=revision,
+            decision=ReviewDecision.REQUEST_CHANGES,
+            findings=("untrusted",),
+        )
+    with pytest.raises(ValueError, match="ReviewVerdict provenance"):
+        await core.run_claim(
+            await core.claim("review"),
+            FakeExecutionBackend([FakeExecutionScenario()]),
+            review_gate=forged, review_evidence_store=store,
+        )
+    assert core.failed
+    assert core.task_logical_status is TaskLogicalStatus.FAILED
+    assert core.states["review"].accepted_handoff is None
+    assert core.workspace.lifecycle.current.status is WorkspaceSessionStatus.FROZEN
