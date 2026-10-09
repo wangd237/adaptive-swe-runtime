@@ -188,7 +188,6 @@ async def test_provider_visibility_and_model_permission_fail_closed(tmp_path, ch
 @pytest.mark.asyncio
 @pytest.mark.parametrize(("change","code"),[
     ("tool_search","DYNAMIC_TOOL_DISCOVERY_UNSUPPORTED"),
-    ("skill_auto","SKILL_ACTIVATION_UNSUPPORTED"),
     ("skill_evolution","SKILL_EVOLUTION_UNSUPPORTED"),
     ("plugin","DYNAMIC_EXTENSIONS_UNSUPPORTED"),
     ("mcp_use","DYNAMIC_TOOL_PROVENANCE_FORBIDDEN"),
@@ -196,12 +195,6 @@ async def test_provider_visibility_and_model_permission_fail_closed(tmp_path, ch
 async def test_dynamic_skill_mcp_plugin_provenance_refused(tmp_path, change, code):
     def configure(env):
         if change == "tool_search": env["app"].tool_search.enabled = True
-        if change == "skill_auto":
-            original = env["sub_model"]
-            # Empty skills are explicit; None means unrestricted skill catalog.
-            orig_resolver = backend.subagent_resolver
-            backend.subagent_resolver = lambda name, **kw: (
-                lambda sub: set_skills(sub))(orig_resolver(name, **kw))
         if change == "skill_evolution": env["app"].skill_evolution.enabled = True
         if change == "plugin":
             object.__setattr__(env["extensions"], "plugins", (("plugin", object()),))
@@ -244,10 +237,6 @@ async def test_dynamic_skill_mcp_plugin_provenance_refused(tmp_path, change, cod
     await core.run_claim(await core.claim(node.id), B(), accept=accept)
     assert error == code and store.active_count == 0
 
-
-def set_skills(sub):
-    sub.skills = None
-    return sub
 
 
 @pytest.mark.asyncio
@@ -487,3 +476,19 @@ async def test_async_authorization_liveness_rechecked_after_await(tmp_path):
     with pytest.raises(ToolBindingError,match="EXECUTION_BINDING_NOT_ACTIVE"):
         await pending
     assert not called
+
+@pytest.mark.asyncio
+async def test_inherited_native_skills_are_narrowed_in_pinned_snapshot(tmp_path):
+    backend,node,env,tool=setup()
+    core,_=scheduler(tmp_path,node)
+    backend.task_id=core.task_id
+    backend.commit_checker=core.is_committed_invocation
+    def inherit(name,**kwargs):
+        from tests.unit.test_deerflow_preparation_step5c import Sub
+        return Sub(name=name,skills=None)
+    backend.subagent_resolver=inherit
+    prepared=await backend.prepare_node(node)
+    pinned=backend._pending[prepared.preparation_id][1]
+    assert pinned.subagent_config.skills == []
+    assert pinned.app_config.authorization.enabled is False
+    backend.release_preparation(prepared)
