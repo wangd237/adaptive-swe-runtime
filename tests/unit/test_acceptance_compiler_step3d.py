@@ -20,14 +20,14 @@ from aswe.planning.acceptance import (
     CompiledAcceptancePlan, ExecutionContractBinding, RuntimeVerificationRule,
     TrustedEvaluationFinding, VerificationCommandKind, SANDBOX_FEATURE,
     assert_final_contract_binding, bind_execution_contract,
-    evaluate_compiled_contract,
+    evaluate_compiled_contract, CanonicalCheckBinding, verified_canonical_check_finding,
 )
 from aswe.planning.compiler import ConstraintCompiler, RuntimePolicyConfig, RuntimePolicyRule
 from aswe.planning.contracts import make_task_request
 from aswe.planning.planner import WorkItemProposal, WorkPlanProposal
 from aswe.planning.validator import SemanticPlanValidator
 from aswe.core.contracts.task import WorkKind
-from aswe.runtime.canonical_verifier import CanonicalVerifier
+from aswe.runtime.canonical_verifier import CanonicalVerifier, make_command_policy
 from aswe.runtime.finalization import TaskLogicalStatus, finalize_task
 from aswe.evidence import LocalEvidenceStore
 from tests.fakes import FakeExecutionBackend, FakeExecutionScenario
@@ -101,9 +101,7 @@ def test_d02_criterion_argv_or_policy_divergence_fails_at_compilation():
         ),)})
     with pytest.raises(ValidationError,match="ACCEPTANCE_COMMAND_POLICY_MISMATCH"):
         plan.model_copy(update={"canonical_policies":(
-            plan.canonical_policies[0].model_copy(
-                update={"argv":("pytest","-k","different")},
-            ),
+            make_command_policy(plan.commands[0].id,("pytest","-k","different")),
         )})
     with pytest.raises(ValidationError,match="ACCEPTANCE_COMMAND_POLICY_MISMATCH"):
         plan.model_copy(update={"criteria":()})
@@ -253,9 +251,13 @@ async def test_c09_c10_real_canonical_attested_proof_and_finalization_binding(te
         ref,node_id="writer",execution_id=attempt.execution_id,attempt=attempt.attempt,
         revision=core.revision,check_id=acceptance.commands[0].id,
     )
-    verified=(TrustedEvaluationFinding(
-        constraint_id=get_constraint(c).id,status=ContractLeafStatus.SATISFIED,
-        supporting_refs=(ref,),
+    verified=(verified_canonical_check_finding(
+        contract=c,acceptance=acceptance,verifier=checker,
+        receipts=(CanonicalCheckBinding(
+            command_id=acceptance.commands[0].id,proof=ref,
+            node_id="writer",execution_id=attempt.execution_id,
+            attempt=attempt.attempt,observed_revision=core.revision,
+        ),),
     ),)
     cv=evaluate_compiled_contract(
         contract=c,findings=verified,
@@ -278,3 +280,65 @@ async def test_c09_c10_real_canonical_attested_proof_and_finalization_binding(te
     wrong=finalize_task(scheduler=core,binding=repo_binding,evidence_store=store,
                         contract_verdict=cv,expected_contract_fingerprint=c2.fingerprint)
     assert wrong.status is TaskLogicalStatus.FAILED
+
+
+def test_c09_unresolved_required_check_never_passes_even_with_other_attested_receipt(canonical_workspace):
+    _,revision,store,checker=canonical_workspace
+    c,_=compiled(("verification.required",("unit","regression")))
+    acceptance=AcceptanceCompiler(rules=(unit_rule(),)).compile(contract=c)
+    assert acceptance.unresolved_check_keys==("regression",)
+    ref,receipt=checker.run(
+        node_id="verify",execution_id="run",attempt=1,
+        policy=acceptance.canonical_policies[0],revision=revision,
+    )
+    assert receipt.status=="holds"
+    finding=verified_canonical_check_finding(
+        contract=c,acceptance=acceptance,verifier=checker,
+        receipts=(CanonicalCheckBinding(
+            command_id=acceptance.commands[0].id,proof=ref,node_id="verify",
+            execution_id="run",attempt=1,observed_revision=revision,
+        ),),
+    )
+    assert finding.status is ContractLeafStatus.UNVERIFIED
+    verdict=evaluate_compiled_contract(contract=c,findings=(finding,))
+    assert not verdict.all_required_satisfied
+    assert get_constraint(c).id in verdict.blocking_constraint_ids
+
+
+def test_c09_invalid_or_cross_attempt_receipt_never_authenticates(canonical_workspace):
+    _,revision,store,checker=canonical_workspace
+    c,_=verify_contract()
+    acceptance=AcceptanceCompiler(rules=(unit_rule(),)).compile(contract=c)
+    ref,_=checker.run(
+        node_id="verify",execution_id="run-a",attempt=1,
+        policy=acceptance.canonical_policies[0],revision=revision,
+    )
+    with pytest.raises(ValueError,match="attempt identity mismatch"):
+        verified_canonical_check_finding(
+            contract=c,acceptance=acceptance,verifier=checker,
+            receipts=(CanonicalCheckBinding(
+                command_id=acceptance.commands[0].id,proof=ref,node_id="verify",
+                execution_id="run-b",attempt=1,observed_revision=revision,
+            ),),
+        )
+
+
+def test_c09_nonzero_real_canonical_check_is_contract_violation(canonical_workspace):
+    _,revision,store,checker=canonical_workspace
+    c,_=verify_contract()
+    acceptance=AcceptanceCompiler(rules=(unit_rule(exit_code=1),)).compile(contract=c)
+    ref,receipt=checker.run(
+        node_id="verify",execution_id="run-f",attempt=1,
+        policy=acceptance.canonical_policies[0],revision=revision,
+    )
+    assert receipt.status=="failed"
+    f=verified_canonical_check_finding(
+        contract=c,acceptance=acceptance,verifier=checker,
+        receipts=(CanonicalCheckBinding(
+            command_id=acceptance.commands[0].id,proof=ref,node_id="verify",
+            execution_id="run-f",attempt=1,observed_revision=revision,
+        ),),
+    )
+    assert f.status is ContractLeafStatus.VIOLATED
+    v=evaluate_compiled_contract(contract=c,findings=(f,))
+    assert not v.all_required_satisfied and v.blocking_constraint_ids==(get_constraint(c).id,)
