@@ -406,3 +406,16 @@ def test_c09_not_applicable_without_verified_proof_remains_unverified():
     assert not verdict.all_required_satisfied
     assert verdict.leaves[0].status is ContractLeafStatus.UNVERIFIED
     assert verdict.blocking_constraint_ids==(c.id,)
+
+
+def test_d08_non_test_command_cannot_impersonate_tests_passed_acceptance():
+    contract,_=verify_contract()
+    for kind in (
+        VerificationCommandKind.BUILD,
+        VerificationCommandKind.IMPORT_CHECK,
+        VerificationCommandKind.STATIC_CHECK,
+    ):
+        with pytest.raises(AcceptanceCompilationError,match="ACCEPTANCE_KIND_UNSUPPORTED"):
+            AcceptanceCompiler(rules=(RuntimeVerificationRule(
+                check_key="unit",kind=kind,argv=(sys.executable,"-c","pass"),
+            ),)).compile(contract=contract)
