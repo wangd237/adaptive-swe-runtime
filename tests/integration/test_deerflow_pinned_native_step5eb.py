@@ -223,7 +223,7 @@ async def test_pinned_builtin_rbac_authorizes_and_denies_real_tool_call():
     assembler, _ = native_assembler_with_offline_model()
     executor = assembler.build(binding)
     state, tools, deferred = await executor._build_initial_state("read README")
-    graph = await executor._create_agent(tools, deferred_setup=deferred, extensions=None)
+    graph = await executor._create_agent(tools, deferred_setup=deferred, extensions=binding.resources.extensions)
     identity = {
         "run_id": binding.invocation.run_id, "user_id": principal.user_id,
         "user_role": principal.role, "oauth_provider": None, "oauth_id": None,
@@ -256,7 +256,7 @@ async def test_pinned_builtin_rbac_authorizes_and_denies_real_tool_call():
 
     executor2 = assembler.build(denied)
     state2, tools2, _ = await executor2._build_initial_state("read README")
-    graph2 = await executor2._create_agent(tools2, deferred_setup=None, extensions=None)
+    graph2 = await executor2._create_agent(tools2, deferred_setup=None, extensions=denied.resources.extensions)
     output2 = []
     prior_invocations = len(TOOL_INVOCATIONS)
     caught_denial = False
@@ -285,7 +285,7 @@ async def test_live_graph_refuses_revoked_binding_before_model_or_tool_call():
     binding = physical_binding(execution_id="native-revoked-poc")
     executor = assembler.build(binding)
     state, tools, _ = await executor._build_initial_state("Read README")
-    graph = await executor._create_agent(tools, deferred_setup=None, extensions=None)
+    graph = await executor._create_agent(tools, deferred_setup=None, extensions=binding.resources.extensions)
     binding.guard.close()
     with pytest.raises(NativeExecutionError, match="NATIVE_BINDING_REVOKED"):
         async for _ in graph.astream(state, context={}, config={"recursion_limit": 20}):
