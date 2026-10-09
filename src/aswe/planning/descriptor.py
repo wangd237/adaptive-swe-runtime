@@ -53,8 +53,14 @@ def compile_plan_descriptor(*,contract:CompiledTaskContract,plan:ValidatedWorkPl
     by_id={p.node_id:p for p in policies}
     if len(by_id)!=len(policies) or set(by_id)!={i.id for i in plan.items}:
         raise DescriptorMismatch("EXECUTION_DESCRIPTOR_POLICY_COVERAGE")
+    limits={c.key:c.value for c in contract.constraints}
     for r in resolved.nodes:
         p=by_id[r.node_id]
+        if (p.allowed_paths!=limits.get("repo.paths.allowed")
+            or p.forbidden_paths!=limits.get("repo.paths.forbidden",())
+            or p.max_changed_files!=limits.get("change.max_files")
+            or p.prohibited_actions!=tuple(sorted(limits.get("actions.forbidden",())))):
+            raise DescriptorMismatch("EXECUTION_DESCRIPTOR_POLICY_DRIFT")
         if (p.task_contract_fingerprint!=contract.fingerprint
             or p.workplan_fingerprint!=plan.fingerprint
             or p.planning_inventory_fingerprint!=inventory.fingerprint
