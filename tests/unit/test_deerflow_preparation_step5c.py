@@ -398,3 +398,24 @@ async def test_preflight_wrapper_precommit_revoke_cleans_raw_mapping(tmp_path):
     assert await core.run_claim(ticket, wrapped) is None
     assert wrapped.prepared == {}
     assert core.states[policies[0].node_id].attempts == ()
+
+@pytest.mark.asyncio
+async def test_commit_checker_error_is_sanitized_and_never_executes(tmp_path):
+    from aswe.core.contracts.backend import NodeExecutionInvocation, NodeAttemptKind
+    from tests.unit.test_scheduler_foundation import scheduler
+    backend, node, _, _ = setup()
+    core, _ = scheduler(tmp_path, node)
+    backend.commit_checker = lambda _: (_ for _ in ()).throw(RuntimeError("SECRET-CHECKER-ERROR"))
+    preparation = await backend.prepare_node(node)
+    invocation = NodeExecutionInvocation(
+        task_id=backend.task_id, node_id=node.id, attempt=1,
+        attempt_kind=NodeAttemptKind.INITIAL,
+        execution_id="e-forged", run_id="r-forged",
+        execution_workspace_revision=core.revision, dispatch_ticket_id="ticket",
+        task_dispatch_epoch=core.gate.epoch, dependency_acceptance_stamps=(),
+        dependency_context_text="", dependency_handoff_fingerprints=(),
+        repair_feedback_text=None, context_fingerprint="test",
+    )
+    with pytest.raises(DeerFlowPreparationError, match="PREPARED_EXECUTION_BINDING_MISMATCH"):
+        backend.claim_for_execution(preparation, invocation)
+    assert backend.pending_count == 0
