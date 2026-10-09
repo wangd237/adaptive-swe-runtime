@@ -267,6 +267,7 @@ async def test_r123_failclose_cancelled_consumer_patch_is_secondary_not_business
     assert result.root_failures[0].node_id == "verify"
     assert result.cancelled_node_ids == ("consumer",)
     assert "FAIL_CLOSED_CONSUMER_MUTATION:consumer" in result.warnings
+    assert "TASK_TERMINATION:REPAIR_SCOPE_INVALIDATED_ACTIVE_DOWNSTREAM_DISPATCH" in result.warnings
     assert result.repository_disposition is RepositoryDisposition.PATCH_PRESENT
     assert result.patch_disposition is PatchDisposition.RESIDUAL_UNACCEPTED
     assert result.final_repository_changeset is not None
