@@ -13,10 +13,6 @@ def inventory_fingerprint(values) -> str:
     # identical configuration/tool snapshots captured seconds apart MUST have
     # identical content fingerprints and must not count as backend drift.
     data.pop("captured_at",None)
-    date=None
-    # Keep timestamps out of semantic fingerprinting entirely.
-    # Legacy fake/real snapshots use the same identity function.
-    # Removed: date=data["captured_at"]
     for name in ("candidate_agent_types","candidate_skill_names",
                  "configured_model_names","sandbox_features"):
         data[name]=frozenset(data[name])

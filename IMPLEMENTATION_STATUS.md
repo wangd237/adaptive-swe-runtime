@@ -1,3 +1,12 @@
+## Coding Step 5 — DeerFlow Adapter (2026-10-09)
+
+- **IN PROGRESS**, Stage 5A pinned source/Inventory Adapter code in `coding/step5-deerflow-adapter`; actual DeerFlow execution remains **NO-GO**.
+- Frozen DeerFlow `bytedance/deer-flow@c0895d295bba34f6e95188fca380f555dabed891` inspected, including real tool loader, SubagentConfig, models, sandbox constraints.
+- Real `config:<ToolConfig.use>` tool identity is now distinct from FakeBackend `config:<contract-id>` and never implied by routing name; source/loaded callable contract proof required.
+- Source checkout HEAD/clean tracked harness check and runtime eager tool assembly inventory collector present. Wall-clock-only inventory snapshots no longer cause meaningless fingerprint drift.
+- Step 5A deterministic tests do **not** prove a live DeerFlow model/credential/sandbox deployment. DeerFlow itself requires Python >=3.12. Step 5B–5G remain planned; see `plan/step5-implementation-entry.md`, `audits/step5-gate-audit.md`.
+- **Frozen Go/No-Go still OPEN:** POC-02/03/05/09, R34/R35/R36/R38/R50/R51/R69/R70/R73. Do not enable real shared mutable Workspace execution.
+
 ## Step 4 independent Design Freeze audit (2026-10-09)
 
 - Source-level independent audit complete: `audits/step4-independent-freeze-review.md` with frozen P0-5 machine coverage in `audits/step4-poc-coverage.json`.
