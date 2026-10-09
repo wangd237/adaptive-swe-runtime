@@ -492,3 +492,15 @@ def test_resigned_resource_claim_cannot_erase_provider_required_bash():
     with pytest.raises(AdmissionError,match="PROVIDER_CAPABILITY_CLOSURE_MISMATCH"):
         compile_policies(contract=c,plan=plan,resolved=forged,inventory=inv,
             acceptance=acceptance,providers=providers,operators=ops)
+
+
+def test_provider_assignment_canonical_resources_represent_actual_node_closure():
+    c,plan,res,dag,inv,acceptance,providers,ops,policies,desc=artifacts(
+        ("tester",WorkKind.VERIFICATION,"regression_testing"))
+    assignment=desc.assignments[0]
+    assert assignment.resources.required_capabilities==("regression_testing",)
+    assert assignment.resources.required_tools==("bash",)
+    assert assignment.resources.required_sandbox_features==()
+    assert assignment.policy_fingerprint==policies[0].fingerprint
+    with pytest.raises(ValidationError,match="ProviderAssignment identity mismatch"):
+        assignment.model_copy(update={"preflight_diagnostics":("forged",)})

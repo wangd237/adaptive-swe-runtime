@@ -43,6 +43,7 @@ class NodeExecutionPolicy(FrozenModel):
     task_contract_fingerprint:str
     workplan_fingerprint:str
     planning_inventory_fingerprint:str
+    required_capabilities:tuple[str,...]
     acceptance_fingerprint:str
     verification_exact_commands:tuple[str,...]
     canonical_check_policy_fingerprints:tuple[str,...]
@@ -75,13 +76,23 @@ class NodeExecutionPolicy(FrozenModel):
             raise ValueError("NodeExecutionPolicy authority mismatch")
         return self
 
+class NodeResourceRequirements(FrozenModel):
+    required_capabilities:tuple[str,...]
+    required_tools:tuple[str,...]
+    optional_tools:tuple[str,...]
+    preferred_skills:tuple[str,...]
+    required_sandbox_features:tuple[str,...]
+
+
 class ProviderAssignment(FrozenModel):
     work_item_id:str
     provider_id:str
     provider_contract_fingerprint:str
     planning_inventory_fingerprint:str
     policy_fingerprint:str
+    resources:NodeResourceRequirements
     preflight_status:str
+    preflight_diagnostics:tuple[str,...]=()
     fingerprint:str
     @model_validator(mode="after")
     def sealed(self):
@@ -202,6 +213,7 @@ def compile_policies(*,contract:CompiledTaskContract,plan:ValidatedWorkPlan,
           task_contract_fingerprint=contract.fingerprint,
           workplan_fingerprint=plan.fingerprint,
           planning_inventory_fingerprint=inventory.fingerprint,
+          required_capabilities=item.capability_hints,
           acceptance_fingerprint=acceptance.fingerprint,
           verification_exact_commands=exact,
           canonical_check_policy_fingerprints=canonical,
@@ -227,7 +239,15 @@ def build_assignments(policies):
         work_item_id=p.node_id,provider_id=p.provider_id,
         provider_contract_fingerprint=p.provider_contract_fingerprint,
         planning_inventory_fingerprint=p.planning_inventory_fingerprint,
-        policy_fingerprint=p.fingerprint,preflight_status="preflight_feasible")) for p in policies)
+        policy_fingerprint=p.fingerprint,
+        resources=NodeResourceRequirements(
+            required_capabilities=p.required_capabilities,
+            required_tools=p.required_business_tools,
+            optional_tools=tuple(t for t in p.allowed_business_tools
+                                 if t not in p.required_business_tools),
+            preferred_skills=p.preferred_skills,
+            required_sandbox_features=p.required_sandbox_features,
+        ),preflight_status="preflight_feasible")) for p in policies)
 
 def build_team(plan,policies):
     groups={}
