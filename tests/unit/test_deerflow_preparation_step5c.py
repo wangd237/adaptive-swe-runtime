@@ -289,6 +289,12 @@ async def test_real_scheduler_commit_gates_one_shot_claim(tmp_path):
     assert not core.is_committed_invocation(invocation)
     assert len(captured) == 1
     assert captured[0].app_config.models[0].model == "mock"
+    captured[0].assert_intact()
+    # After claim, external Python code can still mutate a native tool; the
+    # downstream guard can detect this before any actual tool execution.
+    tool.description = "modified after commit"
+    with pytest.raises(DeerFlowPreparationError, match="PREPARED_SNAPSHOT_MUTATED"):
+        captured[0].assert_intact()
     assert backend.pending_count == 0
 
 
