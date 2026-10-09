@@ -34,10 +34,34 @@ class CompiledPlanDescriptor(FrozenModel):
             or self.execution_contract_binding.validated_work_plan_fingerprint!=self.validated_work_plan_fingerprint
             or self.execution_contract_binding.acceptance_plan_fingerprint!=self.acceptance_fingerprint):
             raise ValueError("CompiledPlanDescriptor binding mismatch")
-        if (tuple(x.id for x in self.task_dag.nodes)!=tuple(sorted(p.node_id for p in self.policies))
-            or {a.policy_fingerprint for a in self.assignments}!={p.fingerprint for p in self.policies}
-            or self.team.fingerprint is None):
+        by_node={p.node_id:p for p in self.policies}
+        by_assignment={a.work_item_id:a for a in self.assignments}
+        dag_nodes={n.id:n for n in self.task_dag.nodes}
+        if (len(by_node)!=len(self.policies) or len(by_assignment)!=len(self.assignments)
+                or set(by_node)!=set(dag_nodes) or set(by_assignment)!=set(by_node)):
             raise ValueError("CompiledPlanDescriptor policy mismatch")
+        for node_id,p in by_node.items():
+            n=dag_nodes[node_id]
+            a=by_assignment[node_id]
+            resources=a.resources
+            if (n.provider_id!=p.provider_id
+                or n.workspace_access!=p.workspace_access
+                or n.required_capabilities!=p.required_capabilities
+                or a.provider_id!=p.provider_id
+                or a.policy_fingerprint!=p.fingerprint
+                or a.provider_contract_fingerprint!=p.provider_contract_fingerprint
+                or resources.required_capabilities!=p.required_capabilities
+                or resources.required_tools!=p.required_business_tools
+                or resources.required_sandbox_features!=p.required_sandbox_features
+                or resources.preferred_skills!=p.preferred_skills
+                or resources.optional_tools!=tuple(x for x in p.allowed_business_tools
+                        if x not in p.required_business_tools)):
+                raise ValueError("CompiledPlanDescriptor policy mismatch")
+        roster={m.provider_id:set(m.selected_for_nodes) for m in self.team.members}
+        if (len(roster)!=len(self.team.members)
+            or roster!={pid:{n for n,p in by_node.items() if p.provider_id==pid}
+                       for pid in {p.provider_id for p in self.policies}}):
+            raise ValueError("CompiledPlanDescriptor team mismatch")
         return self
 
 def compile_plan_descriptor(*,contract:CompiledTaskContract,plan:ValidatedWorkPlan,
@@ -65,8 +89,12 @@ def compile_plan_descriptor(*,contract:CompiledTaskContract,plan:ValidatedWorkPl
             or p.workplan_fingerprint!=plan.fingerprint
             or p.planning_inventory_fingerprint!=inventory.fingerprint
             or p.acceptance_fingerprint!=acceptance.fingerprint
+            or p.required_capabilities!=next(item for item in plan.items if item.id==p.node_id).capability_hints
             or p.verification_exact_commands!=(
                 tuple(x.bash_exact_allowlist_entry for x in acceptance.criteria)
+                if next(item for item in plan.items if item.id==p.node_id).work_kind.value=="verification" else ())
+            or p.canonical_check_policy_fingerprints!=(
+                tuple(x.fingerprint for x in acceptance.canonical_policies)
                 if next(item for item in plan.items if item.id==p.node_id).work_kind.value=="verification" else ())
             or p.provider_id!=r.provider_id
             or p.provider_contract_fingerprint!=r.provider_contract_fingerprint
