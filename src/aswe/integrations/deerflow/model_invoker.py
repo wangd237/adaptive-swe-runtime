@@ -40,6 +40,13 @@ def _reject_nonfinite(value: str) -> None:
     raise ValueError("non-finite JSON number")
 
 
+def _finite_json_float(text: str) -> float:
+    result = float(text)
+    if not math.isfinite(result):
+        raise ValueError("non-finite JSON float")
+    return result
+
+
 def _check_local_schema(schema: dict[str, Any]) -> None:
     """Avoid remote JSON-Schema reference fetching; only local Pydantic refs.
 
@@ -77,7 +84,8 @@ def _decode_structured(content: Any, schema: dict[str, Any]) -> dict[str, Any]:
         raise ModelInvocationError("MODEL_OUTPUT_NOT_JSON_TEXT")
     try:
         data = json.loads(
-            content, object_pairs_hook=_unique_fields, parse_constant=_reject_nonfinite
+            content, object_pairs_hook=_unique_fields, parse_constant=_reject_nonfinite,
+            parse_float=_finite_json_float
         )
     except (ValueError, TypeError, RecursionError) as exc:
         raise ModelInvocationError("MODEL_OUTPUT_INVALID_JSON") from exc

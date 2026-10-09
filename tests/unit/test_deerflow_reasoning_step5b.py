@@ -444,3 +444,13 @@ async def test_semantic_planner_model_proposal_is_still_blocked_by_contract_vali
     with pytest.raises(PlanValidationError,match="CAPABILITY_AUTHORITY_VIOLATION"):
         SemanticPlanValidator().validate(proposal=proposal,contract=c,authority=a)
     assert len(created)==1
+
+
+@pytest.mark.asyncio
+async def test_json_numeric_overflow_is_not_valid_model_evidence():
+    schema={"type":"object","properties":{"score":{"type":"number"}},
+            "required":["score"],"additionalProperties":False}
+    item,model,created=invoker(model=FakeModel('{"score":1e309}'))
+    with pytest.raises(ModelInvocationError,match="MODEL_OUTPUT_INVALID_JSON"):
+        await call(item,schema=schema)
+    assert len(created)==1 and len(model.calls)==1
