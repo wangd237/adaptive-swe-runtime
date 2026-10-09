@@ -176,7 +176,7 @@ class ControlledSWEWorkspace:
         # Avoid following links to host files. This is a locked single-owner
         # worktree requirement; a hostile concurrent writer still needs OS
         # isolation and cannot be justified by Python path checks alone.
-         current=self.root
+        current=self.root
         for part in rel.parts:
             current=current/part
             if current.is_symlink():
