@@ -270,6 +270,7 @@ async def test_real_scheduler_commit_gates_one_shot_claim(tmp_path):
 
         async def execute_prepared(self, preparation, invocation):
             assert core.is_committed_invocation(invocation)
+            assert not core.is_committed_invocation(invocation.model_copy(deep=True))
             env["app"].models[0].model = "runtime hot-reload"
             captured.append(backend.claim_for_execution(preparation, invocation))
             with pytest.raises(DeerFlowPreparationError, match="PREPARED_EXECUTION_BINDING_MISMATCH"):
@@ -329,3 +330,65 @@ async def test_app_tool_extension_tamper_rejected_on_claim(tmp_path):
         if change == "extension":
             object.__setattr__(env["extensions"], "plugins", ())
         assert backend.pending_count == 0
+
+@pytest.mark.asyncio
+async def test_precommit_waiting_workspace_revoke_drains_snapshot(tmp_path):
+    import asyncio
+    from aswe.core.contracts.workspace import WorkspaceAccess
+    from tests.unit.test_scheduler_foundation import scheduler
+    backend, node, _, _ = setup()
+    core, manager = scheduler(tmp_path, node)
+    ticket = await core.claim(node.id)
+    async with manager.access(WorkspaceAccess.WRITE):
+        task = asyncio.create_task(core.run_claim(ticket, backend))
+        for _ in range(200):
+            if backend.pending_count == 1:
+                break
+            await asyncio.sleep(0)
+        assert backend.pending_count == 1
+        await core.revoke(ticket.ticket_id)
+    assert await task is None
+    assert backend.pending_count == 0
+    assert core.states[node.id].attempts == ()
+
+
+@pytest.mark.asyncio
+async def test_precommit_waiting_workspace_cancel_drains_snapshot(tmp_path):
+    import asyncio
+    from aswe.core.contracts.workspace import WorkspaceAccess
+    from tests.unit.test_scheduler_foundation import scheduler
+    backend, node, _, _ = setup()
+    core, manager = scheduler(tmp_path, node)
+    ticket = await core.claim(node.id)
+    async with manager.access(WorkspaceAccess.WRITE):
+        task = asyncio.create_task(core.run_claim(ticket, backend))
+        for _ in range(200):
+            if backend.pending_count == 1:
+                break
+            await asyncio.sleep(0)
+        assert backend.pending_count == 1
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    assert backend.pending_count == 0
+    assert core.states[node.id].attempts == ()
+
+
+@pytest.mark.asyncio
+async def test_preflight_wrapper_precommit_revoke_cleans_raw_mapping(tmp_path):
+    from aswe.providers.preflight import LivePreflightBackend
+    from tests.fakes.backend import FakeExecutionBackend, FakeExecutionScenario
+    from tests.unit.test_scheduler_foundation import scheduler
+    *_, inv, _acceptance, _providers, ops, policies, desc = artifacts()
+    core, _ = scheduler(tmp_path, *desc.task_dag.nodes)
+    wrapped = LivePreflightBackend(
+        FakeExecutionBackend([FakeExecutionScenario()]), descriptor=desc,
+        policy=policies[0], planning_inventory=inv,
+        live_inventory=lambda: inv,
+        live_operator=lambda: ops[0],
+    )
+    ticket = await core.claim(policies[0].node_id)
+    await core.revoke(ticket.ticket_id)
+    assert await core.run_claim(ticket, wrapped) is None
+    assert wrapped.prepared == {}
+    assert core.states[policies[0].node_id].attempts == ()
