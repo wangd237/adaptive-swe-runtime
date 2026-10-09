@@ -34,6 +34,7 @@ from aswe.runtime.repair import (
 from aswe.evidence import LocalEvidenceStore
 from aswe.runtime.canonical_verifier import CanonicalVerifier, CanonicalCommandPolicy
 from aswe.runtime.feedback import RepairFeedback, build_verification_repair_feedback
+from aswe.runtime.finalization import TaskLogicalStatus
 from aswe.runtime.repair import VerificationResult
 from aswe.runtime.state import (
     NodeAttemptRecord, NodeAttemptStatus, NodeBlockReason,
@@ -112,6 +113,7 @@ class SchedulerCore:
         self._repair_feedback_text: dict[str, str] = {}
         self._typed_repair_feedback: dict[str, RepairFeedback] = {}
         self._task_failed = False
+        self.task_logical_status = TaskLogicalStatus.RUNNING
         self._committed: dict[str, CommittedExecution] = {}
         self._terminal_mutex = asyncio.Lock()
         self._quiescence_unknown = False
@@ -486,6 +488,7 @@ class SchedulerCore:
                                      epoch=self.gate.epoch + 1)
         self.failure_kinds.append(reason)
         self._task_failed = True
+        self.task_logical_status = TaskLogicalStatus.FAILED
         for tid, ticket in tuple(self.tickets.items()):
             if ticket.state in (
                 NodeDispatchTicketState.PREPARING,
@@ -761,6 +764,7 @@ class SchedulerCore:
             if self.gate.state is not TaskDispatchGateState.CLOSED:
                 self._fail_close_locked("TASK_USER_CANCELLED")
             self._task_cancelled = True
+            self.task_logical_status = TaskLogicalStatus.CANCELLED
             for node_id, state in tuple(self.states.items()):
                 if state.logical_status in (
                     NodeLogicalStatus.PENDING, NodeLogicalStatus.READY,
