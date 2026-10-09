@@ -110,9 +110,19 @@ class ManagedForegroundVerifier:
                 or "bash" in self.policy.denied_tools):
             raise ForegroundExecutionError("FOREGROUND_COMMAND_NOT_ALLOWLISTED")
         _validate_argv(selected.argv)
-        if (selected.argv[0] in ("bash", "sh", "zsh", "cmd", "powershell", "pwsh")
-                or any(a in ("-c", "-e", "--eval") for a in selected.argv[1:])
-                and not self.allow_inline_python_in_tests):
+        executable = Path(selected.argv[0]).name.lower()
+        if executable in ("bash", "sh", "zsh", "cmd", "powershell", "pwsh"):
+            raise ForegroundExecutionError("FOREGROUND_INTERPRETER_NOT_ALLOWED")
+        # Secondary defense only: detached work cannot be proven quiescent by
+        # a local process-group drain. The primary authority is still exact,
+        # Runtime-compiled command identity.
+        if executable in (
+            "nohup", "setsid", "disown", "screen", "tmux", "systemctl",
+            "service", "docker", "podman", "daemon", "supervisord",
+        ):
+            raise ForegroundExecutionError("UNSUPPORTED_BACKGROUND_EXECUTION")
+        if (not self.allow_inline_python_in_tests
+                and any(a in ("-c", "-e", "--eval") for a in selected.argv[1:])):
             raise ForegroundExecutionError("FOREGROUND_INTERPRETER_NOT_ALLOWED")
         return selected
 
