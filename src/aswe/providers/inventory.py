@@ -42,7 +42,7 @@ def fake_inventory(*,agent_types=("coder","tester","reviewer","explorer"),
           resolved_exposed_name=k,source="fake-config",delivery="eager",
           implementation_id="config:"+k,effect=STANDARD_EFFECTS["config:"+k])
         for k in tools}
-    body=dict(backend_id="static-fake",captured_at=datetime(2026,1,1,tzinfo=timezone.utc),
+    body=dict(backend_id="static-fake",captured_at="2026-01-01T00:00:00Z",
         candidate_agent_types=frozenset(agent_types),candidate_tools=ts,
         candidate_skill_names=frozenset(),configured_model_names=frozenset({"fake"}),
         sandbox_features=frozenset(features),max_parallel_executions=4)

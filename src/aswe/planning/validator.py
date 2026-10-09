@@ -23,15 +23,10 @@ from aswe.planning.planner import WorkItemProposal, WorkPlanProposal
 from aswe.planning.registry import DeliverableEffect
 
 
-# Frozen P1 provider-neutral capability vocabulary; Step 4 owns the actual
-# CapabilitySpec/Provider registry. Do not duplicate those schemas here.
-READ_CAPABILITIES = frozenset({
-    "repo_exploration", "code_search", "bug_diagnosis", "python_debugging",
-    "database_analysis", "architecture_analysis", "regression_testing",
-    "code_review",
-})
-MUTATION_CAPABILITIES = frozenset({"code_modification", "test_generation"})
-ALL_CAPABILITIES = READ_CAPABILITIES | MUTATION_CAPABILITIES
+# Canonical Step-4 capability vocabulary; Step-3 parser must not drift.
+from aswe.capabilities.registry import (
+    READ_CAPABILITIES, MUTATION_CAPABILITIES, ALL_CAPABILITIES,
+)
 PHASE = {
     WorkKind.DISCOVERY: 0,
     WorkKind.IMPLEMENTATION: 1,
