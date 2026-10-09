@@ -118,10 +118,12 @@ async def test_write_requires_fresh_read_and_limit_applies_before_mutation(repos
 async def test_bash_disabled_when_isolation_or_file_specific_policy_unavailable(repository_fixture):
     with pytest.raises(SWEExecutionDenied,match="SWE_BASH_ISOLATION_REQUIRED"):
         env(repository_fixture,runner=False)
-    with pytest.raises(SWEExecutionDenied,match="SWE_BASH_PATH_POLICY_UNSUPPORTED"):
+    with pytest.raises(SWEExecutionDenied,match="SWE_BASH_FINE_GRAINED_POLICY_UNSUPPORTED"):
         env(repository_fixture,allowed_paths=("src",))
-    with pytest.raises(SWEExecutionDenied,match="SWE_BASH_PATH_POLICY_UNSUPPORTED"):
+    with pytest.raises(SWEExecutionDenied,match="SWE_BASH_FINE_GRAINED_POLICY_UNSUPPORTED"):
         env(repository_fixture,forbidden_paths=("secret",))
+    with pytest.raises(SWEExecutionDenied,match="SWE_BASH_FINE_GRAINED_POLICY_UNSUPPORTED"):
+        env(repository_fixture,max_changed_files=1)
 
 
 @pytest.mark.asyncio
