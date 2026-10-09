@@ -72,7 +72,10 @@ def normalize_path(path: str, *, pattern: bool = False) -> str:
     return cleaned
 
 
-def _items(raw: object, *, paths: bool = False) -> tuple[str, ...]:
+def _items(raw: object, *, paths: bool = False,
+           allow_empty: bool = False) -> tuple[str, ...]:
+    if allow_empty and raw in ((), [], frozenset()):
+        return ()
     if isinstance(raw, str):
         tokens = [t.strip() for t in raw.split(",")]
     elif isinstance(raw, (tuple, list, set, frozenset)):
@@ -95,7 +98,7 @@ def canonical_value(key: str, value: object) -> object:
     if key not in CONSTRAINT_REGISTRY:
         raise ValueError("unknown typed constraint key: " + key)
     if key in ("repo.paths.allowed", "repo.paths.forbidden"):
-        return _items(value, paths=True)
+        return _items(value, paths=True, allow_empty=key == "repo.paths.allowed")
     if key in ("actions.forbidden", "verification.required"):
         return _items(value)
     if key == "deliverables.required":

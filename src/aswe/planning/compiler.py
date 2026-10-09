@@ -27,6 +27,7 @@ from aswe.planning.contracts import (
     ConstraintEvidenceRef, ConstraintOrigin, ConstraintProvenance,
     TaskExecutionAuthority, TaskRequestEnvelope,
 )
+from aswe.planning.analyzer import TaskSpec, RiskLevel
 from aswe.planning.registry import (
     CONSTRAINT_REGISTRY, DeliverableEffect, canonical_value,
     normalize_path, parse_exact_user_directive,
@@ -48,6 +49,8 @@ class RuntimePolicyRule(FrozenModel):
 class RuntimePolicyConfig(FrozenModel):
     policy_id: str = Field(min_length=1)
     rules: tuple[RuntimePolicyRule, ...] = ()
+    # An operator-granted deterministic derivation, NOT analyzer self-authority.
+    high_risk_requires_review: bool = False
 
 
 class RepositoryGuidanceSource(FrozenModel):
@@ -107,6 +110,19 @@ def _intersect_scopes(left: tuple[str, ...], right: tuple[str, ...]) -> tuple[st
 
 def _in_any_scope(path: str, scopes: tuple[str, ...]) -> bool:
     return any(_scope_contains(pattern, path) for pattern in scopes)
+
+
+def _has_mutation_scope(allowed, blocked) -> bool:
+    """Conservatively reject a grant when all admitted subtrees are denied."""
+    if blocked is None:
+        return allowed is None or bool(allowed.value)
+    denies = tuple(blocked.value)
+    if "**" in denies:
+        return False
+    if allowed is None:
+        return True
+    return any(not any(_scope_contains(deny, scope) for deny in denies)
+               for scope in allowed.value)
 
 
 def _merge(key: str, group: list[CompiledConstraint], warnings: list[dict]) -> object:
@@ -197,11 +213,13 @@ def _check_conflicts(by_key: dict[str, CompiledConstraint], raw: list[CompiledCo
                 "CONTRACT_POLICY_CONFLICT" if locked else "CONTRACT_UNSATISFIABLE",
                 "exact target path excluded by effective repository scope",
             )
-    if required and allowed is not None and not allowed.value:
-        if any(d.effect is DeliverableEffect.REPOSITORY_MUTATION for d in required.value):
+    if required and any(d.effect is DeliverableEffect.REPOSITORY_MUTATION for d in required.value):
+        if not _has_mutation_scope(allowed, blocked):
+            locked = any(c.enforcement is ConstraintEnforcement.LOCKED
+                         for c in raw if c.key in ("repo.paths.allowed", "repo.paths.forbidden"))
             raise ContractCompilationError(
-                "CONTRACT_POLICY_CONFLICT" if allowed.enforcement is ConstraintEnforcement.LOCKED
-                else "CONTRACT_UNSATISFIABLE", "no repository mutation scope remains",
+                "CONTRACT_POLICY_CONFLICT" if locked else "CONTRACT_UNSATISFIABLE",
+                "no effective repository mutation scope remains",
             )
 
 
@@ -222,8 +240,9 @@ def project_execution_authority(contract: CompiledTaskContract) -> TaskExecution
     ))
     permission = (
         bool(grant_ids)
-        and "repository_mutation" not in denied and "repo.write" not in denied
-        and (not (scope := by_key.get("repo.paths.allowed")) or bool(scope.value))
+        and not {"repository_mutation", "repo.write", "*"}.intersection(denied)
+        and _has_mutation_scope(by_key.get("repo.paths.allowed"),
+                                by_key.get("repo.paths.forbidden"))
     )
     body = dict(
         repository_mutation_allowed=permission,
@@ -241,6 +260,7 @@ class ConstraintCompiler:
         self, *, request: TaskRequestEnvelope, repository_base_sha: str,
         user_candidates: tuple[ConstraintCandidate, ...] = (),
         guidance: tuple[RepositoryGuidanceSource, ...] = (),
+        task_spec: TaskSpec | None = None,
     ) -> tuple[CompiledTaskContract, TaskExecutionAuthority]:
         if len(repository_base_sha) != 40 or any(c not in "0123456789abcdef" for c in repository_base_sha):
             raise ValueError("valid repository pinned sha required")
@@ -258,6 +278,18 @@ class ConstraintCompiler:
                 origin=ConstraintOrigin.RUNTIME_POLICY, evidence=evidence,
                 contributor=f"runtime:{idx}",
             ))
+        if self.policy.high_risk_requires_review and task_spec is not None and task_spec.risk is RiskLevel.HIGH:
+            task_hash = fingerprint(task_spec)
+            evidence = ConstraintEvidenceRef(
+                source_kind="task_spec", source_id=request.request_id,
+                source_hash=task_hash, locator="risk:high",
+                quote=None,
+            )
+            raw.append(_source_constraint(
+                "review.required", True, enforcement=ConstraintEnforcement.HARD,
+                origin=ConstraintOrigin.RUNTIME_DERIVED, evidence=evidence,
+                contributor="runtime-rule:RISK-REVIEW-001:" + policy_hash,
+            ))
         for candidate in user_candidates:
             quote = candidate.evidence_quote
             if not quote or quote not in request.raw_text:
@@ -265,8 +297,20 @@ class ConstraintCompiler:
             at = request.raw_text.index(quote)
             if candidate.evidence_locator is not None and candidate.evidence_locator != f"raw_text:{at}:{len(quote)}":
                 raise ConstraintProvenanceError("user locator does not match immutable source")
+            # A quoted directive inside a sentence or code block is data, not
+            # an execution instruction. Only one unquoted complete line can
+            # enter the typed registry; otherwise retain semantic HARD.
+            line_start = at == 0 or request.raw_text[at - 1] == "\\n"
+            end = at + len(quote)
+            line_end = end == len(request.raw_text) or request.raw_text[end] == "\\n"
+            plain = (
+                line_start and line_end
+                and "\\n" not in quote and not quote.startswith((">", "- ", "#"))
+                and request.raw_text[:at].count("```") % 2 == 0
+                and request.raw_text.count(quote) == 1
+            )
             try:
-                directive = parse_exact_user_directive(quote)
+                directive = parse_exact_user_directive(quote) if plain else None
             except (ValueError, TypeError) as exc:
                 raise ContractCompilationError("CONTRACT_INVALID", str(exc)) from exc
             if directive is None:
