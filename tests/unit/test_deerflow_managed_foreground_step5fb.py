@@ -206,6 +206,16 @@ async def test_real_foreground_receipt_is_signed_and_verified_by_runtime(
     ref, signed = runner.attest_canonical(invocation=inv, verifier=verifier)
     assert signed.status == "holds"
     assert signed.stdout_sha256 == observed.stdout_sha256
+    mapped = runner.canonical_check_binding(invocation=inv, verifier=verifier)
+    assert mapped.command_id == cmd.id
+    assert mapped.node_id == inv.node_id
+    assert mapped.execution_id == inv.execution_id
+    assert mapped.attempt == inv.attempt
+    assert verifier.validate(
+        mapped.proof, node_id=mapped.node_id,
+        execution_id=mapped.execution_id, attempt=mapped.attempt,
+        revision=mapped.observed_revision, check_id=mapped.command_id,
+    ).status == "holds"
     assert signed.command_policy_fingerprint == runner.plan.canonical_policies[0].fingerprint
     assert verifier.validate(ref, node_id=inv.node_id, execution_id=inv.execution_id,
                              attempt=inv.attempt,
