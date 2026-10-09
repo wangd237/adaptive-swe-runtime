@@ -172,13 +172,16 @@ def test_lazy_real_capture_uses_real_api_shapes_and_checks_subagent_ids(monkeypa
       "langchain.tools":{"BaseTool":type("BaseTool",(),{})},
       "deerflow.subagents.registry":{"get_subagent_config":lambda name,**kwargs:
           SimpleNamespace(name=name) if name=="coder" else None},
-      "deerflow.tools.tools":{"get_available_tools":fake_get_tools},
+      "deerflow.tools.tools":{"get_available_tools":fake_get_tools,
+                              "__file__":"/fake/deerflow/tools/tools.py"},
       "deerflow.reflection":{"resolve_variable":lambda use,expected:objs[use]},
     }
     for name,attributes in vals.items():
         m=ModuleType(name)
         for key,value in attributes.items():setattr(m,key,value)
         monkeypatch.setitem(sys.modules,name,m)
+    monkeypatch.setattr("aswe.integrations.deerflow.inventory.assert_pinned_deerflow_source",
+                        lambda path:None)
     captured=capture_deerflow_inventory(
         app_config=c,sandbox=SimpleNamespace(persistent_shell_sessions=False),
         provider_agent_types=("coder",))
@@ -191,3 +194,27 @@ def test_lazy_real_capture_uses_real_api_shapes_and_checks_subagent_ids(monkeypa
         capture_deerflow_inventory(app_config=c,
            sandbox=SimpleNamespace(persistent_shell_sessions=False),
            provider_agent_types=("missing",))
+
+
+def test_unpinned_source_attestation_rejects_missing_checkout():
+    from aswe.integrations.deerflow.inventory import assert_pinned_deerflow_source
+    with pytest.raises(DeerFlowInventoryError,match="DEERFLOW_SOURCE_UNATTESTED"):
+        assert_pinned_deerflow_source("/outside/deerflow/tools/tools.py")
+
+
+def test_tool_source_attestation_rejects_valid_git_but_wrong_revision(tmp_path):
+    import subprocess
+    from aswe.integrations.deerflow.inventory import assert_pinned_deerflow_source
+    def git(*args):
+        return subprocess.run(["git","-C",str(tmp_path),*args],
+                             capture_output=True,check=True)
+    git("init","-q")
+    git("config","user.email","ci@example.com")
+    git("config","user.name","CI")
+    target=tmp_path/"deerflow"/"tools"/"tools.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("# pretend DeerFlow module")
+    git("add",".")
+    git("commit","-qm","fake revision")
+    with pytest.raises(DeerFlowInventoryError,match="DEERFLOW_PIN_MISMATCH"):
+        assert_pinned_deerflow_source(target)

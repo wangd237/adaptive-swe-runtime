@@ -8,6 +8,8 @@ from routing names, model prose, or config labels alone.
 from __future__ import annotations
 
 from datetime import datetime,timezone
+from pathlib import Path
+import subprocess
 from typing import Any, Callable,Iterable
 from aswe.core.fingerprint import fingerprint
 from aswe.providers.inventory import (
@@ -18,6 +20,37 @@ from aswe.integrations.deerflow import PINNED_DEERFLOW_COMMIT
 
 class DeerFlowInventoryError(RuntimeError):
     """Cannot prove a pinned config/assembly identity; fail closed."""
+
+
+def assert_pinned_deerflow_source(module_file: str | Path) -> None:
+    """Reject unpinned or modified DeerFlow package bytes before attestation.
+
+    Requires a source checkout of the frozen monorepo commit, rather than
+    trusting a constant or an arbitrary pip package with the same module names.
+    A wheel without Git ancestry cannot assert the frozen source identity.
+    """
+    path=Path(module_file).resolve()
+    if not path.is_file() or "deerflow" not in path.parts:
+        raise DeerFlowInventoryError("DEERFLOW_SOURCE_UNATTESTED")
+    def git(*args):
+        try:
+            done=subprocess.run(["git","-C",str(path.parent),*args],
+                check=False,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                timeout=5)
+        except (OSError,subprocess.TimeoutExpired) as exc:
+            raise DeerFlowInventoryError("DEERFLOW_SOURCE_UNATTESTED") from exc
+        if done.returncode:
+            raise DeerFlowInventoryError("DEERFLOW_SOURCE_UNATTESTED")
+        return done.stdout.decode("utf-8").strip()
+    top=Path(git("rev-parse","--show-toplevel")).resolve()
+    if git("rev-parse","HEAD")!=PINNED_DEERFLOW_COMMIT:
+        raise DeerFlowInventoryError("DEERFLOW_PIN_MISMATCH")
+    try:relative=path.relative_to(top)
+    except ValueError as exc:
+        raise DeerFlowInventoryError("DEERFLOW_SOURCE_UNATTESTED") from exc
+    if git("status","--porcelain=v1","--untracked-files=no","--",
+           str(relative.parent.parent)):
+        raise DeerFlowInventoryError("DEERFLOW_SOURCE_DIRTY")
 
 
 def _schema_fingerprint(tool: Any) -> str | None:
@@ -150,9 +183,11 @@ def capture_deerflow_inventory(
         from langchain.tools import BaseTool
         from deerflow.reflection import resolve_variable
         from deerflow.subagents.registry import get_subagent_config
+        from deerflow.tools import tools as tools_module
         from deerflow.tools.tools import get_available_tools
     except ImportError as exc:
         raise DeerFlowInventoryError("DEERFLOW_DEPENDENCY_UNAVAILABLE") from exc
+    assert_pinned_deerflow_source(tools_module.__file__)
     confirmed=[]
     for agent_type in provider_agent_types:
         if get_subagent_config(agent_type,app_config=app_config) is None:
