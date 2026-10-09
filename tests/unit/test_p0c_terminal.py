@@ -432,3 +432,38 @@ async def test_r100_review_gate_rejects_forged_or_unbound_request_changes(termin
     assert core.task_logical_status is TaskLogicalStatus.FAILED
     assert core.states["review"].accepted_handoff is None
     assert core.workspace.lifecycle.current.status is WorkspaceSessionStatus.FROZEN
+
+
+@pytest.mark.asyncio
+async def test_p0c_late_user_cancel_does_not_overwrite_previous_business_failure(terminal_fixture):
+    core, manager, binding, store = terminal_fixture
+    await core.fail_closed("EXISTING_TASK_ROOT", root_node="writer")
+    assert core.task_logical_status is TaskLogicalStatus.FAILED
+    await core.cancel_task()
+    assert not core.cancelled
+    assert core.task_logical_status is TaskLogicalStatus.FAILED
+    assert core.failure_kinds == ["EXISTING_TASK_ROOT"]
+    final = finalize_task(scheduler=core, binding=binding, evidence_store=store)
+    assert final.status is TaskLogicalStatus.FAILED
+    assert final.root_failures[0].failure_kind == "EXISTING_TASK_ROOT"
+
+
+@pytest.mark.asyncio
+async def test_p0c_late_user_cancel_does_not_change_completed_contract_success(terminal_fixture):
+    from tests.unit.test_task_finalization import verdict
+    core, manager, binding, store = terminal_fixture
+    await core.run_claim(
+        await core.claim("writer"),
+        FakeExecutionBackend([FakeExecutionScenario()]), accept=accept,
+    )
+    await core.complete_task()
+    await core.cancel_task()
+    assert not core.cancelled and not core.failed
+    assert manager.lifecycle.current.status is WorkspaceSessionStatus.FROZEN
+    final = finalize_task(
+        scheduler=core, binding=binding, evidence_store=store,
+        contract_verdict=verdict(),
+        expected_contract_fingerprint="contract-authority",
+    )
+    assert final.status is TaskLogicalStatus.SUCCEEDED
+    assert final.root_failures == ()
