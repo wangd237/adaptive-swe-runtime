@@ -160,6 +160,7 @@ class DeerFlowPreparationBackend:
         tool_assembler: Callable[..., list[Any]],
         implementation_resolver: Callable[[str], Any],
         source_verifier: Callable[[], None],
+        commit_checker: Callable[[NodeExecutionInvocation], bool] | None = None,
         max_pending: int = 32,
     ):
         if not isinstance(descriptor, CompiledPlanDescriptor):
@@ -191,6 +192,7 @@ class DeerFlowPreparationBackend:
         self.tool_assembler = tool_assembler
         self.implementation_resolver = implementation_resolver
         self.source_verifier = source_verifier
+        self.commit_checker = commit_checker
         self.max_pending = max_pending
         self._pending: dict[str, tuple[NodeExecutionPreparation, PinnedNodeResources]] = {}
         self._claimed_execution_ids: set[str] = set()
@@ -199,7 +201,9 @@ class DeerFlowPreparationBackend:
     def from_deerflow(cls, *, task_id: str, descriptor: CompiledPlanDescriptor,
                       policy: NodeExecutionPolicy, planning_inventory: BackendInventorySnapshot,
                       operator_supplier: Callable[[], OperatorSurface],
-                      sandbox_supplier: Callable[[], Any], max_pending: int = 32):
+                      sandbox_supplier: Callable[[], Any],
+                      commit_checker: Callable[[NodeExecutionInvocation], bool] | None = None,
+                      max_pending: int = 32):
         try:
             from langchain.tools import BaseTool
             from deerflow.config import get_app_config
@@ -234,7 +238,8 @@ class DeerFlowPreparationBackend:
             model_resolver=resolve_subagent_model_name,
             tool_assembler=get_available_tools,
             implementation_resolver=lambda use: resolve_variable(use, BaseTool),
-            source_verifier=verify, max_pending=max_pending,
+            source_verifier=verify, commit_checker=commit_checker,
+            max_pending=max_pending,
         )
 
     @property
@@ -386,16 +391,20 @@ class DeerFlowPreparationBackend:
 
     def claim_for_execution(self, preparation: NodeExecutionPreparation,
                             invocation: NodeExecutionInvocation) -> PinnedNodeResources:
-        """Called exactly once after Scheduler commits a trusted invocation.
+        """Claim exactly once, subject to Scheduler's live commit checker.
 
-        5D/5E must carry these exact objects into SubagentExecutor; a fresh
-        get_app_config/get_available_tools/get_loaded_extensions is forbidden.
+        Checker MUST be the trusted SchedulerCore.is_committed_invocation
+        method. Missing checker, precommit invocation, wrong owner, or stale
+        commit fails closed. 5D/5E must reuse these exact captured resources.
         """
         entry = self._pending.pop(preparation.preparation_id, None)
         if entry is None or entry[0] != preparation:
             raise DeerFlowPreparationError("PREPARED_EXECUTION_BINDING_MISMATCH")
         resources = entry[1]
-        if (invocation.task_id != self.task_id
+        if (not isinstance(invocation, NodeExecutionInvocation)
+                or self.commit_checker is None
+                or self.commit_checker(invocation) is not True
+                or invocation.task_id != self.task_id
                 or invocation.node_id != self.node.id
                 or preparation.node_id != self.node.id
                 or preparation.provider_id != self.policy.provider_id
@@ -405,6 +414,7 @@ class DeerFlowPreparationBackend:
                 or not invocation.execution_id or not invocation.run_id
                 or invocation.execution_id in self._claimed_execution_ids):
             raise DeerFlowPreparationError("PREPARED_EXECUTION_BINDING_MISMATCH")
+        self.source_verifier()
         if (_digest(resources.app_config) != resources.app_config_digest
                 or _digest(resources.subagent_config) != resources.subagent_config_digest
                 or _digest(resources.model_config) != resources.model_config_digest
