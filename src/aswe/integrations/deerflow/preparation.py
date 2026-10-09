@@ -368,6 +368,10 @@ class DeerFlowPreparationBackend:
             sub.disallowed_tools = sorted(
                 native_deny | {t.name for t in assembled if t.name not in sub.tools}
             )
+            # No chosen skills in v1 5C/5D: native None would INHERIT ALL.
+            # Restrict in the captured SubagentConfig *before* sealing it.
+            # This is a strict reduction of native authority, never an upgrade.
+            sub.skills = []
             sub_digest = _digest(sub)
             seals = tuple(_tool_seal(t) for t in tools)
             effective = fingerprint((effective, tuple(selected), turns, timeout))
