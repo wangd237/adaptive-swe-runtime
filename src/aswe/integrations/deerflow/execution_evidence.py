@@ -64,6 +64,7 @@ class ExecutionEvidenceReport:
     quiescent: bool
     mutation_evidence: MutationEvidence
     evidence_ref: EvidenceRef | None
+    tool_receipt_ref: EvidenceRef | None
     workspace_delta: NodeWorkspaceDelta | None
     post_repository: RepositoryStateDigest | None
     unknown_reasons: tuple[str, ...]
@@ -160,6 +161,19 @@ class ExecutionEvidenceCollector:
                 or observation.tool_workers_drained is not True
             ):
                 reasons.append("EXTERNAL_RESOURCE_QUIESCENCE_UNPROVEN")
+        receipts = ()
+        try:
+            receipts = guard.receipt_snapshot()
+            if not isinstance(receipts, tuple) or any(
+                not isinstance(item, dict)
+                or item.get("execution_id") != inv.execution_id
+                or item.get("status") not in ("completed", "failed", "denied", "cancelled")
+                for item in receipts
+            ):
+                reasons.append("TOOL_RECEIPT_LEDGER_UNATTESTED")
+                receipts = ()
+        except Exception:
+            reasons.append("TOOL_RECEIPT_LEDGER_UNAVAILABLE")
         quiescent = not reasons
         try:
             # Snapshot AFTER resource verification; no subprocess/worktree
@@ -187,6 +201,21 @@ class ExecutionEvidenceCollector:
             if delta.attribution_truncated:
                 reasons.append("EVIDENCE_SCANNER_INCOMPLETE")
             mutation = delta.mutation_evidence if quiescent else MutationEvidence.UNKNOWN
+            receipt_ref = self.evidence_store.put_attempt(
+                task_id=inv.task_id, node_id=inv.node_id,
+                execution_id=inv.execution_id, attempt=inv.attempt,
+                kind=AttemptEvidenceKind.TOOL_RECEIPT_LEDGER,
+                payload={
+                    "authority": "host-toolcallguard-not-model",
+                    "task_id": inv.task_id, "execution_id": inv.execution_id,
+                    "attempt": inv.attempt,
+                    "receipts": receipts,
+                    "pending_call_count": pending,
+                    "no_native_sandbox_command_receipts": True,
+                },
+                workspace_revision=revision,
+            )
+            self.evidence_store.get(receipt_ref)
             evidence = self.evidence_store.put_attempt(
                 task_id=inv.task_id, node_id=inv.node_id,
                 execution_id=inv.execution_id, attempt=inv.attempt,
@@ -212,7 +241,7 @@ class ExecutionEvidenceCollector:
             return ExecutionEvidenceReport(
                 invocation=inv, quiescent=quiescent,
                 mutation_evidence=mutation, evidence_ref=evidence,
-                workspace_delta=delta, post_repository=post_repo,
+                tool_receipt_ref=receipt_ref, workspace_delta=delta, post_repository=post_repo,
                 unknown_reasons=tuple(reasons),
             )
         except asyncio.CancelledError:
@@ -221,7 +250,7 @@ class ExecutionEvidenceCollector:
             return ExecutionEvidenceReport(
                 invocation=inv, quiescent=False,
                 mutation_evidence=MutationEvidence.UNKNOWN,
-                evidence_ref=None, workspace_delta=None,
+                evidence_ref=None, tool_receipt_ref=None, workspace_delta=None,
                 post_repository=None,
                 unknown_reasons=tuple(reasons) + ("EVIDENCE_POST_CAPTURE_FAILED",),
             )
