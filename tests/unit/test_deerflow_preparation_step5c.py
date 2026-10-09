@@ -33,6 +33,24 @@ class App(ConfigPart):
         return next((m for m in self.models if m.name == name), None)
 
 
+@dataclass(frozen=True)
+class StubLoadedExtensions:
+    app_store: object = field(default_factory=object)
+    middleware_contributors: tuple = ()
+    task_lifecycle: tuple = ()
+    system_model_observers: tuple = ()
+    agent_assembly_observers: tuple = ()
+    context_compaction_observers: tuple = ()
+    services: tuple = ()
+    routers: tuple = ()
+    plugins: tuple = ()
+    has_middleware_contributors: bool = False
+    has_task_lifecycle: bool = False
+    has_system_model_observers: bool = False
+    has_agent_assembly_observers: bool = False
+    needs_task_store: bool = False
+
+
 @dataclass
 class Sub:
     name: str
@@ -81,8 +99,8 @@ def setup(*, selected_model="fake", sub_model="inherit"):
     operator = OperatorSurface(provider_id=policy.provider_id,
                                allowed_tools=("read_file",), model_name=selected_model,
                                max_turns=5, timeout_seconds=10)
-    env = {"app": app, "extensions": object(), "operator": operator,
-           "sub_model": sub_model, "tools": [obj]}
+    env = {"app": app, "extensions": StubLoadedExtensions(), "operator": operator,
+           "sub_model": sub_model, "sub_tools": None, "sub_denied": [], "tools": [obj]}
     backend = DeerFlowPreparationBackend(
         task_id="task-5c", descriptor=descriptor, policy=policy,
         planning_inventory=live,
@@ -90,7 +108,9 @@ def setup(*, selected_model="fake", sub_model="inherit"):
         operator_supplier=lambda: env["operator"],
         sandbox_supplier=lambda: SimpleNamespace(persistent_shell_sessions=False),
         extensions_supplier=lambda: env["extensions"],
-        subagent_resolver=lambda name, **kw: Sub(name=name, model=env["sub_model"]),
+        subagent_resolver=lambda name, **kw: Sub(name=name, model=env["sub_model"],
+                                                tools=env["sub_tools"],
+                                                disallowed_tools=env["sub_denied"]),
         model_resolver=lambda config, parent_model, **kw: (
             parent_model if config.model == "inherit" else config.model
         ),
@@ -165,7 +185,7 @@ async def test_preparation_model_and_tool_are_not_implicitly_rebound():
     prepared = await backend.prepare_node(node)
     pinned = backend._pending[prepared.preparation_id][1]
     env["tools"] = []
-    env["extensions"] = object()
+    env["extensions"] = StubLoadedExtensions()
     assert pinned.tools == (obj,)
     assert pinned.extensions is not env["extensions"]
     backend.discard_all()
