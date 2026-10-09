@@ -205,6 +205,7 @@ class ToolCallGuard:
         self._call_lock = threading.RLock()
         self._pending_calls: set[str] = set()
         self._used_call_ids: set[str] = set()
+        self._tool_receipts: list[dict[str, str]] = []
 
     def close(self) -> None:
         """Revoke future calls. In-flight provider/native tool quiescence is 5E."""
@@ -270,6 +271,38 @@ class ToolCallGuard:
             self._pending_calls.add(tool_call_id)
             return name
 
+    def _record(self, *, name: str, call_id: str, argument: Any,
+                status: str, result: Any = None, failure: str = "") -> None:
+        # This is a bounded, host-observed ToolCallGuard *receipt*, not a
+        # native shell/Workspace effect attestation. Never persist raw data.
+        try:
+            args_digest = _digest(argument)
+        except Exception:
+            args_digest = "unserializable"
+        try:
+            output_digest = _digest(result) if status == "completed" else ""
+        except Exception:
+            output_digest = "unserializable"
+        receipt = {
+            "tool_call_id": call_id,
+            "tool_name": name,
+            "arguments_digest": args_digest,
+            "output_digest": output_digest,
+            "status": status,
+            "failure_code": failure,
+            "execution_id": self.invocation.execution_id,
+        }
+        with self._call_lock:
+            self._tool_receipts.append(receipt)
+
+    def receipt_snapshot(self) -> tuple[dict[str, str], ...]:
+        with self._call_lock:
+            if self._pending_calls:
+                _deny("TOOL_RECEIPTS_STILL_INFLIGHT")
+            return tuple(dict(item) for item in sorted(
+                self._tool_receipts, key=lambda x: x["tool_call_id"]
+            ))
+
     def _auth_request(self, name: str, call_id: str, tool_input: Any) -> Any:
         return _request(
             self.request_factory, self.principal, "tool", "call", name,
@@ -281,7 +314,7 @@ class ToolCallGuard:
 
     async def ainvoke(self, *, tool: Any, tool_call_id: str,
                       tool_input: dict | str, handler: Callable[[], Awaitable[Any]]) -> Any:
-        """Guarantee no provided native handler is called on authorization deny."""
+        """Authorize the real native tool handler, record effect-agnostic receipt."""
         name = self._reserve(tool=tool, tool_call_id=tool_call_id, tool_input=tool_input)
         try:
             if self.auth_enabled:
@@ -295,8 +328,6 @@ class ToolCallGuard:
                     _deny("AUTHORIZATION_CALL_FAILED")
                 if not _decision_ok(decision):
                     _deny("AUTHORIZATION_CALL_DENIED")
-            # A cancellation/close during async authorization must not launch
-            # a tool. No await between this check and dispatch to handler.
             if self.closed:
                 _deny("EXECUTION_BINDING_CLOSED")
             self._live()
@@ -305,13 +336,27 @@ class ToolCallGuard:
                     or self.auth_enabled is not self._auth_enabled_anchor):
                 _deny("RUN_AUTHORITY_MUTATED")
             self.resources.assert_intact()
-            return await handler()
+            result = await handler()
+        except BaseException as exc:
+            self._record(name=name, call_id=tool_call_id, argument=tool_input,
+                         status="cancelled" if isinstance(exc, asyncio.CancelledError)
+                                else "denied" if isinstance(exc, ToolBindingError)
+                                else "failed",
+                         failure=(exc.code if isinstance(exc, ToolBindingError)
+                                  else "TOOL_CANCELLED" if isinstance(exc, asyncio.CancelledError)
+                                  else "NATIVE_TOOL_FAILED"))
+            raise
+        else:
+            self._record(name=name, call_id=tool_call_id, argument=tool_input,
+                         status="completed", result=result)
+            return result
         finally:
-            self._pending_calls.discard(tool_call_id)
+            with self._call_lock:
+                self._pending_calls.discard(tool_call_id)
 
     def invoke(self, *, tool: Any, tool_call_id: str,
                tool_input: dict | str, handler: Callable[[], Any]) -> Any:
-        """Synchronous tool path; never permits bypass through BaseTool.run."""
+        """Sync native tool call, atomic replay reservation across threads."""
         name = self._reserve(tool=tool, tool_call_id=tool_call_id, tool_input=tool_input)
         try:
             if self.auth_enabled:
@@ -331,9 +376,20 @@ class ToolCallGuard:
                     or self.auth_enabled is not self._auth_enabled_anchor):
                 _deny("RUN_AUTHORITY_MUTATED")
             self.resources.assert_intact()
-            return handler()
+            result = handler()
+        except BaseException as exc:
+            self._record(name=name, call_id=tool_call_id, argument=tool_input,
+                         status="denied" if isinstance(exc, ToolBindingError) else "failed",
+                         failure=exc.code if isinstance(exc, ToolBindingError)
+                                 else "NATIVE_TOOL_FAILED")
+            raise
+        else:
+            self._record(name=name, call_id=tool_call_id, argument=tool_input,
+                         status="completed", result=result)
+            return result
         finally:
-            self._pending_calls.discard(tool_call_id)
+            with self._call_lock:
+                self._pending_calls.discard(tool_call_id)
 
 
 def make_langchain_tool_policy_middleware(binding: "NodeExecutionBinding") -> Any:
