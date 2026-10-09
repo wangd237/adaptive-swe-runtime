@@ -385,7 +385,7 @@ async def test_preflight_wrapper_precommit_revoke_cleans_raw_mapping(tmp_path):
         FakeExecutionBackend([FakeExecutionScenario()]), descriptor=desc,
         policy=policies[0], planning_inventory=inv,
         live_inventory=lambda: inv,
-        live_operator=lambda: ops[0],
+        live_operator=lambda: next(o for o in ops if o.provider_id == policies[0].provider_id),
     )
     ticket = await core.claim(policies[0].node_id)
     await core.revoke(ticket.ticket_id)
