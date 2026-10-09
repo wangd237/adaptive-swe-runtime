@@ -112,7 +112,10 @@ def test_preferred_skill_incompatible_with_required_bash_is_not_exposed():
     raw=inv.model_dump(mode="python",exclude={"fingerprint"})
     raw["candidate_skill_names"]=frozenset({"read-only-review"})
     better=BackendInventorySnapshot(**raw,fingerprint=inventory_fingerprint(raw))
-    policy=compile_policies(contract=c,plan=p,resolved=r,inventory=better,acceptance=a,
+    from aswe.planning.compiler import project_execution_authority
+    r2=resolve_workplan(plan=p,contract=c,authority=project_execution_authority(c),
+                        inventory=better,providers=(tester,))
+    policy=compile_policies(contract=c,plan=p,resolved=r2,inventory=better,acceptance=a,
         providers=(tester,),operators=(OperatorSurface(
              provider_id="tester",allowed_tools=("read_file","bash"),
              skill_allowed_tools={"read-only-review":("read_file",)}),))

@@ -17,7 +17,9 @@ def revalidate_live(*,policy,planning,live,operator):
     for contract_id in policy.required_business_tools:
         old=planning.candidate_tools.get(contract_id)
         current=live.candidate_tools.get(contract_id)
-        if old is None or current is None or (
+        if old is None or current is None:
+            raise LivePreflightError("BACKEND_PREFLIGHT_STALE")
+        if (
             old.implementation_id,old.resolved_exposed_name,old.delivery,
         )!=(current.implementation_id,current.resolved_exposed_name,current.delivery):
             raise LivePreflightError("PROVIDER_TOOL_IDENTITY_MISMATCH")
@@ -25,7 +27,7 @@ def revalidate_live(*,policy,planning,live,operator):
     if any(t is None or trusted_effect(t) in (ToolEffect.UNKNOWN,ToolEffect.EXTERNAL_SIDE_EFFECT) for t in infos):
         raise LivePreflightError("BACKEND_PREFLIGHT_STALE")
     if (policy.model_name not in live.configured_model_names
-            or policy.provider_id not in live.candidate_agent_types
+            or policy.backend_agent_type not in live.candidate_agent_types
             or not set(policy.required_sandbox_features).issubset(live.sandbox_features)):
         raise LivePreflightError("BACKEND_PREFLIGHT_STALE")
     if operator.auth_enabled and (

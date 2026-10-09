@@ -38,6 +38,7 @@ class OperatorSurface(FrozenModel):
 class NodeExecutionPolicy(FrozenModel):
     node_id:str
     provider_id:str
+    backend_agent_type:str
     provider_contract_fingerprint:str
     task_contract_fingerprint:str
     workplan_fingerprint:str
@@ -100,7 +101,9 @@ def compile_policies(*,contract:CompiledTaskContract,plan:ValidatedWorkPlan,
                      resolved:ResolvedPlan,inventory:BackendInventorySnapshot,
                      providers:tuple[AgentProvider,...],
                      operators:tuple[OperatorSurface,...],
-                     acceptance:CompiledAcceptancePlan)->tuple[NodeExecutionPolicy,...]:
+                     acceptance:CompiledAcceptancePlan,
+                     node_max_turns:int=24,node_timeout_seconds:float=120.
+                     )->tuple[NodeExecutionPolicy,...]:
     if (contract.fingerprint!=plan.task_contract_fingerprint
         or resolved.contract_fingerprint!=contract.fingerprint
         or resolved.workplan_fingerprint!=plan.fingerprint
@@ -148,7 +151,9 @@ def compile_policies(*,contract:CompiledTaskContract,plan:ValidatedWorkPlan,
         if infra and (bool(set(infra).intersection(o.denied_tools))
                       or o.allowed_tools is not None and not set(infra).issubset(o.allowed_tools)):
             raise AdmissionError("REQUIRED_INFRASTRUCTURE_TOOL_DENIED")
-        body=dict(node_id=item.id,provider_id=p.id,
+        if node_max_turns<1 or node_timeout_seconds<=0:
+            raise AdmissionError("INVALID_RUNTIME_BUDGET")
+        body=dict(node_id=item.id,provider_id=p.id,backend_agent_type=p.backend_agent_type,
           provider_contract_fingerprint=p.fingerprint,
           task_contract_fingerprint=contract.fingerprint,
           workplan_fingerprint=plan.fingerprint,
@@ -158,7 +163,8 @@ def compile_policies(*,contract:CompiledTaskContract,plan:ValidatedWorkPlan,
           required_infrastructure_tools=infra,infrastructure_tool_names=infra,
           preferred_skills=tuple(skills),required_sandbox_features=acceptance.required_sandbox_features,
           model_name=o.model_name,workspace_access=r.workspace_access,
-          max_turns=o.max_turns,timeout_seconds=o.timeout_seconds)
+          max_turns=min(o.max_turns,node_max_turns),
+          timeout_seconds=min(o.timeout_seconds,node_timeout_seconds))
         result.append(_seal(NodeExecutionPolicy,body))
     return tuple(result)
 
