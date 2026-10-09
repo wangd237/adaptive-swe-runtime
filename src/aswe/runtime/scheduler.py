@@ -326,10 +326,14 @@ class SchedulerCore:
         active = self._active_invocations.get(invocation.execution_id)
         ticket = self.tickets.get(invocation.dispatch_ticket_id)
         committed = self._committed.get(invocation.execution_id)
+        try:
+            owner = asyncio.current_task()
+        except RuntimeError:
+            return False
         return (
-            active == invocation
+            active is invocation
             and ticket is not None and ticket.state is NodeDispatchTicketState.COMMITTED
-            and committed is not None and committed.owner is asyncio.current_task()
+            and committed is not None and committed.owner is owner
             and self.task_id == invocation.task_id
             and ticket.node_id == invocation.node_id
             and ticket.task_dispatch_epoch == invocation.task_dispatch_epoch
