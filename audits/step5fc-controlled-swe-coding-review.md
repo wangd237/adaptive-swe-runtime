@@ -1,0 +1,39 @@
+# Step 5F-C — Controlled SWE Coding / Real Native Offline Repair Loop
+
+Date: 2026-10-09
+PR: #7, coding/step5-deerflow-adapter, Draft/Open, unmerged
+Decision: **5F-C-A Scoped GO** only upon latest dual CI + frozen-vendor + physical Docker green. **Real credentialed multi-node TaskResult remains NO-GO.**
+
+## User-approved change in priorities
+
+The full production Sandbox release/process-tree quiescence proof is **deferred**, not fabricated. Core's existing strict Scheduler quiescence guard remains unchanged: a native result with UNKNOWN external quiescence still terminalizes/quarantines, not ACCEPTED. The MVP path explicitly exposes a lower-certainty development summary instead of forging acceptance.
+
+The goal of 5F-C is to enable true SWE *development actions*, not to require every dynamic Agent Bash command to equal an Acceptance Compiler command. Runtime-owned canonical test verification remains a separate authoritative path.
+
+## Implemented 5F-C-A
+
+1. `src/aswe/integrations/deerflow/controlled_swe.py`: `ControlledSWEWorkspace` provides a bounded `read_file`, `write_file`, `str_replace` and dynamic `bash` tool profile for one trusted `NodeExecutionInvocation` and WRITE-scoped `NodeExecutionPolicy`. No globally enabled host Shell.
+2. File operations are bound to a selected root. Only Workspace-relative paths and `/workspace/*` are admitted; traversal outside the root, `.git` control files, symlinks and configured forbidden paths are denied. Existing-file writes require reading its current version first; changed-file limits are checked **before** mutation. This is a locked worktree developer-mode guard, **not** a security proof against an out-of-band hostile writer racing the path checks.
+3. `DockerCommandBackend` uses an explicitly chosen locally cached immutable image digest and a disposable no-network, read-only-root container with a single selected writable Workspace bind mount. Dynamic commands are shell-interpreted **inside the container**, not on the host; Docker CLI arguments are Runtime-built, with no host home/SSH/token socket mappings. CPU/memory/PID limits, bounded output to external unlinked file, command timeout, and best-effort named container cleanup are included. Container/cgroup release is not yet independently certified.
+4. `NodeExecutionBindingStore` gets an optional `swe_workspace_factory` AND mandatory `expected_swe_workspace_root`. Existing default 5D read-only behavior is preserved. After trusted Scheduler commit and verified 5C original tool provenance, the factory constructs the **approved** ToolCallGuard-protected runtime tools. The new wrapped model-visible objects are checked against the compiled `ToolNode` by exact identity and frozen schema. Model, provider and per-call authorization checks still run. Unknown tools, mismatched workspace roots or unpinned execution identities are refused.
+5. Native `SubagentExecutor` allows mutable business tools **only** if they came through that explicit guarded SWE binding; no blanket relaxation for native DeerFlow `bash_tool`. Skills/MCP/extensions remain disabled under the 5D surface.
+6. `SWEDevelopmentSummary` is a lightweight, **non-certified** result: task/node/execution ID, native terminal status, file-tool changed paths, dynamic command count, last observed exit code. Fields `verification_level=agent_observed_only`, `acceptance_status=not_evaluated` stop a mock or Agent's own test from masquerading as canonical Runtime acceptance.
+
+## Actual CI tests
+
+- Core tests: `tests/unit/test_deerflow_controlled_swe_step5fc.py` runs workspace read/replace/write and synthetic isolated Bash; denies symlink to outside, `.. `, absolute outside path, protected directory, stale writes, unsupported missing Docker backend, precision path/max changed files with dynamic Bash, unpinned image and missing Scheduler-root permission.
+- Source-pinned vendor native tests: `tests/integration/test_deerflow_pinned_native_step5eb.py` invokes a real installed frozen `SubagentExecutor._aexecute` and compiled LangGraph `ToolNode`, with scripted offline `BaseChatModel` and synthetic isolated ShellOutcome backend. Sequence: read actual `calc.py` → replace wrong return value → synthetic test FAIL → re-read → replace fix → synthetic test PASS → final model message. Asserts actual file bytes, both tool-call observations, committed tool object identities and hashed ToolCallGuard receipts.
+- Physical container: `tests/integration/test_deerflow_docker_swe_step5fc.py` executes a dynamically generated shell command in a real Docker container on GitHub Actions, confirms a test Workspace write is visible through the sole intended mount, root filesystem is read-only to unprivileged process, unrelated host paths are not mounted, and timeout is bounded. Image is pulled from the declared development tag then referenced by the local SHA-256 RepoDigest; the *source tag* is not a permanently pinned supply-chain provenance.
+- CI: ordinary Python 3.11/3.13 suite and the separate Python 3.12 installed frozen DeerFlow Harness + Docker smoke. Do not quote test counts until HEAD concludes green.
+
+## Explicit remaining implementation and evaluation gaps
+
+1. The real Native+LangGraph repair-loop test uses synthetic LLM responses and a synthetic ShellOutcome; the physical Docker test separately proves the Docker command backend. A **single full native+real Docker+real model credential** run has not yet been executed.
+2. The installed-native repair fixture creates a trusted-shaped `NodeExecutionBinding` directly. It does not yet demonstrate complete **actual** Scheduler → 5C prepared pinned tool provenance → 5D newly opted-in binding → writer Native Executor → canonical final test → accepted `TaskResult` in one physical run. The production `swe_workspace_factory` entry is wired but should be driven by a full plan-compiled integration fixture and negative injected tool/identity matrix before release.
+3. The wrapped SWE tools intentionally offer a **narrower** argument schema than frozen DeerFlow's original tools, e.g. no append/write description. This is a declared reduction in behavior and must not be called schema equivalence with upstream. 5C original tools remain separately source-sealed and the effective wrapped `ToolNode` is verified.
+4. Dynamic Bash can modify arbitrary files inside the selected Workspace bind mount, so when policy specifies fine-grained allowed/forbidden paths or `max_changed_files`, the Bash capability is denied rather than pretending per-file controls apply to arbitrary shell commands.
+5. The Docker development sandbox is not a formally verified security boundary; no real complete provider-release/cgroup/process-tree attestation, orphan background process drain or production quiescence claim. Host-side Python file tools require the Scheduler's exclusive Workspace Access plus trusted host composition to avoid TOCTOU races. Additional security work is deferred by user request.
+6. The ordinary strict Core Scheduler still refuses `quiescent=False`. The new development summary does not set `NodeHandoff` or `ACCEPTED`. Lightweight MVP TaskResult/verification classification based on **independently executed** canonical test receipts remains for the next implementation increment. Do not rebrand advisory Agent test success as certified.
+7. Model credentials, real AuthorizationProvider integration, dependency locked image, network-enabled installs, and arbitrary write/shell permissions outside this opt-in profile remain NO-GO.
+
+**Recommendation:** keep PR Draft. Next implement and test a single fully planned/committed `Writer → Native SWE → Runtime independent pytest → MVP Report` fixture, with honest verification statuses. Production quiescence and advanced all-leaf Acceptance may remain optional future hardening; never replace an unknown proof with a made-up success.
