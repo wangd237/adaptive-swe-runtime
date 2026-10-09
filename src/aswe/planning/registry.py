@@ -59,19 +59,17 @@ def normalize_path(path: str, *, pattern: bool = False) -> str:
         raise ValueError("unsafe relative path")
     if not _SAFE_PATH.fullmatch(cleaned):
         raise ValueError("unsupported path expression")
+    if cleaned == "**":
+        if pattern:
+            return cleaned
+        raise ValueError("exact path required")
     if not pattern and "*" in cleaned:
         raise ValueError("exact path cannot contain glob")
     if pattern and "*" in cleaned and not (
         cleaned.endswith("/**") and "*" not in cleaned[:-3]
     ):
         raise ValueError("unsupported glob scope; cannot prove containment")
-    if cleaned == "**":
-        return cleaned if pattern else _reject_exact()
     return cleaned
-
-
-def _reject_exact() -> str:
-    raise ValueError("exact path required")
 
 
 def _items(raw: object, *, paths: bool = False) -> tuple[str, ...]:

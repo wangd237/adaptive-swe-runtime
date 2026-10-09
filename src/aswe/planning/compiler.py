@@ -217,6 +217,7 @@ def project_execution_authority(contract: CompiledTaskContract) -> TaskExecution
     grant_ids = tuple(sorted(
         c.id for c in contract.constraints
         if c.key == "deliverables.required"
+        and c.enforcement in (ConstraintEnforcement.HARD, ConstraintEnforcement.LOCKED)
         and any(d.effect is DeliverableEffect.REPOSITORY_MUTATION for d in c.value)
     ))
     permission = (
@@ -295,6 +296,10 @@ class ConstraintCompiler:
                 except ValueError as exc:
                     raise ContractCompilationError("CONTRACT_INVALID", str(exc)) from exc
                 key, val = directive if directive else ("semantic.requirement", quote)
+                # Repository suggestions must never issue a positive effect
+                # grant, even if they contain a recognizable directive.
+                if key == "deliverables.required":
+                    key, val = "semantic.requirement", quote
                 evidence = ConstraintEvidenceRef(
                     source_kind="repository_file", source_id=source.path,
                     source_hash=hashlib.sha256(source.content.encode("utf-8")).hexdigest(),

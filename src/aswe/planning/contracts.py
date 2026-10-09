@@ -81,6 +81,16 @@ class CompiledConstraint(FrozenModel):
     verification_mode: Literal["deterministic", "semantic", "none"]
     contributors: tuple[str, ...]
 
+    @model_validator(mode="after")
+    def validate_compiler_id(self):
+        from aswe.core.fingerprint import fingerprint
+        expected = "constraint-" + fingerprint(
+            self.model_dump(mode="json", exclude={"id"})
+        )[:24]
+        if self.id != expected:
+            raise ValueError("compiled constraint identity mismatch")
+        return self
+
 
 class CompiledTaskContract(FrozenModel):
     task_request_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -91,9 +101,30 @@ class CompiledTaskContract(FrozenModel):
     warnings: tuple[dict[str, Any], ...]
     fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
 
+    @model_validator(mode="after")
+    def validate_contract_hash(self):
+        from aswe.core.fingerprint import fingerprint
+        if self.fingerprint != fingerprint(self.model_dump(mode="json", exclude={"fingerprint"})):
+            raise ValueError("compiled contract fingerprint mismatch")
+        ids = tuple(c.id for c in self.constraints)
+        if ids != tuple(sorted(set(ids))):
+            raise ValueError("compiled constraint order/identity not canonical")
+        return self
+
 
 class TaskExecutionAuthority(FrozenModel):
     repository_mutation_allowed: bool
     external_side_effects_allowed: frozenset[str]
     granting_constraint_ids: tuple[str, ...]
     fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_authority_hash(self):
+        from aswe.core.fingerprint import fingerprint
+        if self.fingerprint != fingerprint(self.model_dump(mode="json", exclude={"fingerprint"})):
+            raise ValueError("task execution authority fingerprint mismatch")
+        if self.external_side_effects_allowed:
+            raise ValueError("P1 external side effects must be denied")
+        if self.repository_mutation_allowed != bool(self.granting_constraint_ids):
+            raise ValueError("authority grant ids inconsistent")
+        return self
