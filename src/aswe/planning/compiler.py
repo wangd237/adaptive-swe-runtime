@@ -300,12 +300,12 @@ class ConstraintCompiler:
             # A quoted directive inside a sentence or code block is data, not
             # an execution instruction. Only one unquoted complete line can
             # enter the typed registry; otherwise retain semantic HARD.
-            line_start = at == 0 or request.raw_text[at - 1] == "\\n"
+            line_start = at == 0 or request.raw_text[at - 1] == "\n"
             end = at + len(quote)
-            line_end = end == len(request.raw_text) or request.raw_text[end] == "\\n"
+            line_end = end == len(request.raw_text) or request.raw_text[end] == "\n"
             plain = (
                 line_start and line_end
-                and "\\n" not in quote and not quote.startswith((">", "- ", "#"))
+                and "\n" not in quote and not quote.startswith((">", "- ", "#"))
                 and request.raw_text[:at].count("```") % 2 == 0
                 and request.raw_text.count(quote) == 1
             )
