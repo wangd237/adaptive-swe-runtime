@@ -307,7 +307,9 @@ class DeerFlowPreparationBackend:
             live = inventory_from_assembled_tools(
                 app_config=app, assembled_tools=assembled,
                 resolve_implementation=self.implementation_resolver,
-                active_agent_types=tuple(sorted(self.planning.candidate_agent_types)),
+                # Only the selected agent was resolved in this preparation.
+                # Never manufacture fresh availability for unrelated providers.
+                active_agent_types=(self.policy.backend_agent_type,),
                 sandbox=self.sandbox_supplier(),
             )
             operator = self.operator_supplier()
