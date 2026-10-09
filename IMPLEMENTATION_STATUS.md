@@ -5,7 +5,7 @@
 - Step 0 — CLOSED / ACCEPTED
 - Step 1 — CLOSED / ACCEPTED
 - Step 2 — CLOSED / ACCEPTED (PR #4 merged as `3d19541bb9f0f7e345ec0f4fb8af3a5415b5ed53`)
-- Step 3 — NEXT / CODING BRANCH STARTING (Task / Contract / Planning Compiler)
+- Step 3 — IN PROGRESS (Task / Contract / Planning Compiler; [draft PR #5](https://github.com/wangd237/adaptive-swe-runtime/pull/5))
 - Step 4 and later — NOT STARTED
 
 ## Step 2 accepted implementation (PR #4 merged)
@@ -78,10 +78,12 @@
 - Implementation HEAD `2b4061d`: Python 3.11 and 3.13 each 199 passed. Frozen PoC matrix 65 PASS / 0 PARTIAL / 0 GAP.
 - **Step 2 CLOSED:** independent source/Design Freeze consistency sweep documented, latest-head CI verified, PR #4 merged.
 
-## Step 3 next coding gate
+## Step 3 coding in progress — draft PR #5
 
 - Implement the frozen `specs/01-task-planning.md` Task/Constraint/Planning compiler in `src/aswe/planning/` on an isolated coding branch.
-- First: compiler-owned immutable Request/Provenance contracts; then Constraint merge algebra POC-C01–C06; then PlanValidator/Normalizer and Acceptance compiler.
+- Step 3A initial implementation is on `coding/step3-planning-compiler`: immutable Request/Profile/TaskSpec/ConstraintCandidate, ReasoningBackend contract, Compiler-owned provenance. Initial POC-C01/C04 plus negatives covered.
+- Draft PR #5 Python 3.11 and 3.13: **207 passed** on `72b6abc23163d17c6c38fa97790f81f84b27e5a1`.
+- Next Step 3B: full Constraint merge algebra POC-C02/C03/C05–C07; then PlanValidator/Normalizer and Acceptance compiler.
 - Step 3 must satisfy POC-P3-01..12 and POC-C01..10, with deterministic FakeReasoningBackend tests, before its own closure.
 - Step 4 DAG/Provider compilation and Step 5 DeerFlow integration remain out of scope.
 

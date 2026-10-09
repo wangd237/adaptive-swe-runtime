@@ -10,7 +10,7 @@ P0 Design: FROZEN (DeerFlow integration Go/No-Go pending)
 Coding Step 0: CLOSED / ACCEPTED
 Coding Step 1: CLOSED / ACCEPTED
 Coding Step 2: **CLOSED / ACCEPTED** — [PR #4](https://github.com/wangd237/adaptive-swe-runtime/pull/4) merged as `3d19541b`
-Coding Step 3: **STARTING** — Task / Contract / Planning Compiler
+Coding Step 3: **IN PROGRESS** — Task / Contract / Planning Compiler ([draft PR #5](https://github.com/wangd237/adaptive-swe-runtime/pull/5))
 DeerFlow / LLM integration: NOT STARTED (Step 5)
 
 Step 2 frozen PoC inventory: **65 PASS / 0 PARTIAL / 0 GAP**.
