@@ -483,6 +483,7 @@ class NodeExecutionBindingStore:
             principal = deepcopy(self.principal_supplier(resources))
             if not _principal_ok(principal):
                 _deny("HOST_PRINCIPAL_UNTRUSTED")
+            principal_digest = _digest(principal)
             provider = None
             visible = names
             if enabled:
@@ -519,6 +520,10 @@ class NodeExecutionBindingStore:
                 objects=view_tools,
                 object_seals=tuple(_tool_seal(t) for t in view_tools),
             )
+            # A provider must not rewrite identity between visibility and
+            # use decisions (e.g. mutate role to administrator).
+            if _digest(principal) != principal_digest:
+                _deny("HOST_PRINCIPAL_MUTATED")
             # Authorization may await external systems. Fail closed if the
             # Scheduler already terminalized this committed attempt.
             try:
