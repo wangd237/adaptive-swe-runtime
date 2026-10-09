@@ -326,6 +326,8 @@ class NativeDeerFlowExecutionBackend:
         self.enable_native_execution = enable_native_execution
         self.evidence_collector = evidence_collector
         self._tasks: dict[str, asyncio.Task[Any]] = {}
+        # Independent native outer-coroutine completion, never Task.cancel() state.
+        self._completion_events: dict[str, asyncio.Event] = {}
 
     async def prepare_node(self, node: Any) -> NodeExecutionPreparation:
         return await self.store.preparation_backend.prepare_node(node)
@@ -362,8 +364,15 @@ class NativeDeerFlowExecutionBackend:
             if len(task_text) > 100000:
                 raise NativeExecutionError("NATIVE_NODE_TASK_EXCESSIVE")
 
+            completion = asyncio.Event()
+            self._completion_events[invocation.execution_id] = completion
+
             async def run_native():
-                return await executor._aexecute(task_text)
+                try:
+                    return await executor._aexecute(task_text)
+                finally:
+                    # Only after the native coroutine's outermost finally/unwind.
+                    completion.set()
 
             child = asyncio.create_task(run_native())
             self._tasks[invocation.execution_id] = child
@@ -411,7 +420,8 @@ class NativeDeerFlowExecutionBackend:
             if baseline is not None and self.evidence_collector is not None:
                 report = await self.evidence_collector.finish(
                     baseline, guard=binding.guard,
-                    native_task_done=child is not None and child.done(),
+                    native_task_done=child is not None and child.done()
+                    and completion.is_set(),
                 )
                 record = replace(
                     record, quiescent=report.quiescent,
@@ -429,6 +439,7 @@ class NativeDeerFlowExecutionBackend:
             # exceptions; a missing report must never count as quiescence.
             binding.guard.close()
             self.store.release(invocation.execution_id)
+            self._completion_events.pop(invocation.execution_id, None)
 
     async def cancel_node(self, execution_id: str) -> None:
         # No ownership of foreign execution ID; do not enumerate global
@@ -438,3 +449,6 @@ class NativeDeerFlowExecutionBackend:
         if task is not None:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+            signal = self._completion_events.get(execution_id)
+            if signal is None or not signal.is_set():
+                raise NativeExecutionError("NATIVE_EXECUTOR_COMPLETION_UNPROVEN")
