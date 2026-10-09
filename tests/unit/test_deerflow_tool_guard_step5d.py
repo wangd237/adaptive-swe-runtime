@@ -71,7 +71,8 @@ class Provider:
         return Decision(self.allow_tool if request.resource == "tool" else self.allow_model)
 
 
-async def bind_during_scheduler(tmp_path, *, configure=None, provider=None):
+async def bind_during_scheduler(tmp_path, *, configure=None, provider=None,
+                                liveness_checker=None):
     """Drive real _commit under Workspace lock; no native model/tool runs."""
     backend, node, env, tool = setup()
     core, _ = scheduler(tmp_path, node)
@@ -86,7 +87,7 @@ async def bind_during_scheduler(tmp_path, *, configure=None, provider=None):
         principal_supplier=lambda resources: SimpleNamespace(user_id="host-uid", is_internal=False),
         provider_supplier=lambda config: provider,
         auth_request_factory=AuthRequest,
-        execution_live_checker=lambda invocation: True,
+        execution_live_checker=liveness_checker or (lambda invocation: True),
     )
     fake = FakeExecutionBackend([FakeExecutionScenario()])
     result = {}
@@ -460,11 +461,11 @@ async def test_real_scheduler_liveness_rejects_stale_binding_after_attempt(tmp_p
 async def test_async_authorization_liveness_rechecked_after_await(tmp_path):
     def enabled(env): env["app"].authorization.enabled=True
     provider=Provider()
-    result,store,backend,core,node,env,tool,_,inv=(
-        await bind_during_scheduler(tmp_path,configure=enabled,provider=provider))
-    gate=result["binding"].guard
     state={"live":True}
-    gate.execution_live_checker=lambda _:state["live"]
+    result,store,backend,core,node,env,tool,_,inv=(
+        await bind_during_scheduler(tmp_path,configure=enabled,provider=provider,
+                                    liveness_checker=lambda _:state["live"]))
+    gate=result["binding"].guard
     provider.started=asyncio.Event()
     provider.resume=asyncio.Event()
     called=[]
@@ -537,3 +538,27 @@ async def test_guard_denies_mutating_tool_even_if_host_view_injected(tmp_path):
         await gate.ainvoke(tool=bash,tool_call_id="unsafe",tool_input={"command":"rm -rf /"},
             handler=lambda:record_async(ran,"bad"))
     assert not ran
+
+@pytest.mark.asyncio
+async def test_principal_and_authentication_state_tampering_rejected_at_tool_call(tmp_path):
+    def enabled(env):env["app"].authorization.enabled=True
+    provider=Provider()
+    result,store,backend,core,node,env,tool,_,inv=(
+        await bind_during_scheduler(tmp_path,configure=enabled,provider=provider))
+    guard=result["binding"].guard
+    forbidden=[]
+    guard.principal.user_id="other-user"
+    with pytest.raises(ToolBindingError,match="RUN_AUTHORITY_MUTATED"):
+        await guard.ainvoke(tool=tool,tool_call_id="identity-tampered",
+            tool_input={},handler=lambda:record_async(forbidden,"bad"))
+    guard.principal.user_id="host-uid"
+    guard.auth_enabled=False
+    with pytest.raises(ToolBindingError,match="RUN_AUTHORITY_MUTATED"):
+        guard.invoke(tool=tool,tool_call_id="auth-disabled",
+            tool_input={},handler=lambda:forbidden.append("bad"))
+    guard.auth_enabled=True
+    guard.provider=Provider()
+    with pytest.raises(ToolBindingError,match="RUN_AUTHORITY_MUTATED"):
+        guard.invoke(tool=tool,tool_call_id="provider-swapped",
+            tool_input={},handler=lambda:forbidden.append("bad"))
+    assert forbidden==[]
