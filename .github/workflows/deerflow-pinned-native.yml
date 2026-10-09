@@ -36,3 +36,12 @@ jobs:
           PYTHONPATH: src
         run: |
           python -m pytest -vv -x tests/integration/test_deerflow_pinned_native_step5eb.py
+      - name: Pull isolated MVP coding image
+        run: |
+          docker pull alpine:3.20
+          docker image inspect alpine:3.20
+      - name: Physical isolated SWE Bash smoke
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m pytest -vv -x tests/integration/test_deerflow_docker_swe_step5fc.py
