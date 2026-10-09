@@ -187,10 +187,11 @@ class ControlledSWEWorkspace:
             raise SWEExecutionDenied("SWE_BASH_ISOLATION_REQUIRED")
         if "bash" in policy.allowed_business_tools and (
             policy.allowed_paths is not None or policy.forbidden_paths
+            or policy.max_changed_files is not None
         ):
             # A general shell inside the workspace can bypass per-file path
             # rules; until container-level submounts exist this is incompatible.
-            raise SWEExecutionDenied("SWE_BASH_PATH_POLICY_UNSUPPORTED")
+            raise SWEExecutionDenied("SWE_BASH_FINE_GRAINED_POLICY_UNSUPPORTED")
         self.invocation=invocation
         self.policy=policy
         self.root=root
