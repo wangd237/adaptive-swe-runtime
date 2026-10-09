@@ -372,7 +372,7 @@ class NativeDeerFlowExecutionBackend:
             _assert_owner(binding)
             # This 5F seam is deliberately READ-ONLY: tool code may claim any
             # effect, but no native mutating tool is admitted by 5D yet.
-            if any(
+            if binding.swe_runtime is None and any(
                 STANDARD_EFFECTS.get("config:" + name) is not ToolEffect.READ_ONLY
                 for name in binding.tool_view.names
             ):
