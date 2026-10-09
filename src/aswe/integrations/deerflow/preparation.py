@@ -8,6 +8,7 @@ subagent, or tool is invoked here.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, is_dataclass
+from types import SimpleNamespace
 from copy import deepcopy
 import secrets
 from typing import Any, Callable
@@ -41,7 +42,7 @@ def _json_payload(value: Any) -> Any:
         return {k: _json_payload(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [_json_payload(v) for v in value]
-    if isinstance(value, __import__("types").SimpleNamespace):
+    if isinstance(value, SimpleNamespace):
         return {k: _json_payload(v) for k, v in vars(value).items()}
     return value
 
@@ -54,15 +55,60 @@ def _digest(value: Any) -> str:
 
 
 def _tool_seal(tool: Any) -> tuple[Any, ...]:
-    """Include object + callable identity as well as exposed schema."""
+    """Seal observable tool surface, not arbitrary mutable Python closures."""
     fn = getattr(tool, "func", None)
     coroutine = getattr(tool, "coroutine", None)
     return (
-        id(tool), getattr(tool, "name", None),
+        id(tool), type(tool).__module__, type(tool).__qualname__,
+        getattr(tool, "name", None), getattr(tool, "description", None),
         id(fn) if fn is not None else None,
         id(coroutine) if coroutine is not None else None,
+        id(getattr(fn, "__code__", None)) if fn is not None else None,
+        id(getattr(coroutine, "__code__", None)) if coroutine is not None else None,
         _schema_fingerprint(tool),
+        _digest({
+            "tags": getattr(tool, "tags", None),
+            "metadata": getattr(tool, "metadata", None),
+            "return_direct": getattr(tool, "return_direct", None),
+            "response_format": getattr(tool, "response_format", None),
+        }),
     )
+
+
+_EXTENSION_TUPLES = (
+    "middleware_contributors", "task_lifecycle", "system_model_observers",
+    "agent_assembly_observers", "context_compaction_observers", "services",
+    "routers", "plugins",
+)
+
+
+def _extension_seal(extensions: Any) -> tuple[Any, ...]:
+    """Seal LoadedExtensions generation, excluding mutable app-store contents."""
+    params = getattr(type(extensions), "__dataclass_params__", None)
+    if not is_dataclass(extensions) or params is None or not params.frozen:
+        raise DeerFlowPreparationError("DEERFLOW_EXTENSIONS_UNATTESTED")
+    if not all(hasattr(extensions, key) for key in _EXTENSION_TUPLES):
+        raise DeerFlowPreparationError("DEERFLOW_EXTENSIONS_UNATTESTED")
+    output = [id(extensions), id(getattr(extensions, "app_store", None))]
+    for field_name in _EXTENSION_TUPLES:
+        entries = getattr(extensions, field_name)
+        if not isinstance(entries, tuple):
+            raise DeerFlowPreparationError("DEERFLOW_EXTENSIONS_UNATTESTED")
+        names = []
+        for entry in entries:
+            if (not isinstance(entry, tuple) or len(entry) != 2
+                    or not isinstance(entry[0], str)):
+                raise DeerFlowPreparationError("DEERFLOW_EXTENSIONS_UNATTESTED")
+            names.append((entry[0], id(entry[1])))
+        output.append((field_name, tuple(names)))
+    output.extend((
+        getattr(extensions, "has_middleware_contributors", None),
+        getattr(extensions, "has_task_lifecycle", None),
+        getattr(extensions, "has_system_model_observers", None),
+        getattr(extensions, "has_agent_assembly_observers", None),
+        getattr(extensions, "needs_task_store", None),
+    ))
+    return tuple(output)
 
 
 @dataclass(frozen=True)
@@ -90,6 +136,7 @@ class PinnedNodeResources:
     model_config_digest: str
     extension_config_digest: str
     tool_seals: tuple[tuple[Any, ...], ...]
+    extension_seal: tuple[Any, ...]
     binding_digest: str
 
 
@@ -213,8 +260,7 @@ class DeerFlowPreparationBackend:
                 "extensions": getattr(app, "extensions", None),
             })
             extensions = self.extensions_supplier()
-            if extensions is None:
-                raise DeerFlowPreparationError("DEERFLOW_EXTENSIONS_UNATTESTED")
+            extension_seal = _extension_seal(extensions)
             sub = self.subagent_resolver(self.policy.backend_agent_type, app_config=app)
             if sub is None or getattr(sub, "name", None) != self.policy.backend_agent_type:
                 raise DeerFlowPreparationError("SUBAGENT_CONFIG_UNAVAILABLE")
@@ -281,16 +327,30 @@ class DeerFlowPreparationBackend:
             timeout = min(self.policy.timeout_seconds, operator.timeout_seconds)
             sub.max_turns = turns
             sub.timeout_seconds = timeout
-            # SubagentExecutor _filter_tools enforces the same selected names.
+            # Native agent restrictions are an upper bound, never overwritten.
+            native_allow = getattr(sub, "tools", None)
+            native_deny = set(getattr(sub, "disallowed_tools", None) or ())
+            if native_allow is not None:
+                native_allow = set(native_allow)
+            allowed_by_sub = tuple(tid for tid in selected
+                if (native_allow is None or tid in native_allow)
+                and tid not in native_deny)
+            if not set(self.policy.required_business_tools).issubset(allowed_by_sub):
+                raise DeerFlowPreparationError("SUBAGENT_REQUIRED_TOOL_RESTRICTED")
+            selected = list(allowed_by_sub)
+            tools = tuple(by_name[live.candidate_tools[tid].resolved_exposed_name]
+                          for tid in selected)
             sub.tools = [t.name for t in tools]
-            sub.disallowed_tools = [t.name for t in assembled if t.name not in sub.tools]
+            sub.disallowed_tools = sorted(
+                native_deny | {t.name for t in assembled if t.name not in sub.tools}
+            )
             sub_digest = _digest(sub)
             seals = tuple(_tool_seal(t) for t in tools)
             effective = fingerprint((effective, tuple(selected), turns, timeout))
             binding_digest = fingerprint((
                 self.descriptor.fingerprint, self.policy.fingerprint,
                 app_digest, sub_digest, model_digest, extension_config_digest,
-                live.fingerprint, effective, tuple(selected), seals,
+                live.fingerprint, effective, tuple(selected), seals, extension_seal,
             ))
             resources = PinnedNodeResources(
                 node_id=node.id, policy_fingerprint=self.policy.fingerprint,
@@ -302,7 +362,8 @@ class DeerFlowPreparationBackend:
                 app_config_digest=app_digest, subagent_config_digest=sub_digest,
                 model_config_digest=model_digest,
                 extension_config_digest=extension_config_digest,
-                tool_seals=seals, binding_digest=binding_digest,
+                tool_seals=seals, extension_seal=extension_seal,
+                binding_digest=binding_digest,
             )
             token = "df-prep-" + secrets.token_hex(16)
             prepared = NodeExecutionPreparation(
@@ -351,7 +412,8 @@ class DeerFlowPreparationBackend:
                     "plugins": getattr(resources.app_config, "plugins", None),
                     "extensions": getattr(resources.app_config, "extensions", None),
                 }) != resources.extension_config_digest
-                or tuple(_tool_seal(t) for t in resources.tools) != resources.tool_seals):
+                or tuple(_tool_seal(t) for t in resources.tools) != resources.tool_seals
+                or _extension_seal(resources.extensions) != resources.extension_seal):
             raise DeerFlowPreparationError("PREPARED_SNAPSHOT_MUTATED")
         self._claimed_execution_ids.add(invocation.execution_id)
         return resources
