@@ -386,6 +386,16 @@ def evaluate_compiled_contract(*, contract: CompiledTaskContract,
         diagnostics = finding.diagnostics if finding else ("MISSING_TRUSTED_EVALUATION_EVIDENCE",)
         if c.key == "verification.required" and canonical_verifier is None:
             diagnostics = diagnostics + ("CANONICAL_VERIFICATION_MISSING",)
+        # P1 currently has an attested *test* resolver, but no verified
+        # changed-path/semantic/review applicability resolver. A model or
+        # caller can fabricate even structurally valid EvidenceRefs.
+        # Do not promote other HARD/LOCKED leaves until their deterministic
+        # or structured-review evaluator has authenticated the actual proof.
+        if (c.key != "verification.required"
+                and c.enforcement in (ConstraintEnforcement.HARD, ConstraintEnforcement.LOCKED)
+                and status in (ContractLeafStatus.SATISFIED, ContractLeafStatus.NOT_APPLICABLE)):
+            status = ContractLeafStatus.UNVERIFIED
+            diagnostics = diagnostics + ("TRUSTED_NON_TEST_EVALUATOR_MISSING",)
         if (status in (ContractLeafStatus.SATISFIED, ContractLeafStatus.NOT_APPLICABLE)
                 and not refs and c.enforcement is not ConstraintEnforcement.SOFT):
             status = ContractLeafStatus.UNVERIFIED
@@ -439,6 +449,13 @@ def finalize_bound_task(
     The *observed* fingerprint must come from Runtime's pinned execution
     snapshot in Step 4, never the semantic Planner or an Agent self-report.
     """
+    # A real receipt of an earlier workspace cannot prove the final state.
+    # Callers must supply the current Runtime revision, not an Agent stamp.
+    if any(r.observed_revision != scheduler.revision for r in canonical_receipts):
+        raise AcceptanceCompilationError(
+            "VERIFICATION_PROOF_STALE",
+            "canonical receipt revision does not match terminal WorkspaceRevision",
+        )
     expected = bind_execution_contract(
         contract=contract, plan=validated_plan, acceptance=acceptance,
     )
