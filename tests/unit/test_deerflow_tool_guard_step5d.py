@@ -354,3 +354,73 @@ async def test_never_dispatches_provider_returned_extra_tool(tmp_path):
     result,store,*_=await bind_during_scheduler(tmp_path,configure=enabled,provider=provider)
     assert result["error"]=="AUTHORIZATION_VISIBILITY_INVALID"
     assert store.active_count==0
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("kind","code"),[
+    ("plugins","CONFIGURED_PLUGINS_UNSUPPORTED"),
+    ("mcp","MCP_EXTENSION_CONFIG_FORBIDDEN"),
+    ("mcp_broken","MCP_EXTENSION_CONFIG_UNATTESTED"),
+])
+async def test_dynamic_configured_plugin_mcp_server_cannot_enter_model_view(tmp_path,kind,code):
+    def cfg(env):
+        if kind=="plugins":
+            env["app"].plugins=[SimpleNamespace(enabled=True,use="bad:install")]
+        if kind=="mcp":
+            env["app"].extensions.mcp_servers={"remote":SimpleNamespace(enabled=True)}
+        if kind=="mcp_broken":
+            env["app"].extensions.mcp_servers=["remote"]
+    result,store,*_=await bind_during_scheduler(tmp_path,configure=cfg)
+    assert result["error"]==code
+    assert store.active_count==0
+
+
+@pytest.mark.asyncio
+async def test_langchain_middleware_shaped_interceptor_checks_actual_tool_and_run_identity(tmp_path,monkeypatch):
+    import sys
+    from types import ModuleType
+    from aswe.integrations.deerflow.tool_guard import make_langchain_tool_policy_middleware
+    # This is an API-shaped test, not a real installed LangChain/DeerFlow run.
+    for key in ("langchain", "langchain.agents", "langchain.agents.middleware"):
+        mod=ModuleType(key)
+        if key!="langchain.agents.middleware": mod.__path__=[]
+        monkeypatch.setitem(sys.modules,key,mod)
+    sys.modules["langchain.agents.middleware"].AgentMiddleware=type("AgentMiddleware",(),{})
+    provider=Provider()
+    def cfg(env): env["app"].authorization.enabled=True
+    result,store,backend,core,node,env,tool,_,invocation=(
+        await bind_during_scheduler(tmp_path,configure=cfg,provider=provider))
+    binding=result["binding"]
+    middleware=make_langchain_tool_policy_middleware(binding)
+    executed=[]
+    runtime=SimpleNamespace(context={
+        "run_id":invocation.run_id,
+        "execution_id":invocation.execution_id,
+    })
+    request=SimpleNamespace(
+        tool_call={"id":"native-call-1","name":"read_file","args":{"path":"x"}},
+        tool=tool,runtime=runtime,
+    )
+    assert await middleware.awrap_tool_call(request,lambda _: record_async(executed,"ok"))=="ok"
+    assert executed==["ok"]
+    forged=SimpleNamespace(tool_call=request.tool_call,
+        tool=SimpleNamespace(name="read_file"),runtime=runtime)
+    with pytest.raises(ToolBindingError,match="UNBOUND_TOOL_OBJECT"):
+        await middleware.awrap_tool_call(forged,lambda _: record_async(executed,"bad"))
+    broken=SimpleNamespace(tool_call=request.tool_call,tool=tool,
+        runtime=SimpleNamespace(context={"run_id":"another","execution_id":invocation.execution_id}))
+    with pytest.raises(ToolBindingError,match="TOOL_CALL_RUNTIME_CONTEXT_MISMATCH"):
+        await middleware.awrap_tool_call(broken,lambda _: record_async(executed,"bad"))
+    renamed=SimpleNamespace(tool_call={"id":"renamed","name":"tool_search","args":{}},
+        tool=tool,runtime=runtime)
+    with pytest.raises(ToolBindingError,match="TOOL_CALL_NAME_OBJECT_MISMATCH"):
+        middleware.wrap_tool_call(renamed,lambda _: executed.append("bad"))
+    direct=SimpleNamespace(tool_call={"id":"sync-pass","name":"read_file","args":{"path":"x"}},
+        tool=tool,runtime=runtime)
+    assert middleware.wrap_tool_call(direct,lambda _: executed.append("sync")) is None
+    assert executed==["ok","sync"]
+    store.release(invocation.execution_id)
+    with pytest.raises(ToolBindingError,match="EXECUTION_BINDING_CLOSED"):
+        await middleware.awrap_tool_call(
+            SimpleNamespace(tool_call={"id":"closed","name":"read_file","args":{}},
+                            tool=tool,runtime=runtime),
+            lambda _: record_async(executed,"bad"))
