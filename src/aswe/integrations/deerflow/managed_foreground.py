@@ -293,7 +293,13 @@ class ManagedForegroundVerifier:
             # event. Repeated cancellation may abandon the caller but cannot
             # forge a positive drain or completed receipt.
             marker.finalizer = asyncio.create_task(finalize())
-            await asyncio.shield(marker.finalizer)
+            # If the invoking Task has already been cancelled, return the
+            # cancellation immediately. The independently-owned finalizer
+            # retains the process handle and will set completion only after
+            # drain. Awaiting it here deadlocks callers awaiting cancellation
+            # while intentionally holding a test/resource drain fence.
+            if not cancelled:
+                await asyncio.shield(marker.finalizer)
         if marker.receipt is None:
             raise ForegroundExecutionError("FOREGROUND_RECEIPT_UNAVAILABLE")
         return marker.receipt
