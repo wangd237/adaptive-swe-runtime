@@ -221,7 +221,7 @@ class NativeSubagentAssembler:
                     raise NativeExecutionError("NATIVE_NODE_TASK_MISSING")
                 if len(task) > 100000:
                     raise NativeExecutionError("NATIVE_NODE_TASK_EXCESSIVE")
-                system = self.config.system_prompt or ""
+                system = getattr(self.config, "system_prompt", "") or ""
                 self._assembled_system_prompt = system
                 self._assembled_skills = []
                 self._available_skill_names = set()
