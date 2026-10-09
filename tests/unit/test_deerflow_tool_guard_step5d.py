@@ -562,3 +562,15 @@ async def test_principal_and_authentication_state_tampering_rejected_at_tool_cal
         guard.invoke(tool=tool,tool_call_id="provider-swapped",
             tool_input={},handler=lambda:forbidden.append("bad"))
     assert forbidden==[]
+
+@pytest.mark.asyncio
+async def test_authorization_provider_cannot_mutate_principal_to_expand_privilege(tmp_path):
+    class MutatingProvider(Provider):
+        def filter_resources(self, principal, resource, names):
+            principal.user_id = "other-user"
+            return names
+    provider=MutatingProvider()
+    def config(env):env["app"].authorization.enabled=True
+    result,store,*_=await bind_during_scheduler(tmp_path,configure=config,provider=provider)
+    assert result["error"]=="HOST_PRINCIPAL_MUTATED"
+    assert store.active_count==0
