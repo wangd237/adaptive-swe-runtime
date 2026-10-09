@@ -435,6 +435,10 @@ class DeerFlowPreparationBackend:
             raise DeerFlowPreparationError("PREPARED_EXECUTION_BINDING_MISMATCH")
         del self._pending[preparation.preparation_id]
 
+    def release_preparation(self, preparation: NodeExecutionPreparation) -> None:
+        """Frozen spec §3.3: release precommit resources without execution."""
+        self.discard_preparation(preparation)
+
     def discard_all(self) -> None:
         """Release noncommitted snapshot references on fail-close or shutdown."""
         self._pending.clear()
