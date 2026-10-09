@@ -52,6 +52,8 @@ class FakeBackendPort(Protocol):
 
 
 Acceptance = Callable[[Any, NodeExecutionInvocation, WorkspaceRevision], Awaitable[NodeHandoff | None]]
+# Runtime-injected semantic gate; fake-only in Step 2, never backend prose.
+ReviewGate = Callable[[Any, NodeExecutionInvocation, WorkspaceRevision], Awaitable[Any]]
 EvidenceChecker = Callable[[NodeHandoff], bool]
 
 
@@ -313,7 +315,8 @@ class SchedulerCore:
                       handoff: NodeHandoff | None, *,
                       certified_post: WorkspaceRevision | None = None,
                       own_acceptance_feedback: RepairFeedback | None = None,
-                      own_evidence_refs: tuple[EvidenceRef, ...] = ()) -> None:
+                      own_evidence_refs: tuple[EvidenceRef, ...] = (),
+                      review_verdict_ref: EvidenceRef | None = None) -> None:
         close_dispatch = False
         async with self.state_mutex:
             state = self.states[invocation.node_id]
@@ -383,6 +386,16 @@ class SchedulerCore:
             local_cancel = invocation.node_id in self._locally_cancelled_nodes
             cancelled = (local_cancel or
                          getattr(result, "terminal_status", None) is BackendTerminalStatus.CANCELLED)
+            if review_verdict_ref is not None and (
+                self.nodes[invocation.node_id].work_kind is not WorkKind.REVIEW
+                or review_verdict_ref.kind is not AttemptEvidenceKind.REVIEW_VERDICT
+                or review_verdict_ref.source_node_id != invocation.node_id
+                or review_verdict_ref.source_execution_id != invocation.execution_id
+                or review_verdict_ref.source_attempt != invocation.attempt
+                or review_verdict_ref.workspace_revision_generation != post.generation
+                or review_verdict_ref.workspace_state_fingerprint != post.repository_state_fingerprint
+            ):
+                raise ValueError("review verdict evidence provenance invalid")
             record = running.model_copy(update={
                 "status": (NodeAttemptStatus.ACCEPTED if success else
                            NodeAttemptStatus.CANCELLED if cancelled else NodeAttemptStatus.FAILED),
@@ -397,7 +410,10 @@ class SchedulerCore:
                     getattr(result, "failure_kind", None) or "ACCEPTANCE_OR_EXECUTION_FAILED"
                 ),
                 "handoff": handoff if success else None,
-                "evidence_refs": own_evidence_refs if own_certified_failure else running.evidence_refs,
+                "evidence_refs": (
+                    own_evidence_refs if own_certified_failure else
+                    running.evidence_refs + ((review_verdict_ref,) if review_verdict_ref else ())
+                ),
             })
             changes: dict[str, Any] = {
                 "attempts": state.attempts[:-1] + (record,),
@@ -896,6 +912,8 @@ class SchedulerCore:
     async def run_claim(
         self, ticket: NodeDispatchTicket, backend: FakeBackendPort, *,
         accept: Acceptance | None = None,
+        review_gate: ReviewGate | None = None,
+        review_evidence_store: LocalEvidenceStore | None = None,
     ) -> NodeExecutionInvocation | None:
         """Deterministic FakeBackend orchestration; no model-derived acceptance.
 
@@ -953,6 +971,7 @@ class SchedulerCore:
                     certified_post = None
                     own_fb = None
                     own_refs = ()
+                    review_ref = None
                     policy = self._canonical_acceptance_policies.get(invocation.node_id)
                     if (observed is MutationEvidence.OBSERVED
                             and self._canonical_verifier is not None
@@ -971,7 +990,34 @@ class SchedulerCore:
                         })
                         certified_post = post
                     if result.terminal_status is BackendTerminalStatus.COMPLETED and result.quiescent:
-                        if accept is not None:
+                        if (self.nodes[invocation.node_id].work_kind is WorkKind.REVIEW
+                                and review_gate is not None):
+                            from aswe.runtime.review import ReviewVerdict, ReviewDecision
+                            if review_evidence_store is None:
+                                raise ValueError("ReviewVerdict needs Runtime-owned evidence store")
+                            proposal = ReviewVerdict.model_validate(
+                                await review_gate(result, invocation, post)
+                            )
+                            if (proposal.source_node_id != invocation.node_id
+                                    or proposal.source_execution_id != invocation.execution_id
+                                    or proposal.source_attempt != invocation.attempt
+                                    or proposal.observed_workspace_revision != post):
+                                raise ValueError("ReviewVerdict provenance does not match active attempt")
+                            if proposal.decision is not ReviewDecision.REQUEST_CHANGES:
+                                raise ValueError("only explicit REQUEST_CHANGES supported by this Step-2 gate")
+                            review_ref = review_evidence_store.put_attempt(
+                                task_id=self.task_id, node_id=invocation.node_id,
+                                execution_id=invocation.execution_id, attempt=invocation.attempt,
+                                kind=AttemptEvidenceKind.REVIEW_VERDICT,
+                                payload=proposal, workspace_revision=post,
+                            )
+                            # Backend COMPLETED denotes execution termination only,
+                            # not logical success. This is a Runtime-owned gate.
+                            result = result.model_copy(update={
+                                "terminal_status": BackendTerminalStatus.FAILED,
+                                "failure_kind": "REVIEW_GATE_REJECTED",
+                            })
+                        elif accept is not None:
                             handoff = await accept(result, invocation, post)
                         if (handoff is None and accept is not None
                                 and certified_post is not None
@@ -985,6 +1031,7 @@ class SchedulerCore:
                         certified_post=certified_post,
                         own_acceptance_feedback=own_fb,
                         own_evidence_refs=own_refs,
+                        review_verdict_ref=review_ref,
                     )
                 except BaseException:
                     await self._abort_committed(
