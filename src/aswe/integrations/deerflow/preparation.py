@@ -139,6 +139,23 @@ class PinnedNodeResources:
     extension_seal: tuple[Any, ...]
     binding_digest: str
 
+    def assert_intact(self) -> None:
+        """Re-check observable snapshot seals just before managed assembly.
+
+        This does not prove arbitrary Python closure or extension app-store
+        immutability; Step 5D must guard use-time tool authorization.
+        """
+        if (_digest(self.app_config) != self.app_config_digest
+                or _digest(self.subagent_config) != self.subagent_config_digest
+                or _digest(self.model_config) != self.model_config_digest
+                or _digest({
+                    "plugins": getattr(self.app_config, "plugins", None),
+                    "extensions": getattr(self.app_config, "extensions", None),
+                }) != self.extension_config_digest
+                or tuple(_tool_seal(t) for t in self.tools) != self.tool_seals
+                or _extension_seal(self.extensions) != self.extension_seal):
+            raise DeerFlowPreparationError("PREPARED_SNAPSHOT_MUTATED")
+
 
 class DeerFlowPreparationBackend:
     """5C-only ExecutionBackend facade; real execute is deliberately NO-GO.
@@ -415,16 +432,7 @@ class DeerFlowPreparationBackend:
                 or invocation.execution_id in self._claimed_execution_ids):
             raise DeerFlowPreparationError("PREPARED_EXECUTION_BINDING_MISMATCH")
         self.source_verifier()
-        if (_digest(resources.app_config) != resources.app_config_digest
-                or _digest(resources.subagent_config) != resources.subagent_config_digest
-                or _digest(resources.model_config) != resources.model_config_digest
-                or _digest({
-                    "plugins": getattr(resources.app_config, "plugins", None),
-                    "extensions": getattr(resources.app_config, "extensions", None),
-                }) != resources.extension_config_digest
-                or tuple(_tool_seal(t) for t in resources.tools) != resources.tool_seals
-                or _extension_seal(resources.extensions) != resources.extension_seal):
-            raise DeerFlowPreparationError("PREPARED_SNAPSHOT_MUTATED")
+        resources.assert_intact()
         self._claimed_execution_ids.add(invocation.execution_id)
         return resources
 
