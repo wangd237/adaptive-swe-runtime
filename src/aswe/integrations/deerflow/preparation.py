@@ -34,14 +34,15 @@ class DeerFlowPreparationError(RuntimeError):
 
 def _json_payload(value: Any) -> Any:
     if hasattr(value, "model_dump"):
-        return value.model_dump(mode="json", exclude_none=True)
+        return _json_payload(value.model_dump(mode="json", exclude_none=True))
     if is_dataclass(value) and not isinstance(value, type):
         return {k: _json_payload(v) for k, v in asdict(value).items()}
     if isinstance(value, dict):
         return {k: _json_payload(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [_json_payload(v) for v in value]
-    return value
+    if isinstance(value, __import__("types").SimpleNamespace):
+        return {k: _json_payload(v) for k, v in vars(value).items()}\n    return value
 
 
 def _digest(value: Any) -> str:
