@@ -419,3 +419,67 @@ def test_d08_non_test_command_cannot_impersonate_tests_passed_acceptance():
             AcceptanceCompiler(rules=(RuntimeVerificationRule(
                 check_key="unit",kind=kind,argv=(sys.executable,"-c","pass"),
             ),)).compile(contract=contract)
+
+
+def test_design_freeze_review_hard_leaf_fake_ref_is_not_accepted_as_success():
+    # Presence of an EvidenceRef is not evidence that a required structured
+    # Review, changed-path check or semantic evaluator actually verified it.
+    from aswe.core.contracts import EvidenceRef, AttemptEvidenceKind
+    c,_=compiled(("review.required",True))
+    leaf=get_constraint(c,"review.required")
+    fabricated=EvidenceRef(
+        evidence_id="fake",kind=AttemptEvidenceKind.REVIEW_VERDICT,
+        source_node_id="agent",source_execution_id="forged",
+        source_attempt=1,workspace_revision_generation=0,
+        workspace_state_fingerprint="0"*64,content_sha256="1"*64,
+    )
+    v=evaluate_compiled_contract(
+        contract=c,findings=(TrustedEvaluationFinding(
+            constraint_id=leaf.id,status=ContractLeafStatus.SATISFIED,
+            supporting_refs=(fabricated,),
+        ),),
+    )
+    assert not v.all_required_satisfied
+    assert v.blocking_constraint_ids==(leaf.id,)
+    assert v.leaves[0].status is ContractLeafStatus.UNVERIFIED
+    assert "TRUSTED_NON_TEST_EVALUATOR_MISSING" in v.leaves[0].diagnostics
+
+
+@pytest.mark.asyncio
+async def test_design_freeze_old_workspace_canonical_proof_denied_at_terminal(terminal_fixture):
+    core,manager,repo_binding,store=terminal_fixture
+    c,a=ConstraintCompiler(RuntimePolicyConfig(policy_id="p",rules=(
+        RuntimePolicyRule(key="verification.required",value=("unit",)),
+    ))).compile(
+        request=make_task_request(request_id="revision",raw_text="Verify"),
+        repository_base_sha=core.revision.base_sha,
+    )
+    p=validator_plan(c,a)
+    acceptance=AcceptanceCompiler(rules=(unit_rule(),)).compile(contract=c)
+    binding=bind_execution_contract(contract=c,plan=p,acceptance=acceptance)
+    await core.run_claim(await core.claim("writer"),
+                         FakeExecutionBackend([FakeExecutionScenario()]),accept=accept)
+    attempt=core.states["writer"].attempts[-1]
+    checker=CanonicalVerifier(task_id=core.task_id,runtime_data_dir=store.root,
+                              evidence_store=store,binding=repo_binding)
+    receipt_ref,receipt=checker.run(
+        node_id="writer",execution_id=attempt.execution_id,attempt=attempt.attempt,
+        policy=acceptance.canonical_policies[0],revision=core.revision,
+    )
+    assert receipt.status=="holds"
+    old_revision=core.revision
+    core.revision=old_revision.model_copy(update={"generation":old_revision.generation+1})
+    await core.complete_task()
+    with pytest.raises(AcceptanceCompilationError,match="VERIFICATION_PROOF_STALE"):
+        finalize_bound_task(
+            scheduler=core,repository_binding=repo_binding,evidence_store=store,
+            contract=c,validated_plan=p,acceptance=acceptance,
+            execution_binding=binding,
+            observed_execution_binding_fingerprint=binding.fingerprint,
+            canonical_verifier=checker,
+            canonical_receipts=(CanonicalCheckBinding(
+                command_id=acceptance.commands[0].id,proof=receipt_ref,
+                node_id="writer",execution_id=attempt.execution_id,
+                attempt=attempt.attempt,observed_revision=old_revision,
+            ),),
+        )
