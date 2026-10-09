@@ -331,6 +331,26 @@ class ManagedForegroundVerifier:
             revision=invocation.execution_workspace_revision,
         )
 
+    def canonical_check_binding(
+        self, *, invocation: NodeExecutionInvocation, verifier: object,
+    ):
+        """Create the exact Step-3D AcceptanceCompiler input from signed proof.
+
+        This does not decide a TaskResult or bypass the evaluator. The
+        existing verified_canonical_check_finding() resolves this EvidenceRef
+        through CanonicalVerifier.validate before satisfying an acceptance leaf.
+        """
+        from aswe.planning.acceptance import CanonicalCheckBinding
+
+        ref, receipt = self.attest_canonical(invocation=invocation, verifier=verifier)
+        return CanonicalCheckBinding(
+            command_id=receipt.check_id, proof=ref,
+            node_id=invocation.node_id,
+            execution_id=invocation.execution_id,
+            attempt=invocation.attempt,
+            observed_revision=invocation.execution_workspace_revision,
+        )
+
     async def await_completion(self, execution_id: str, *,
                                timeout: float = 5) -> ForegroundReceipt | None:
         """Independent completion fence, not simply a cancelled task/Future."""
