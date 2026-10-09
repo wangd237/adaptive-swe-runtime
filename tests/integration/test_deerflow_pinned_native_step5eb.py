@@ -415,7 +415,9 @@ async def test_vendor_real_lease_manager_reports_owner_until_async_release(tmp_p
         await manager.release_async(owner)
     assert manager.binding_for(owner) is None
     observed=await observer.inspect(task_id=inv.task_id,execution_id=inv.execution_id)
-    assert observed.sandbox_lease_released is True
+    # The manager removed the owner, but does NOT give a signed completion
+    # receipt for the underlying provider.release(). Never overclaim.
+    assert observed.sandbox_lease_released is False
     assert observed.process_tree_drained is False
     assert observed.complete is False
     observer.release_execution(inv.execution_id)
