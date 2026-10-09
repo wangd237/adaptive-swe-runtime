@@ -84,6 +84,12 @@ class WorkspaceAccessManager:
             self._dispatch_closed = True
             self._condition.notify_all()
 
+    async def wait_idle(self) -> None:
+        """Wait for physical workspace holders to leave; no Scheduler mutex."""
+        async with self._condition:
+            while self.active_accesses:
+                await self._condition.wait()
+
     async def terminalize(self, *, quiescence_proven: bool) -> WorkspaceSessionStatus:
         """Only a caller that owns backend quiescence proof may request FROZEN."""
         async with self._condition:

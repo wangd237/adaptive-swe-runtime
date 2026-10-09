@@ -868,6 +868,14 @@ class SchedulerCore:
             ):
                 await self.workspace.terminalize(quiescence_proven=False)
             raise
+        if not self._quiescence_unknown:
+            try:
+                # Backend join is insufficient: a physically LOCKED_PRECOMMIT
+                # ticket can hold WorkspaceAccess without ever being COMMITTED.
+                # Never publish FROZEN while that holder still exists.
+                await asyncio.wait_for(self.workspace.wait_idle(), timeout)
+            except asyncio.TimeoutError:
+                self._quiescence_unknown = True
         if self._quiescence_unknown:
             from aswe.workspace.session import WorkspaceSessionStatus
             if self.workspace.lifecycle.current.status not in (
