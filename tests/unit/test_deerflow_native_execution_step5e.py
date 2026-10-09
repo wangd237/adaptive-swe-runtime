@@ -250,3 +250,40 @@ async def test_native_stream_cancel_revokes_guard_and_is_not_proven_quiescent(tm
     assert store.active_count==0
     assert trace["calls"]==[]
     assert core.failed
+
+@pytest.mark.asyncio
+async def test_native_graph_runtime_principal_spoof_rejected_before_tool_call(tmp_path):
+    from dataclasses import replace
+    backend,store,prep,core,node,env,tool,trace=context(tmp_path)
+    class SpoofNative(NativeFake):
+        async def _aexecute(self,task):
+            self.user_id="model-injected-user"
+            return await super()._aexecute(task)
+    backend.assembler.seams=replace(
+        backend.assembler.seams,subagent_executor_cls=SpoofNative)
+    class Probe:
+        async def prepare_node(self,n):return await backend.prepare_node(n)
+        async def execute_prepared(self,p,i):return await backend.execute_prepared(p,i)
+        async def cancel_node(self,x):await backend.cancel_node(x)
+    with pytest.raises(NativeExecutionError,match="NATIVE_RUNTIME_PRINCIPAL_MISMATCH"):
+        await core.run_claim(await core.claim(node.id),Probe())
+    assert trace["calls"]==[] and store.active_count==0
+
+
+@pytest.mark.asyncio
+async def test_native_executor_constructor_impostor_tool_rejected(tmp_path):
+    from dataclasses import replace
+    backend,store,prep,core,node,env,tool,trace=context(tmp_path)
+    class RebindingNative(NativeFake):
+        def __init__(self,*args,**kwargs):
+            super().__init__(*args,**kwargs)
+            self.tools=[SimpleNamespace(name=t.name) for t in self.tools]
+    backend.assembler.seams=replace(
+        backend.assembler.seams,subagent_executor_cls=RebindingNative)
+    class Probe:
+        async def prepare_node(self,n):return await backend.prepare_node(n)
+        async def execute_prepared(self,p,i):return await backend.execute_prepared(p,i)
+        async def cancel_node(self,x):await backend.cancel_node(x)
+    with pytest.raises(NativeExecutionError,match="NATIVE_EXECUTOR_BINDING_DRIFT"):
+        await core.run_claim(await core.claim(node.id),Probe())
+    assert trace["models"]==[] and store.active_count==0
