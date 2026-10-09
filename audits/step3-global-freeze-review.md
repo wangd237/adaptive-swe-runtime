@@ -1,7 +1,10 @@
 # Step 3 Global Design Freeze / Cross-Contract Audit
 
+> **Historical review:** the blockers and NO-GO recommendations below describe the code *before* P0-A..D fixes. For the latest implementation disposition and direct tests, read [Step 3 P0 closure review](step3-freeze-closure.md). Step 3 is not 22/22 fully CLOSED.
+
+
 **Date:** 2026-10-09  
-**Decision:** **NO-GO** for PR #5 merge / Step 3 CLOSED.  
+**Decision at original audit:** **NO-GO** (historical). **Current scoped merge disposition:** see `audits/step3-freeze-closure.md` (P0-A..D closed; 5 P3 physical cases still PARTIAL).  
 **Scope:** Independent comparison of active `AGENTS.md`, `specs/01-task-planning.md`, `specs/02-capability-provider-dag.md`, `specs/04-evidence-evaluation.md`, `plan/master-plan.md`, frozen `tests/poc-matrix.md` against PR #5 source, tests and CI.
 
 This report is **not** an authorization to relax frozen specs, waive a PoC or begin real DeerFlow execution. It supersedes any informal inference that green CI or 17/22 PASS makes Step 3 formally CLOSED.

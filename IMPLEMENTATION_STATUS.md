@@ -1,3 +1,11 @@
+## Step 3 P0 closure and Step 4 handoff (2026-10-09)
+
+- Scoped **GO** recommendation after P0-A..D source/negative test review. See `audits/step3-freeze-closure.md`.
+- Real pinned Git RepositoryProfile, source-validating TaskAnalyzer, read-only Context Gate, conservative natural-language mutation authority, recursive frozen compiled payloads are implemented.
+- CI at implementation `4e76a9c9`: Python 3.11 = 297 passed, Python 3.13 = 297 passed.
+- **Do not confuse a scoped Stage-3 compiler merge with frozen 22/22 final acceptance.** P3-01/02/03/04/11 remain assigned to Step 4.
+- Next: approve/merge PR #5 only after latest-head CI, then establish Step 4 branch from accepted main.
+
 # Implementation Status
 
 ## Stage status
@@ -5,7 +13,7 @@
 - Step 0 — CLOSED / ACCEPTED
 - Step 1 — CLOSED / ACCEPTED
 - Step 2 — CLOSED / ACCEPTED (PR #4 merged as `3d19541bb9f0f7e345ec0f4fb8af3a5415b5ed53`)
-- Step 3 — **NO-GO for closure/merge**: draft PR #5, Step 3A–3D checkpoint tests green, but independent P0 upstream/immutability gaps and 5 physical P3 PARTIAL; see `audits/step3-global-freeze-review.md`
+- Step 3 — **Scoped baseline GO / PR #5 final merge gate**: P0-A..D closed and dual CI green; **17 PASS / 5 PARTIAL / 0 GAP**; remaining five physical PoCs are Step 4-owned. See `audits/step3-freeze-closure.md`.
 - Step 4 and later — NOT STARTED
 
 ## Step 2 accepted implementation (PR #4 merged)

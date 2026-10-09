@@ -1,6 +1,6 @@
 # Coding Step 4 — Capability / Provider / DAG Compiler Entry Contract
 
-**Status: DESIGN ENTRY ONLY / NOT STARTED.** Gate: Step-3-owned P0-A..D from `audits/step3-global-freeze-review.md` must be resolved before Stage-4 changes can use the compiler as production authority. No DeerFlow calls in this stage.
+**Status: ENTRY APPROVED AFTER SCOPED STEP-3 PR MERGE.** Step-3-owned P0-A..D have direct negative tests (see `audits/step3-freeze-closure.md`). Wait for accepted PR #5 on main; no DeerFlow calls in this stage.
 
 ## Architecture handoff contract
 
