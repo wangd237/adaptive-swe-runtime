@@ -12,9 +12,12 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Mapping
 
+from aswe.core.contracts import EvidenceRef
+from aswe.capabilities.effects import STANDARD_EFFECTS, ToolEffect
+from aswe.integrations.deerflow.execution_evidence import ExecutionEvidenceCollector
 from aswe.core.contracts.backend import (
     BackendTerminalStatus, BackendExecutionPhase, NodeExecutionInvocation,
     NodeExecutionPreparation,
@@ -47,6 +50,8 @@ class NativeExecutionRecord:
     failure_kind: str | None
     # This is deliberately FALSE before the Step 5F independent proof.
     quiescent: bool = False
+    workspace_evidence_ref: EvidenceRef | None = None
+    workspace_delta_fingerprint: str | None = None
 
 
 def _assert_owner(binding: NodeExecutionBinding) -> None:
@@ -312,11 +317,13 @@ class NativeDeerFlowExecutionBackend:
     def __init__(self, *, binding_store: NodeExecutionBindingStore,
                  assembler: NativeSubagentAssembler,
                  task_renderer: Callable[[NodeExecutionInvocation], str],
-                 enable_native_execution: bool = False):
+                 enable_native_execution: bool = False,
+                 evidence_collector: ExecutionEvidenceCollector | None = None):
         self.store = binding_store
         self.assembler = assembler
         self.task_renderer = task_renderer
         self.enable_native_execution = enable_native_execution
+        self.evidence_collector = evidence_collector
         self._tasks: dict[str, asyncio.Task[Any]] = {}
 
     async def prepare_node(self, node: Any) -> NodeExecutionPreparation:
@@ -334,16 +341,26 @@ class NativeDeerFlowExecutionBackend:
         if invocation.execution_id in self._tasks:
             raise NativeExecutionError("NATIVE_EXECUTION_REPLAY")
         binding = await self.store.bind(preparation=preparation, invocation=invocation)
+        child: asyncio.Task[Any] | None = None
+        baseline = None
         try:
             _assert_owner(binding)
+            # This 5F seam is deliberately READ-ONLY: tool code may claim any
+            # effect, but no native mutating tool is admitted by 5D yet.
+            if any(
+                STANDARD_EFFECTS.get("config:" + name) is not ToolEffect.READ_ONLY
+                for name in binding.tool_view.names
+            ):
+                raise NativeExecutionError("NATIVE_MUTATING_TOOL_NOT_CERTIFIED")
+            if self.evidence_collector is not None:
+                baseline = await self.evidence_collector.begin(invocation)
             executor = self.assembler.build(binding)
             task_text = self.task_renderer(invocation)
             if not isinstance(task_text, str) or not task_text.strip():
                 raise NativeExecutionError("NATIVE_NODE_TASK_MISSING")
             if len(task_text) > 100000:
                 raise NativeExecutionError("NATIVE_NODE_TASK_EXCESSIVE")
-            # Actual native _aexecute is run as an owned task. The outer
-            # Scheduler's task still owns the authoritative attempt.
+
             async def run_native():
                 return await executor._aexecute(task_text)
 
@@ -355,39 +372,60 @@ class NativeDeerFlowExecutionBackend:
                         child, timeout=binding.resources.effective_timeout_seconds
                     )
                 except asyncio.TimeoutError:
-                    return NativeExecutionRecord(
+                    record = NativeExecutionRecord(
                         execution_id=invocation.execution_id, node_id=invocation.node_id,
                         attempt=invocation.attempt, terminal_status=BackendTerminalStatus.TIMED_OUT,
                         execution_phase=BackendExecutionPhase.STARTED, mutation_evidence="unknown",
                         result=None, error=None, failure_kind="NATIVE_EXECUTION_TIMEOUT",
                     )
-                status = getattr(getattr(native_result, "status", None), "value", None)
-                if status is None:
-                    status = str(getattr(native_result, "status", ""))
-                mapped = {
-                    "completed": BackendTerminalStatus.COMPLETED,
-                    "failed": BackendTerminalStatus.FAILED,
-                    "cancelled": BackendTerminalStatus.CANCELLED,
-                    "timed_out": BackendTerminalStatus.TIMED_OUT,
-                }.get(status, BackendTerminalStatus.FAILED)
-                raw_result = getattr(native_result, "result", None)
-                return NativeExecutionRecord(
-                    execution_id=invocation.execution_id, node_id=invocation.node_id,
-                    attempt=invocation.attempt, terminal_status=mapped,
-                    execution_phase=BackendExecutionPhase.STARTED, mutation_evidence="unknown",
-                    result=raw_result if isinstance(raw_result, str) else None,
-                    error=None, failure_kind=(None if mapped is BackendTerminalStatus.COMPLETED
-                                              else "NATIVE_EXECUTION_FAILED"),
-                )
+                else:
+                    status = getattr(getattr(native_result, "status", None), "value", None)
+                    if status is None:
+                        status = str(getattr(native_result, "status", ""))
+                    mapped = {
+                        "completed": BackendTerminalStatus.COMPLETED,
+                        "failed": BackendTerminalStatus.FAILED,
+                        "cancelled": BackendTerminalStatus.CANCELLED,
+                        "timed_out": BackendTerminalStatus.TIMED_OUT,
+                    }.get(status, BackendTerminalStatus.FAILED)
+                    raw_result = getattr(native_result, "result", None)
+                    record = NativeExecutionRecord(
+                        execution_id=invocation.execution_id, node_id=invocation.node_id,
+                        attempt=invocation.attempt, terminal_status=mapped,
+                        execution_phase=BackendExecutionPhase.STARTED,
+                        mutation_evidence="unknown",
+                        result=raw_result if isinstance(raw_result, str) else None,
+                        error=None, failure_kind=(None if mapped is BackendTerminalStatus.COMPLETED
+                                                  else "NATIVE_EXECUTION_FAILED"),
+                    )
             finally:
-                # wait_for may raise cancellation: only release a guard after
-                # the native task has reached a terminal state. Do not claim
-                # independent tool handler/sandbox quiescence.
-                if not child.done():
+                # A joined Python task is NOT enough to prove external process,
+                # subprocess group, tool worker or sandbox-lease quiescence.
+                binding.guard.close()
+                if child is not None and not child.done():
                     child.cancel()
                     await asyncio.gather(child, return_exceptions=True)
                 self._tasks.pop(invocation.execution_id, None)
+
+            if baseline is not None and self.evidence_collector is not None:
+                report = await self.evidence_collector.finish(
+                    baseline, guard=binding.guard,
+                    native_task_done=child is not None and child.done(),
+                )
+                record = replace(
+                    record, quiescent=report.quiescent,
+                    mutation_evidence=report.mutation_evidence.value,
+                    workspace_evidence_ref=report.evidence_ref,
+                    workspace_delta_fingerprint=(
+                        report.workspace_delta.fingerprint
+                        if report.workspace_delta is not None else None
+                    ),
+                )
+            return record
         finally:
+            # Also revokes on construction, baseline or native cancellation
+            # exceptions; a missing report must never count as quiescence.
+            binding.guard.close()
             self.store.release(invocation.execution_id)
 
     async def cancel_node(self, execution_id: str) -> None:
