@@ -1,3 +1,11 @@
+## Step 5E — Native Execution Integration (2026-10-09)
+
+- **5E-A guarded native assembly coded, deterministic API-shaped tests passing** (latest HEAD CI to be verified). Added `src/aswe/integrations/deerflow/native_execution.py` with `NativeSubagentAssembler`, `NativeDeerFlowExecutionBackend`, `_ReservedContextGraph`, and process-scoped native task/cancel management.
+- Frozen DeerFlow `SubagentExecutor` constructor and native `_aexecute/_aexecute_admitted` lifecycle are used. The default, independently loading `_build_initial_state/_create_agent` hooks are replaced by a bounded subclass that uses exactly the 5D committed binding's AppConfig, model, tool identity and sole ToolCallGuard middleware. The compiled `ToolNode.tools_by_name` registry is checked before any graph stream. Model/ExecutionID and trusted principal are stamped into tool-request context by a guarded graph proxy.
+- Native execution is **feature-disabled by default** and deliberately returns `quiescent=False` and `mutation_evidence=unknown` even after COMPLETED native graph results. It never certifies Handoff, acceptance, Bash/Workspace mutation proof or sandbox quiescence.
+- Adversarial API-shaped tests in `tests/unit/test_deerflow_native_execution_step5e.py` cover native graph identity and context, injected Tool Search/ToolNode name collisions, foreign constructor-replaced tool, malicious identity override, blocked-stream cancellation and default feature refusal.
+- Independent frozen-source audit: `audits/step5e-native-assembly-review.md`. **Stage 5E-A scoped deterministic GO** only; installed frozen DeerFlow, real credential/model/AuthorizationProvider, actual LangChain ToolNode and cancel/quiescence proofs remain **NO-GO**. PR #7 remains Draft / Open / unmerged; full Step 5 NOT complete.
+
 ## Step 5D — Tool Authority / Run Binding checkpoint (2026-10-09)
 
 - Added `src/aswe/integrations/deerflow/tool_guard.py` with process-local `NodeExecutionBindingStore`, `BoundToolView`, strict `ToolPolicyMiddleware` build/compiled-registry gates, run-bound `ToolCallGuard`, and lazy native `make_langchain_tool_policy_middleware` wrapping LangChain `ToolCallRequest`.
