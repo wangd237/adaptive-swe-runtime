@@ -29,6 +29,21 @@ def _schema_fingerprint(tool: Any) -> str | None:
     return None
 
 
+def _same_loaded_implementation(observed: Any, resolved: Any) -> bool:
+    if observed is resolved:
+        return True
+    # DeerFlow clones write_file only to augment model-budget descriptions.
+    # The cloned tool MUST retain the same callable identities. Merely matching
+    # object type, public name, or args schema would allow tool impersonation.
+    if type(observed) is not type(resolved) or observed.name!=resolved.name:
+        return False
+    for attr in ("func","coroutine"):
+        fn=getattr(resolved,attr,None)
+        if fn is not None and callable(fn) and getattr(observed,attr,None) is fn:
+            return True
+    return False
+
+
 def _feature_set(sandbox: Any) -> frozenset[str]:
     """Use actual Sandbox semantics, not a sandbox config name guess."""
     state=getattr(sandbox,"persistent_shell_sessions",None)
@@ -43,6 +58,7 @@ def inventory_from_assembled_tools(
     *,
     app_config: Any,
     assembled_tools: Iterable[Any],
+    resolve_implementation: Callable[[str],Any],
     active_agent_types: tuple[str,...],
     sandbox: Any,
     captured_at: datetime | None=None,
@@ -80,8 +96,14 @@ def inventory_from_assembled_tools(
         if tool is None:
             continue
         expected_use=DEERFLOW_USE_BY_CONTRACT.get(label)
-        trusted=(expected_use is not None and expected_use==use
-                 and getattr(tool,"name",None)==label)
+        trusted=False
+        if expected_use is not None and expected_use==use:
+            try:
+                reference=resolve_implementation(use)
+            except Exception as exc:
+                raise DeerFlowInventoryError("TOOL_IMPLEMENTATION_RESOLUTION_FAILED") from exc
+            trusted=(getattr(reference,"name",None)==label
+                     and _same_loaded_implementation(tool,reference))
         effect=(STANDARD_EFFECTS[f"config:{label}"]
                 if trusted else ToolEffect.UNKNOWN)
         # Unknown implementation is recorded, never treated as a READ proof.
@@ -125,6 +147,8 @@ def capture_deerflow_inventory(
     to run without optional provider credentials or launching any model.
     """
     try:
+        from langchain.tools import BaseTool
+        from deerflow.reflection import resolve_variable
         from deerflow.subagents.registry import get_subagent_config
         from deerflow.tools.tools import get_available_tools
     except ImportError as exc:
@@ -142,4 +166,5 @@ def capture_deerflow_inventory(
                                   extensions=extensions)
     return inventory_from_assembled_tools(
         app_config=app_config,assembled_tools=observed,
+        resolve_implementation=lambda use: resolve_variable(use,BaseTool),
         active_agent_types=tuple(confirmed),sandbox=sandbox)
