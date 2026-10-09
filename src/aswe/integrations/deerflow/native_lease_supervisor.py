@@ -41,7 +41,7 @@ class NativeSandboxQuiescenceSupervisor:
     in-use provider; get_initialized_sandbox_provider is used to avoid
     accidentally creating a new provider and certifying its empty state.
     Local in-process providers may have no native process, but a positive
-    process_tree_probe remains mandatory to close this scope. The probe itself
+    process_tree_probe AND release_completion_probe remain mandatory to\n    close this scope. The probes themselves
     is outside 5F-B2 trust, and production composition must attest it.
     """
 
@@ -50,15 +50,18 @@ class NativeSandboxQuiescenceSupervisor:
         initialized_provider: Callable[[], Any | None],
         manager_lookup: Callable[[Any], Any],
         process_tree_probe: Callable[[str, str], Awaitable[bool]] | None = None,
+        release_completion_probe: Callable[[str, str, str], Awaitable[bool]] | None = None,
     ):
         self._provider = initialized_provider
         self._manager = manager_lookup
         self._process_probe = process_tree_probe
+        self._release_probe = release_completion_probe
         self._scopes: dict[str, _Scope] = {}
 
     @classmethod
     def from_deerflow(cls, *,
-                      process_tree_probe: Callable[[str, str], Awaitable[bool]] | None = None):
+                      process_tree_probe: Callable[[str, str], Awaitable[bool]] | None = None,
+                      release_completion_probe: Callable[[str, str, str], Awaitable[bool]] | None = None):
         try:
             from deerflow.sandbox.sandbox_provider import get_initialized_sandbox_provider
             from deerflow.sandbox.lease import get_sandbox_lease_manager
@@ -71,6 +74,7 @@ class NativeSandboxQuiescenceSupervisor:
             initialized_provider=get_initialized_sandbox_provider,
             manager_lookup=get_sandbox_lease_manager,
             process_tree_probe=process_tree_probe,
+            release_completion_probe=release_completion_probe,
         )
 
     def register_execution(
@@ -108,7 +112,14 @@ class NativeSandboxQuiescenceSupervisor:
                 provider = self._provider()
                 if provider is not None:
                     manager = self._manager(provider)
-                    released = manager.binding_for(scope.owner_id) is None
+                    owner_gone = manager.binding_for(scope.owner_id) is None
+                    # In frozen DeerFlow lease.py the manager removes the
+                    # owner binding BEFORE calling provider.release(). The
+                    # provider can raise after that removal. A missing map
+                    # entry therefore does not prove release succeeded.
+                    if owner_gone and self._release_probe is not None:
+                        released = await self._release_probe(
+                            task_id, execution_id, scope.owner_id) is True
             except Exception:
                 released = False
             if released and self._process_probe is not None:
