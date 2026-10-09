@@ -222,3 +222,41 @@ def test_descriptor_rejects_self_signed_provider_swap_and_policy_downgrade():
     with pytest.raises(DescriptorMismatch,match="EXECUTION_DESCRIPTOR_POLICY_DRIFT"):
         compile_plan_descriptor(contract=c,plan=p,resolved=r,inventory=inv,
                                 acceptance=a,policies=(forged,))
+
+
+def test_poc40_explicit_optional_bash_upgrades_physical_write_and_stamps_policy():
+    from aswe.planning.compiler import project_execution_authority
+    from aswe.providers.resolver import resolve_workplan
+    c,p,r,d,inv,a,providers,ops,policies,_=artifacts(
+        ("explorer",WorkKind.DISCOVERY,"repo_exploration"))
+    assert policies[0].workspace_access is WorkspaceAccess.READ
+    chosen=resolve_workplan(plan=p,contract=c,authority=project_execution_authority(c),
+        inventory=inv,providers=stage4_providers(optional_bash=True),
+        selected_optional_by_node={"explorer":("bash",)})
+    assert chosen.nodes[0].workspace_access is WorkspaceAccess.WRITE
+    assert chosen.nodes[0].selected_optional_tools==("bash",)
+    assert chosen.nodes[0].policy_fingerprint!=r.nodes[0].policy_fingerprint
+    upgraded=compile_policies(contract=c,plan=p,resolved=chosen,inventory=inv,
+        acceptance=a,providers=providers,operators=ops)
+    assert upgraded[0].workspace_access is WorkspaceAccess.WRITE
+    assert "bash" in upgraded[0].allowed_business_tools
+    digest=compile_plan_descriptor(contract=c,plan=p,resolved=chosen,
+        inventory=inv,acceptance=a,policies=upgraded)
+    assert digest.task_dag.nodes[0].workspace_access is WorkspaceAccess.WRITE
+    # A disappearance after prepare only narrows the optional tool;
+    # upper-bound physical WRITE lock class is deliberately preserved.
+    live=changed_inventory(inv,remove_tools=("bash",))
+    op=next(o for o in ops if o.provider_id=="explorer")
+    _,diag,allowed=revalidate_live(policy=upgraded[0],planning=inv,live=live,operator=op)
+    assert diag==("BACKEND_DRIFT_OBSERVED",)
+    assert allowed==("read_file",)
+
+
+def test_live_preflight_never_rebinds_to_alternate_provider_when_required_tool_missing():
+    *_,inv,a,providers,ops,policies,desc=artifacts(
+        ("tester",WorkKind.VERIFICATION,"regression_testing"))
+    live=changed_inventory(inv,remove_tools=("bash",))
+    with pytest.raises(LivePreflightError,match="BACKEND_PREFLIGHT_STALE"):
+        revalidate_live(policy=policies[0],planning=inv,live=live,
+            operator=next(o for o in ops if o.provider_id=="tester"))
+    assert policies[0].provider_id=="tester"

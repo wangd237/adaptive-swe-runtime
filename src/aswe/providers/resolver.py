@@ -44,12 +44,16 @@ class ResolvedPlan(FrozenModel):
 
 def resolve_workplan(*,plan:ValidatedWorkPlan,contract:CompiledTaskContract,
                      authority:TaskExecutionAuthority,inventory:BackendInventorySnapshot,
-                     providers:tuple[AgentProvider,...],required_sandbox_features:tuple[str,...]=()):
+                     providers:tuple[AgentProvider,...],required_sandbox_features:tuple[str,...]=(),
+                     selected_optional_by_node:dict[str,tuple[str,...]]|None=None):
     if (plan.task_contract_fingerprint!=contract.fingerprint
             or authority!=project_execution_authority(contract)):
         raise ProviderFeasibilityError("PLAN_CONTRACT_AUTHORITY_MISMATCH")
     if not set(required_sandbox_features).issubset(inventory.sandbox_features):
         raise ProviderFeasibilityError("REQUIRED_SANDBOX_EVIDENCE_UNAVAILABLE")
+    selection=selected_optional_by_node or {}
+    if set(selection)-{x.id for x in plan.items}:
+        raise ProviderFeasibilityError("UNKNOWN_OPTIONAL_SELECTION_NODE")
     result=[]
     for item in plan.items:
         possible=[]
@@ -59,6 +63,7 @@ def resolve_workplan(*,plan:ValidatedWorkPlan,contract:CompiledTaskContract,
             if not set(item.capability_hints).issubset(provider.capability_bindings):
                 continue
             required=[]
+            declared_optional=[]
             for cap in item.capability_hints:
                 spec=CAPABILITIES.get(cap)
                 if spec is None:raise ProviderFeasibilityError("UNKNOWN_CAPABILITY")
@@ -67,14 +72,20 @@ def resolve_workplan(*,plan:ValidatedWorkPlan,contract:CompiledTaskContract,
                         raise ProviderFeasibilityError("CAPABILITY_AUTHORITY_VIOLATION")
                 for contract_id in provider.capability_bindings[cap].required_tools:
                     if contract_id not in required:required.append(contract_id)
-            infos=[inventory.candidate_tools.get(t) for t in required]
+                for contract_id in provider.capability_bindings[cap].optional_tools:
+                    if contract_id not in declared_optional:declared_optional.append(contract_id)
+            choice=tuple(dict.fromkeys(selection.get(item.id,())))
+            if not set(choice).issubset(declared_optional):
+                raise ProviderFeasibilityError("OPTIONAL_TOOL_NOT_DECLARED")
+            optional=tuple(t for t in choice if t not in required)
+            infos=[inventory.candidate_tools.get(t) for t in required+list(optional)]
             if any(x is None or trusted_effect(x) is ToolEffect.UNKNOWN
                    or x.effect is ToolEffect.EXTERNAL_SIDE_EFFECT for x in infos):
                 continue
             physical=access_for(item.capability_hints,tuple(infos))
             body=dict(node_id=item.id,provider_id=provider.id,
-              required_tools=tuple(required),selected_optional_tools=(),
-              allowed_tools=tuple(required),workspace_access=physical)
+              required_tools=tuple(required),selected_optional_tools=optional,
+              allowed_tools=tuple(required)+optional,workspace_access=physical)
             possible.append(NodeResources(**body,policy_fingerprint=fingerprint(body)))
         if not possible:
             raise ProviderFeasibilityError("PROVIDER_UNAVAILABLE:"+item.id)

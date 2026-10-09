@@ -59,7 +59,8 @@ def compile_plan_descriptor(*,contract:CompiledTaskContract,plan:ValidatedWorkPl
             or p.workplan_fingerprint!=plan.fingerprint
             or p.planning_inventory_fingerprint!=inventory.fingerprint
             or p.provider_id!=r.provider_id
-            or p.allowed_business_tools!=r.allowed_tools
+            or not set(p.allowed_business_tools).issubset(r.allowed_tools)
+            or not set(r.required_tools).issubset(p.allowed_business_tools)
             or p.workspace_access!=r.workspace_access):
             raise DescriptorMismatch("EXECUTION_DESCRIPTOR_POLICY_DRIFT")
     dag=materialize_task_dag(plan=plan,resolved=resolved,inventory=inventory,

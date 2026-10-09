@@ -11,7 +11,12 @@ def revalidate_live(*,policy,planning,live,operator):
         raise LivePreflightError("PREPARED_POLICY_IDENTITY_MISMATCH")
     drift=live.fingerprint!=planning.fingerprint
     allowed=set(operator.allowed_tools) if operator.allowed_tools is not None else set(policy.allowed_business_tools)
-    narrowed=tuple(k for k in policy.allowed_business_tools if k in allowed and k not in operator.denied_tools)
+    narrowed=tuple(k for k in policy.allowed_business_tools
+        if (k in allowed and k not in operator.denied_tools
+            and (k in policy.required_business_tools
+                 or (k in live.candidate_tools
+                     and trusted_effect(live.candidate_tools[k]) not in
+                           (ToolEffect.UNKNOWN,ToolEffect.EXTERNAL_SIDE_EFFECT)))))
     if not set(policy.required_business_tools).issubset(narrowed):
         raise LivePreflightError("BACKEND_PREFLIGHT_STALE")
     for contract_id in policy.required_business_tools:
