@@ -51,6 +51,7 @@ class NativeExecutionRecord:
     # This is deliberately FALSE before the Step 5F independent proof.
     quiescent: bool = False
     workspace_evidence_ref: EvidenceRef | None = None
+    tool_receipt_ref: EvidenceRef | None = None
     workspace_delta_fingerprint: str | None = None
 
 
@@ -416,6 +417,7 @@ class NativeDeerFlowExecutionBackend:
                     record, quiescent=report.quiescent,
                     mutation_evidence=report.mutation_evidence.value,
                     workspace_evidence_ref=report.evidence_ref,
+                    tool_receipt_ref=report.tool_receipt_ref,
                     workspace_delta_fingerprint=(
                         report.workspace_delta.fingerprint
                         if report.workspace_delta is not None else None
