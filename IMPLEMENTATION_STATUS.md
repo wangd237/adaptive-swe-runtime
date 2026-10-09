@@ -1,3 +1,11 @@
+## Step 5C pinned preparation checkpoint (2026-10-09)
+
+- PR #7 remains Draft/Open. New `src/aswe/integrations/deerflow/preparation.py` introduces `DeerFlowPreparationBackend`, opaque `PinnedNodeResources` and one-shot `claim_for_execution` as an explicitly **5C-only, execution-disabled** seam.
+- Preparation validates authoritative Descriptor/NodeExecutionPolicy identity, creates a deep-copied AppConfig/SubagentConfig, resolves explicit model, assembles eager config tools with pinned LoadedExtensions, revalidates live inventory/operator restrictions, seals tool object and callable identities, and records a content-addressed backend snapshot ID.
+- Required tool identity drift, unrecognized models, changed subagent model, missing infrastructure tools/skills and untrusted configs fail closed. Optional changed implementations are dropped rather than rebound. Prepared resources are held only in memory; `discard_preparation`/`discard_all` are available for revocation.
+- **Important limitations:** native loaded extension internals and tool closure internals are not recursively immutable; their mutation/use-time authorization requires Step 5D ToolCallGuard. `execute_prepared` refuses with `REAL_DEERFLOW_EXECUTION_NOT_ENABLED`. No actual DeerFlow model/subagent/Workspace execution or credential test has run. Snapshot tests are deterministic API-shaped stubs only; GitHub Actions latest-head completion pending.
+- 5D/5E must implement real execution and cleanup without rereading AppConfig, SubagentConfig, tool assembly, model selection, or extensions after prepare. No PR merge or production GO.
+
 ## Step 5B deterministic reasoning adapter checkpoint (2026-10-09)
 
 - PR #7 Draft / OPEN: `DeerFlowReasoningBackend` and `ModelInvoker` implemented under `src/aswe/integrations/deerflow/model_invoker.py`.
