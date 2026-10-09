@@ -1,6 +1,6 @@
 # Coding Step 3 — Task / Contract / Planning Compiler Kickoff
 
-**Stage: IN PROGRESS (Step 3B implementation; Step 3C/3D pending). Step 2 remains CLOSED on main.**
+**Stage: IN PROGRESS (Step 3C semantic compiler implemented, Step 3D Acceptance pending). Step 2 remains CLOSED on main.**
 
 ## Authority
 
@@ -12,7 +12,7 @@
 
 1. **Step 3A source/provenance boundary:** immutable `TaskRequestEnvelope`, `RepositoryProfile`, `TaskSpec`, provider-neutral `ReasoningBackend`, `TaskContractDraft` and compiler-issued evidence stamps. Tests C01/C04 + tamper and reproducibility negatives.
 2. **Step 3B ConstraintCompiler — implementation submitted:** typed registry, operator Policy/HARD user/soft guidance, allowed scope intersection, forbidden/required union, budgets min, exact conflicts, signed-by-digest contract/authority; deterministic source-line parsing and runtime-derived high-risk review. C02/C03/C05/C06 have direct tests. C07's TaskExecutionAuthority half is tested; its PLAN_INVALID work-item half remains Step 3C.
-3. **Step 3C semantic planning:** `WorkPlanProposal` is untrusted, `PlanValidator/Normalizer` checks phase direction and coverage, injects reserved verify/review gates monotonically, yields frozen `ValidatedWorkPlan` and deterministic fingerprints. Tests P3-01..12 and C08.
+3. **Step 3C semantic planning — implemented:** Untrusted `WorkPlanProposal` is converted via deterministic `SemanticPlanValidator` to `ValidatedWorkPlan`, with phase/authority/coverage validation and reserved verify/review gate injection. C07/C08 and semantic P3 cases tested. **P3-01/02/03/04/11 remain PARTIAL for physical/phase DAG materialization in Step 4**; see `audits/step3c-conformance.md`.
 4. **Step 3D AcceptanceCompiler:** compiler-owned immutable `VerificationCommand`, policy fingerprint and sandbox evidence requirements; P0-C09/C10 contract terminal compatibility. Scheduler receives only validated upstream authority.
 
 ## Explicit exclusions

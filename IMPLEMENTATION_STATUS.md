@@ -5,7 +5,7 @@
 - Step 0 — CLOSED / ACCEPTED
 - Step 1 — CLOSED / ACCEPTED
 - Step 2 — CLOSED / ACCEPTED (PR #4 merged as `3d19541bb9f0f7e345ec0f4fb8af3a5415b5ed53`)
-- Step 3 — NEXT / CODING BRANCH STARTING (Task / Contract / Planning Compiler)
+- Step 3 — IN PROGRESS (draft PR #5, Step 3A–3C implemented; Step 3D Acceptance pending)
 - Step 4 and later — NOT STARTED
 
 ## Step 2 accepted implementation (PR #4 merged)
@@ -77,6 +77,14 @@
 - Slow synchronous EvidenceChecker is dispatched via asyncio.to_thread instead of blocking Scheduler's event loop, with final ticket authority rechecked before dispatch.
 - Implementation HEAD `2b4061d`: Python 3.11 and 3.13 each 199 passed. Frozen PoC matrix 65 PASS / 0 PARTIAL / 0 GAP.
 - **Step 2 CLOSED:** independent source/Design Freeze consistency sweep documented, latest-head CI verified, PR #4 merged.
+
+## Step 3C semantic planning checkpoint
+
+- `WorkPlanProposal` remains untrusted; `SemanticPlanValidator` issues immutable normalized `ValidatedWorkPlan` bound to TaskContract fingerprint.
+- Runtime-owned mandatory Verification/Review gates, dependency dedupe and PlanRepair/PlanCoverage evidence tested.
+- Stage 3 22-case frozen audit: **15 PASS / 5 PARTIAL / 2 GAP**; see `audits/step3-poc-coverage.json`.
+- P3-01/02/03/04/11 retain physical/phase DAG obligations for Step 4. C09/C10 remain Step 3D Acceptance obligations.
+- Do not merge PR #5 or label Step 3 CLOSED.
 
 ## Step 3 next coding gate
 
