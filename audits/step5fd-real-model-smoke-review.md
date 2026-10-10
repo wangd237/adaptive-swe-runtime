@@ -1,9 +1,9 @@
-# Step 5F-D — Credentialed Real Model SWE Smoke: Preflight Audit
+# Step 5F-D — Credentialed Real Model SWE Smoke: Preflight and Live-Run Audit
 
 **Date:** 2026-10-10
 **Branch:** `coding/step5-deerflow-adapter`, PR #7 Draft / Open
 **Frozen DeerFlow:** `bytedance/deer-flow@c0895d295bba34f6e95188fca380f555dabed891`
-**Stage disposition:** **Offline adapter / isolation checks GO subject to latest HEAD CI. Actual real-model invocation NOT EXECUTED / pending deliberate manual workflow registration and dispatch.**
+**Stage disposition:** **Scoped GO: offline CI plus one real credentialed model smoke completed successfully.** Strict Core acceptance and full release integration remain NO-GO.
 
 ## User-supplied GitHub Actions Secrets
 
@@ -24,11 +24,12 @@ The secret **values** were not inspected or exposed via GitHub tools. GitHub's r
 7. Guard tests `tests/unit/test_deerflow_live_workflow_step5fd.py` ensure core/normal PR workflows do not reference Secrets, and manual workflow contains the explicit gate.
 8. Offline installed-vendor factory test `tests/integration/test_deerflow_live_model_profile_step5fd.py` instantiates the real `ChatOpenAI` class with a fake key but **never calls `ainvoke`**. Physical Docker canonical secret-canary test `tests/integration/test_deerflow_docker_canonical_step5fd.py` verifies a fake API Key from the parent runner is absent inside the container and tests positive, nonzero, foreign worktree and forbidden command cases. Core units cover invalid URL/model/key and no opt-in.
 
-## Real-model execution gate: NOT RUN
+## Actual manual workflow registration and execution
 
-**IMPORTANT:** GitHub only exposes a manually dispatchable workflow when its YAML file exists on the repository's **default branch**, currently `main`. The full 5F-D workflow only exists on the Draft PR branch, and default `main` does not yet register that file. This session does not possess a GitHub Actions workflow-dispatch API action and does **not** force an unrelated main branch change or merge PR #7 merely to run a credential-bearing smoke.
-
-Once the user authorizes **workflow-only bootstrap** into default `main` (NOT merging whole PR #7), they can launch from GitHub Actions → `SWE Real Model Smoke (Manual)` → `Run workflow` → select `coding/step5-deerflow-adapter` → enter `RUN`. That selected branch contains the tested source and workflow; Secrets remain in repository settings. If GitHub refuses manual dispatch until registration, do not try to circumvent the gate via automatic push/PR secret execution.
+- Manual workflow registered on default `main` in commit `a57b80291f4c61245dd38c8d8b5bd6f016a0d120`, *without* merging PR #7.
+- User launched the manual workflow with explicit consent on `coding/step5-deerflow-adapter`; successful run #38018937188 on developer HEAD `1cc3567eeed4550254b0cff35f9f2183bcbefe59`.
+- Credentials were loaded by the runner and the test completed. Secret values were never queried or printed by the audit.
+- The full evidence-based outcome is recorded in the dated run verification section below.
 
 ## Trust limits / live acceptance
 
@@ -36,17 +37,14 @@ Once the user authorizes **workflow-only bootstrap** into default `main` (NOT me
 - `tests/integration/test_deerflow_live_swe_step5fd.py` uses a **test-fixed precommit 5C resource fixture**, albeit genuine runtime `NodeExecutionBindingStore.bind()` and source-pinned Native executor after actual Scheduler Commit. It is not a complete production 5C immutable-source/Inventory live verification or real deployed AuthorizationProvider test.
 - Full native Sandbox/worker quiescence remains deferred by user direction; strict Scheduler still reports quarantine / failed for unknown quiescence. `tests_passed_scheduler_quarantined` describes independent tests and does not declare accepted TaskResult or dispatch downstream DAG work.
 - The isolation backend is a development Docker boundary with Workspace writable mount and best-effort cleanup; host Git operations and the trusted Python runner still own model credentials. The repaired code only runs via model Bash and isolated canonical Python Docker, not by the host Python regression path. Formal host privilege isolation remains future work.
-- Model compatibility and budget/cost are provider-dependent. API/URL Secret content is unverified until the explicit manual paid call.
-- No real provider secret values, human debugging logs with endpoint/key, or code patches from a real model have been observed yet.
+- Model compatibility and budget/cost remain provider-dependent. The specific configured provider completed one paid model invocation; actual Secret values and token usage remain inaccessible to this audit.
+- No raw provider Secret values have been accessed. The real-model run did produce a verified source patch; detailed reasoning trajectory, token/cost and complete tool-by-tool outputs were not retained in the artifact.
 
 ## Next gate
 
-1. Verify final HEAD Python 3.11/3.13 Core CI and pinned Python 3.12 native+Docker CI.
-2. After review, register **only** manual smoke workflow on default `main` or follow the organization's approved manual workflow registration policy. **Do not merge PR #7 as a side effect.**
-3. The user explicitly launches `workflow_dispatch` on the tested coding branch with `authorization=RUN`.
-4. Audit run logs, inspect redacted report artifact, and classify `Real Model GO` / `Tool Calling NO-GO` / `Provider Configuration NO-GO` / `Independent Verification NO-GO` with exact evidence.
-
-**Do not claim 5F-D is complete before step 3 passes with real HTTP requests.**
+- 5F-D real-model *smoke* is evidenced and Scoped GO. Do not automatically rerun a paid API test.
+- PR #7 remains Draft/Open. Full production 5C inventory/AuthorizationProvider composition and complete native Quiescence are still not attested.
+- If needed, a separate, user-approved extended smoke should persist secret-redacted per-tool traces and model token/cost metrics, and run a nontrivial multi-step repair before claiming stronger SWE capabilities.
 
 ## 5F-D Live Model Run #38018937188 — Verified (2026-10-10)
 
