@@ -216,7 +216,6 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
                     verification_status=("passed" if result.exit_code==0
                                          and not result.timed_out else "failed")
                     if verification_status == "failed":
-                        from aswe.llm_config import load_llm_settings
                         current_settings=load_llm_settings(env_file=env_file)
                         failure_feedback=feedback_from_test_output(
                             result.output,secrets=(current_settings.api_key,))
