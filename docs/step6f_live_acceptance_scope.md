@@ -30,3 +30,8 @@ acceptance run. The permanent workflow must be manual-only after this run.
 
 Historical strict Scheduler quiescence acceptance remains a separate issue;
 a passing developer workflow is not an ACCEPTED strict TaskResult.
+
+## Real-model compatibility retest
+
+Provider-side schema rejection is now retried using an ordinary JSON-text
+chat response plus Pydantic validation. This does not mock or bypass the LLM.
