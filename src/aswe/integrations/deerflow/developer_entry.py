@@ -9,6 +9,8 @@ from __future__ import annotations
 import asyncio
 import os
 from pathlib import Path
+from dataclasses import replace
+from typing import Callable, Any
 from types import SimpleNamespace
 
 from aswe.core.ids import new_safe_id
@@ -37,7 +39,8 @@ class RunConfigurationError(ValueError):
 
 async def execute_swe_task(*, repository: Path, task: str, runtime_dir: Path,
                            check_argv: tuple[str, ...], image: str,
-                           ref: str = "HEAD"):
+                           ref: str = "HEAD",
+                           model_factory: Callable[..., Any] | None = None):
     """Clone an immutable base, then execute the real frozen DeerFlow graph.
 
     Requires installed pinned vendor, Docker and host-supplied OPENAI_API_KEY.
@@ -178,6 +181,11 @@ async def execute_swe_task(*, repository: Path, task: str, runtime_dir: Path,
             invocation=invocation,policy=p,root=root,command_backend=docker),
         expected_swe_workspace_root=root,trace_sink=trace)
     assembler=NativeSubagentAssembler.from_deerflow()
+    # Internal test seam only: CLI never exposes model_factory. Normal runs
+    # always call the frozen DeerFlow native model factory.
+    if model_factory is not None:
+        assembler=NativeSubagentAssembler(replace(
+            assembler.seams,create_chat_model=model_factory))
     backend=NativeDeerFlowExecutionBackend(
         binding_store=binding,assembler=assembler,
         task_renderer=lambda _node:task,enable_native_execution=True,
