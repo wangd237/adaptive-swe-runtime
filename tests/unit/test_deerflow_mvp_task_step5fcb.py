@@ -206,7 +206,15 @@ async def test_step6_actual_mvp_runner_persists_bounded_trace(prepared_mvp,tmp_p
     ).run_node("writer")
     events=sink.read_all()
     assert [event.event_type for event in events]==[
-        "mvp.task.started","mvp.task.finished"]
+        "mvp.task.started",
+        "scheduler.dispatch.requested",
+        "scheduler.dispatch.claimed",
+        "scheduler.execution.committed",
+        "agent.execution.finished",
+        "verification.started",
+        "verification.finished",
+        "repair.decision",
+        "mvp.task.finished"]
     assert events[-1].payload["delivery_status"]==report.delivery_status
     assert events[-1].payload["quiescence_proven"] is False
     assert "return 42" not in str(events)
