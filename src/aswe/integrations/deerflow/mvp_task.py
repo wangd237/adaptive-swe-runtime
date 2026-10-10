@@ -9,7 +9,8 @@ before Scheduler terminalizes the uncertain native execution.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+import json
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -60,6 +61,18 @@ class MVPTaskReport:
     @property
     def tests_passed(self) -> bool:
         return self.verification_status == "passed"
+
+    def to_dict(self) -> dict[str, Any]:
+        """Human/API-facing MVP contract; separate from canonical TaskResult."""
+        body = asdict(self)
+        if self.canonical_receipt_ref is not None:
+            body["canonical_receipt_ref"] = self.canonical_receipt_ref.model_dump(mode="json")
+        body["tests_passed"] = self.tests_passed
+        return body
+
+    def to_json(self) -> str:
+        """Stable machine-readable output for CLI/demo consumers."""
+        return json.dumps(self.to_dict(), ensure_ascii=False, sort_keys=True)
 
 
 class _VerificationProbe:
