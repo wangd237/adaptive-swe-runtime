@@ -56,7 +56,14 @@ def assert_pinned_deerflow_source(module_file: str | Path) -> None:
 def _schema_fingerprint(tool: Any) -> str | None:
     schema=getattr(tool,"args_schema",None)
     if schema is not None and hasattr(schema,"model_json_schema"):
-        return fingerprint(schema.model_json_schema())
+        # Frozen DeerFlow's native tool schemas may embed Python Callable
+        # fields that Pydantic cannot express in JSON Schema. Treat that as
+        # *no schema witness*, never fabricate a canonical fingerprint.
+        from pydantic.errors import PydanticInvalidForJsonSchema
+        try:
+            return fingerprint(schema.model_json_schema())
+        except PydanticInvalidForJsonSchema:
+            return None
     # If no canonical schema is available, lack of schema alone must not
     # constitute an implementation identity or fabricated compatibility.
     return None
