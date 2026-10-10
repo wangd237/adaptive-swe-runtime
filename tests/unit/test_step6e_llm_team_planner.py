@@ -35,6 +35,9 @@ def source(tmp_path):
         path=root/p;path.parent.mkdir(parents=True,exist_ok=True)
         path.write_text("pass\n")
     subprocess.run(["git","-C",str(root),"add","-A"],check=True)
+    subprocess.run(["git","-C",str(root),"-c","user.name=CI",
+                    "-c","user.email=ci@example.invalid","commit","-m","fixture"],
+                   check=True,capture_output=True)
     return root
 
 
