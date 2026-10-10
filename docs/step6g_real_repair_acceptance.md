@@ -31,3 +31,18 @@ The GitHub workflow is restricted to an explicit one-shot staging-branch
 push marker for initial acceptance and manual `RUN` thereafter. Temporary
 push activation will be removed before merging to `main`.
 
+
+## First real repair attempt
+
+[Run 38050394522](https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38050394522)
+observed two genuine native model rounds, a failed then passing
+independent Docker check, and two modified implementation modules.
+The Actions job still failed because the harness mixed the native tool
+guard's `repair.feedback.available` events with the top-level canonical
+tester's feedback event, and incorrectly required Explorer even when
+the real adaptive planner validly chose a single Coder.
+
+The assertions are now fixed to identify the exact canonical feedback
+source and accept a legitimate minimum-sized team. A fresh paid run
+will confirm a clean acceptance verdict. The first attempt is reported
+as *observed repair behavior*, not a passing acceptance run.
