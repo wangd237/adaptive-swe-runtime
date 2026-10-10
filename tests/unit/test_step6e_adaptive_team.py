@@ -16,6 +16,9 @@ def repository(tmp_path):
         p=repo/path;p.parent.mkdir(parents=True,exist_ok=True)
         p.write_text("pass\n")
     subprocess.run(["git","-C",str(repo),"add","-A"],check=True)
+    subprocess.run(["git","-C",str(repo),"-c","user.name=CI",
+                    "-c","user.email=ci@example.invalid","commit","-m","fixture"],
+                   check=True,capture_output=True)
     return repo
 
 
