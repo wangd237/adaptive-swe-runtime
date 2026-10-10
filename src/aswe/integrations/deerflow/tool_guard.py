@@ -335,9 +335,13 @@ class ToolCallGuard:
                                  payload={**receipt, **common})
             # Model-controlled Bash is a development observation, not the
             # independently trusted Canonical Verification verdict.
-            if name == "bash" and status == "completed" and isinstance(result,str):
+            if name == "bash" and status == "completed":
                 import re
-                match = re.match(r"^exit_code=(-?\d+|None); timed_out=(True|False)\n", result)
+                # LangChain middleware returns a ToolMessage, not raw tool text.
+                # Read only its bounded status header, never persist content.
+                message = result if isinstance(result, str) else getattr(result, "content", None)
+                match = (re.match(r"^exit_code=(-?\d+|None); timed_out=(True|False)\n", message)
+                         if isinstance(message, str) else None)
                 if match is not None:
                     exit_code = None if match.group(1) == "None" else int(match.group(1))
                     passed = exit_code == 0 and match.group(2) == "False"
