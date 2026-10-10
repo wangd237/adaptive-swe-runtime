@@ -228,6 +228,7 @@ class ToolCallGuard:
         self._pending_calls: set[str] = set()
         self._used_call_ids: set[str] = set()
         self._tool_receipts: list[dict[str, str]] = []
+        self._dev_failed_checks = 0
 
     def close(self) -> None:
         """Revoke future calls. In-flight provider/native tool quiescence is 5E."""
@@ -327,9 +328,36 @@ class ToolCallGuard:
         with self._call_lock:
             self._tool_receipts.append(receipt)
         if self.trace_sink is not None:
+            common = {"execution_id":self.invocation.execution_id,
+                      "attempt":self.invocation.attempt,
+                      "run_id":self.invocation.run_id}
             self.trace_sink.emit("tool.call.finished",node_id=self.invocation.node_id,
-                                 payload={**receipt, "attempt":self.invocation.attempt,
-                                          "run_id":self.invocation.run_id})
+                                 payload={**receipt, **common})
+            # Model-controlled Bash is a development observation, not the
+            # independently trusted Canonical Verification verdict.
+            if name == "bash" and status == "completed":
+                import re
+                # LangChain middleware returns a ToolMessage, not raw tool text.
+                # Read only its bounded status header, never persist content.
+                message = result if isinstance(result, str) else getattr(result, "content", None)
+                match = (re.match(r"^exit_code=(-?\d+|None); timed_out=(True|False)\n", message)
+                         if isinstance(message, str) else None)
+                if match is not None:
+                    exit_code = None if match.group(1) == "None" else int(match.group(1))
+                    passed = exit_code == 0 and match.group(2) == "False"
+                    self.trace_sink.emit("agent.test.observed", node_id=self.invocation.node_id,
+                        payload={**common, "tool_call_id":call_id,
+                                 "exit_code":exit_code, "passed":passed,
+                                 "authority":"agent_observed_only"})
+                    if not passed:
+                        with self._call_lock:
+                            self._dev_failed_checks += 1
+                            failed_checks = self._dev_failed_checks
+                        self.trace_sink.emit("repair.feedback.available",node_id=self.invocation.node_id,
+                            payload={**common, "tool_call_id":call_id,
+                                     "failed_check_count":failed_checks,
+                                     "source":"agent_bash",
+                                     "authority":"agent_observed_only"})
 
     def receipt_snapshot(self) -> tuple[dict[str, str], ...]:
         with self._call_lock:

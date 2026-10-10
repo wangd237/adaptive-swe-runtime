@@ -80,6 +80,17 @@ async def test_multifile_repair_actual_deerflow_docker_and_timeline(
     assert types.count("model.turn.finished")>=6
     assert types.count("tool.call.finished")==6
     assert types.count("verification.finished")==1
+    # A failed native Docker check must produce feedback; this is distinct
+    # from the later trusted canonical verifier verdict.
+    observations=[event["payload"] for event in events
+                  if event["event_type"]=="agent.test.observed"]
+    assert [event["passed"] for event in observations]==[False,True]
+    assert all(event["authority"]=="agent_observed_only" for event in observations)
+    feedback=[event for event in events
+              if event["event_type"]=="repair.feedback.available"]
+    assert len(feedback)==1
+    assert feedback[0]["payload"]["failed_check_count"]==1
+    assert feedback[0]["payload"]["execution_id"]==report.execution_id
     assert events[-1]["payload"]["changed_files"]==["calc.py","helper.py"]
     assert next(e for e in events if e["event_type"]=="repair.decision")[
         "payload"]["status"]=="not_scheduled"
