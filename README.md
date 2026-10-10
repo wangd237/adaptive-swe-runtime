@@ -344,6 +344,30 @@ not scripted; the scenario uses controlled progressive test coverage. See
 [the evidence report](docs/step6g_real_repair_acceptance.md).
 Future paid runs use manual Actions authorization `RUN` only.
 
+## Step 7 — Real upstream Issue acceptance (in progress)
+
+We have moved beyond controlled developer fixtures to a **real public
+upstream repository and open GitHub Issue**:
+[boltons #500](https://github.com/mahmoud/boltons/issues/500),
+pinned at immutable upstream commit
+`4e5faa3d7e4008d89e0d8bf1ea87b6d9a061a16d`.
+The acceptance runner clones the real project, adds only a separate
+host-owned 5-case regression, confirms the original code fails, then
+uses genuine LLM Planner/Explorer and native DeerFlow Coder. It
+does **not** inject a prepared patch or mock the agent.
+
+**Result so far: not solved.** The first live run failed on an invalid
+advisory Explorer response; Step 7B now logs an explicit read-only
+Git-index fallback, allowing the Coder to proceed. Later runs edited
+real source but terminated native Coding as `failed`. A separate
+diagnostic Docker test of the edited repository also failed.
+This is an observed real-world Coding reliability gap, not a passing
+real-Issue demonstration.
+
+[Detailed Step 7 evidence and next failure-driven improvement](docs/step7_real_issue_review.md).
+The paid `SWE Step 7 Real Issue E2E` Actions workflow is manual-only
+and requires `RUN`; normal CI never calls the live API.
+
 ## Accepted implementation
 
 - Provider-neutral frozen contracts and two-stage deterministic TaskDAG identity (Step 0).
