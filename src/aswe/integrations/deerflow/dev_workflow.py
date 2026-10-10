@@ -67,7 +67,10 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
                                env_file: Path | None = None,
                                explorer_mode: str = "index",
                                explorer_factory: Callable[[], Any] | None = None,
-                               physical_dag: bool = False) -> WorkflowResult:
+                               physical_dag: bool = False,
+                               initial_coder_check_argv: tuple[str,...] | None = None) -> WorkflowResult:
+    if initial_coder_check_argv is not None and not initial_coder_check_argv:
+        raise ValueError("INITIAL_CODER_CHECK_INVALID")
     if not (0 <= max_repairs <= 3):
         raise ValueError("WORKFLOW_REPAIR_BUDGET_INVALID")
     if explorer_mode not in ("index", "llm"):
@@ -175,9 +178,13 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
                     "attempt":attempt,"provider_id":"coder",
                     "execution":"native_deerflow_child_scheduler"})
             sink.emit("semantic_node.started",node_id="coder",payload={"round":number+1})
+        # Fast inner Coder unit tests can be narrower than the DAG-owned
+        # independent complete regression suite; Repair uses the full suite.
+        child_check = (initial_coder_check_argv if number == 0 and
+                       initial_coder_check_argv is not None else check_argv)
         path, report, trace = await execute_swe_task(
             repository=source, task=prompt, runtime_dir=home,
-            check_argv=check_argv, image=image, ref=source_ref,
+            check_argv=child_check, image=image, ref=source_ref,
             model_factory=model_factory, env_file=env_file)
         reports.append(path)
         verification_status = report.verification_status
