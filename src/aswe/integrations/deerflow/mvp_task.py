@@ -330,6 +330,14 @@ class MVPTaskRunner:
             ),
         )
         if self.trace_sink is not None:
+            # Single-node MVP cannot dispatch Scheduler Repair. Do not
+            # manufacture a retry event when no repair was scheduled.
+            self.trace_sink.emit("repair.decision", node_id=node_id,
+                payload={"execution_id":report.execution_id,
+                         "attempt":report.attempt,
+                         "status":"not_scheduled",
+                         "reason":"single_node_mvp",
+                         "verification_status":report.verification_status})
             self.trace_sink.emit("mvp.task.finished", node_id=node_id,
                 payload={
                     "execution_id": report.execution_id,
