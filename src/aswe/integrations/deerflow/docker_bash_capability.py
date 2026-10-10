@@ -84,3 +84,18 @@ def compose_docker_bash_inventory(
         "aswe_runtime_docker_no_network",
     }
     return BackendInventorySnapshot(**body, fingerprint=inventory_fingerprint(body))
+
+
+class RuntimeDockerBashSource:
+    """Inert host-issued 5C source token; never calls native host Bash."""
+
+    name = "bash"
+    description = "Runtime-owned isolated Docker command, not DeerFlow host bash"
+    func = None
+    coroutine = None
+    args_schema = None
+
+    def __init__(self, grant: DockerBashCapability):
+        if not isinstance(grant, DockerBashCapability):
+            raise DockerBashCapabilityError("DOCKER_BASH_GRANT_UNTRUSTED")
+        self.grant = grant
