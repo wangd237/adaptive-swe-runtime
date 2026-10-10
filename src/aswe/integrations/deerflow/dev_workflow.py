@@ -107,6 +107,7 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
                 "task_dag_fingerprint":physical.dag.fingerprint,
                 "inventory_fingerprint":physical.inventory_fingerprint,
                 "resolved_fingerprint":physical.resolved_fingerprint,
+                "topological_order":list(physical.dag.topological_order),
                 "nodes":physical.display()})
         sink.emit("team.selected", payload={
             "roles":list(decision.roles),"reason":decision.reason,
