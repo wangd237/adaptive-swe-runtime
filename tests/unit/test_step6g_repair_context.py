@@ -41,6 +41,8 @@ def test_single_dag_scheduler_requires_real_failed_verifier(tmp_path):
     core.finish("coder",verified=True)
     assert core.dispatch("__aswe_verify")==1
     core.finish("__aswe_verify",verified=False)
+    with pytest.raises(ValueError,match="DEV_DAG_REPAIR_NOT_SCHEDULED"):
+        core.dispatch("__aswe_verify")
     assert core.schedule_repair()
     assert core.repairs_scheduled==1
     assert core.dispatch("coder")==2
