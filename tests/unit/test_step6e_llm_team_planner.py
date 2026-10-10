@@ -89,7 +89,9 @@ async def test_workflow_uses_llm_decision_and_does_not_skip_canonical_tester(
     trace=[json.loads(line) for line in result.trace_path.read_text().splitlines()]
     assert trace[0]["event_type"]=="team.selected"
     assert trace[0]["payload"]["planning_mode"]=="llm"
-    assert trace[1]["event_type"]=="explorer.finished"
+    assert trace[1]["event_type"]=="semantic_plan.validated"
+    assert trace[2]["event_type"]=="semantic_node.started"
+    assert trace[3]["event_type"]=="explorer.finished"
     assert sum(x["event_type"]=="workflow.test.finished" for x in trace)==1
     assert result.verification_status=="passed"
     assert "Fix order regression" in seen[0]["task"]
