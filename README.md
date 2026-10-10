@@ -82,6 +82,25 @@ branch; it is not a fictitious Repair execution.
 The CLI does not yet compile or run dynamic multi-node plans. Complex DAG
 and real retry/repair timelines remain later Step 6 work.
 
+## Step 6D — Multi-file repair and DAG status (initial scope)
+
+Step 6D begins with a **physical two-file repair E2E**: the frozen
+DeerFlow/LangGraph agent reads two files, corrects the first, encounters a
+failed Docker check, corrects the second and passes independent Python
+regressions. The resulting `events.jsonl` carries the model/tool/check
+sequence and both modified paths. CI uses an offline scripted model; user
+CLI continues to use the real provider.
+
+A separate **real two-node Scheduler DAG** regression verifies the current
+quarantine constraint: when a native writer finishes without independent
+Quiescence attestation, its dependent verifier node is BLOCKED and receives
+zero execution attempts. The Runtime records `scheduler.node.blocked`
+rather than fabricating a successful dependency or repair.
+
+**Not yet shipped:** automatic continuation of a multi-node native Coding
+DAG or Scheduler-level Repair. Those need a developer-mode stage isolation
+design, without weakening the existing strict Scheduler acceptance contract.
+
 ## Accepted implementation
 
 - Provider-neutral frozen contracts and two-stage deterministic TaskDAG identity (Step 0).

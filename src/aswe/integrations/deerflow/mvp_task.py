@@ -330,6 +330,19 @@ class MVPTaskRunner:
             ),
         )
         if self.trace_sink is not None:
+            # Materialized multi-node DAGs can be blocked by the strict
+            # Scheduler, which cannot accept unproven native Quiescence.
+            # Record real published states, never pretend a successor ran.
+            for dependent_id, node_state in sorted(self.scheduler.states.items()):
+                if dependent_id == node_id:
+                    continue
+                if node_state.logical_status.value == "blocked":
+                    self.trace_sink.emit("scheduler.node.blocked",node_id=dependent_id,
+                        payload={"status":node_state.logical_status.value,
+                                 "blocked_by":list(node_state.blocked_by),
+                                 "reason":node_state.block_reason.value
+                                          if node_state.block_reason else "unknown",
+                                 "trigger_execution_id":report.execution_id})
             # Single-node MVP cannot dispatch Scheduler Repair. Do not
             # manufacture a retry event when no repair was scheduled.
             self.trace_sink.emit("repair.decision", node_id=node_id,
