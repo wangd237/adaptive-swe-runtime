@@ -35,7 +35,7 @@ jobs:
         env:
           PYTHONPATH: src
         run: |
-          python -m pytest -vv -x tests/integration/test_deerflow_pinned_native_step5eb.py tests/integration/test_deerflow_live_model_profile_step5fd.py
+          python -m pytest -vv -x tests/integration/test_deerflow_pinned_native_step5eb.py tests/integration/test_deerflow_live_model_profile_step5fd.py tests/integration/test_deerflow_host_bash_filter_step5_release.py
       - name: Pull isolated MVP coding image
         run: |
           docker pull alpine:3.20
