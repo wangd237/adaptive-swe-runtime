@@ -328,7 +328,8 @@ class ToolCallGuard:
             self._tool_receipts.append(receipt)
         if self.trace_sink is not None:
             self.trace_sink.emit("tool.call.finished",node_id=self.invocation.node_id,
-                                 payload=receipt)
+                                 payload={**receipt, "attempt":self.invocation.attempt,
+                                          "run_id":self.invocation.run_id})
 
     def receipt_snapshot(self) -> tuple[dict[str, str], ...]:
         with self._call_lock:
