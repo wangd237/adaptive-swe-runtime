@@ -133,8 +133,8 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
         node_id = f"{stage}-{number}"
         sink.emit("workflow.stage.started", node_id=node_id,
                   payload={"stage":stage,"round":number+1})
-        prompt = (task if number == 0 else
-            f"{task}\n\nThe previous coding pass failed independent tests. "
+        prompt = (coding_task if number == 0 else
+            f"{coding_task}\n\nThe previous coding pass failed independent tests. "
             "Inspect the current code and tests, diagnose remaining failures, "
             "make the smallest repair, and rerun tests.")
         if semantic_plan is not None:
@@ -153,7 +153,8 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
                                "child_seq":event.seq,
                                **event.payload})
         if semantic_plan is not None:
-            completed_nodes.add("coder") if report.native_status == "completed" else None
+            if report.native_status == "completed":
+                completed_nodes.add("coder")
             sink.emit("semantic_node.finished",node_id="coder",payload={
                 "round":number+1, "status":report.native_status})
             if report.native_status == "completed":
