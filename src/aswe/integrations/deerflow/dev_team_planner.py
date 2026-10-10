@@ -12,6 +12,7 @@ from typing import Any, Callable
 from pydantic import BaseModel, ConfigDict, Field
 
 from aswe.llm_config import load_llm_settings
+from aswe.integrations.deerflow.json_compat import invoke_structured_compat
 from aswe.integrations.deerflow.adaptive_team import (
     TeamDecision, explore_repository, select_team,
 )
@@ -70,12 +71,8 @@ async def plan_developer_team(
     user = ("User task:\n" + task[:12000] +
             "\n\nTracked source candidates (names only):\n" +
             "\n".join(candidates))
-    structured = planner.with_structured_output(ProposedTeam)
-    raw = await structured.ainvoke([
-        ("system", system), ("human", user)
-    ])
-    proposal = (raw if isinstance(raw, ProposedTeam)
-                else ProposedTeam.model_validate(raw))
+    proposal = await invoke_structured_compat(
+        planner,ProposedTeam,[("system",system),("human",user)])
     roles = ("explorer", "coder", "tester") if proposal.needs_explorer else ("coder",)
     reason = "llm_proposed_exploration" if proposal.needs_explorer else "llm_proposed_direct_coding"
     decision = TeamDecision(roles=roles, reason=reason,
