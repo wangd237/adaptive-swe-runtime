@@ -40,6 +40,8 @@ def _parser() -> argparse.ArgumentParser:
     workflow.add_argument("--ref", default="HEAD")
     workflow.add_argument("--env-file", type=Path, help="LLM settings file (default: .env in current directory)")
     workflow.add_argument("--max-repairs", type=int, default=1)
+    workflow.add_argument("--explorer", choices=("index","llm"), default="index",
+                          help="optional independent read-only LLM Explorer")
     workflow.add_argument("--planner", choices=("rules","llm"), default="rules",
                           help="bounded developer team proposal; llm uses ASWE_MODEL")
     workflow.add_argument("--adaptive", action="store_true",
@@ -64,7 +66,8 @@ def main(argv: list[str] | None = None) -> int:
                 runtime_dir=options.runtime_dir, check_argv=commands,
                 image=options.docker_image, ref=options.ref,
                 max_repairs=options.max_repairs, adaptive=options.adaptive,
-                planner=options.planner, env_file=options.env_file))
+                planner=options.planner, env_file=options.env_file,
+                explorer_mode=options.explorer))
             print(f"Workflow: {result.workflow_id}")
             print(f"Rounds: {result.round_count}")
             print(f"Canonical: {result.verification_status}")
