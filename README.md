@@ -227,6 +227,49 @@ E2E runs a separate scripted Explorer model followed by a scripted Coder
 model, with genuine tools and independent canonical verification. Live
 external-model success for the complete new topology remains unverified.
 
+## Step 6F-B — Physical adaptive DAG + developer Scheduler
+
+The existing adaptive workflow CLI now compiles a **physical** execution
+topology by resolving its validated semantic plan against *observed pinned
+DeerFlow tools* plus the Runtime's real Docker Bash capability. Resolution
+uses the existing `resolve_workplan` and `materialize_task_dag`, yielding
+an immutable, fingerprinted `TaskDAG` with the selected Explorer, Coder
+and Runtime-injected Tester providers.
+
+`aswe workflow --adaptive --planner llm --explorer llm ...` runs this chain:
+
+```text
+Natural-language Task
+  -> LLM minimal-team proposal
+  -> ConstraintCompiler / SemanticPlanValidator
+  -> native DeerFlow + Docker Inventory
+  -> Capability / Provider Resolution
+  -> physical TaskDAG
+  -> DeveloperDagScheduler
+      Explorer  (independent read-only LLM, when selected)
+      Coder     (native DeerFlow + child SchedulerCore)
+      Tester    (separate Docker test after Coder)
+      Repair    (on failing canonical test, bounded retries)
+  -> JSONL Trace and Workflow Report
+```
+
+The developer Scheduler checks physical DAG dependencies before dispatching
+each stage. The Tester actually re-executes its pinned check command in a
+disposable Docker container; it is not a synthetic event echoing the child's
+canonical verdict. Its result controls the workflow's success and Repair.
+The report includes the physical DAG fingerprint and per-node dispatch
+attempts, and the Trace records provider assignments and independent test
+exit codes. A pinned DeerFlow/Docker E2E proves multi-role planning,
+physical provider resolution, execution and final test success.
+
+**Developer-only boundary:** The top-level scheduler is
+`DeveloperDagScheduler`, not the strict `SchedulerCore`'s global multi-node
+acceptance engine. Each native Coding attempt continues to use its own
+`SchedulerCore`; verified Docker checks are not misrepresented as strict
+accepted `NodeHandoff`s. No production Sandbox Quiescence, RBAC or
+distributed scheduling are claimed. The current LLM Planner chooses a
+minimal topology rather than authoring an arbitrary multi-package workplan.
+
 ## Accepted implementation
 
 - Provider-neutral frozen contracts and two-stage deterministic TaskDAG identity (Step 0).

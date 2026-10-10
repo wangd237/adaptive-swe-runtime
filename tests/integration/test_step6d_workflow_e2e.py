@@ -61,7 +61,8 @@ async def test_actual_coder_failed_test_repair_passed_test(
         task="Fix calc.answer to pass unit tests",
         runtime_dir=tmp_path/"runs",image=_digest(),
         check_argv=("python","-B","-m","unittest","discover","-s","tests","-q"),
-        max_repairs=1,model_factory=model_factory)
+        max_repairs=1,adaptive=True,physical_dag=True,
+        model_factory=model_factory)
     assert result.round_count==2
     assert result.verification_status=="passed"
     assert len(built)==2
@@ -80,4 +81,8 @@ async def test_actual_coder_failed_test_repair_passed_test(
     assert kinds.count("model.turn.finished")>=4
     assert kinds.count("tool.call.finished")==4
     assert events[-1]["payload"]["verification_status"]=="passed"
+    report=json.loads(result.report_path.read_text())
+    assert len(report["task_dag_fingerprint"])==64
+    assert report["dag_dispatch_attempts"]["coder"]==2
+    assert report["dag_dispatch_attempts"]["__aswe_verify"]==2
     assert all("OPENAI_API_KEY" not in json.dumps(x) for x in events)
