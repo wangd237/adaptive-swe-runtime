@@ -1,3 +1,5 @@
+> **Implementation scope update — 2026-10-10:** Steps 0–5 have reached the Developer MVP merged baseline ([PR #7](https://github.com/wangd237/adaptive-swe-runtime/pull/7)). This master plan remains the long-form architectural rationale; historical phase gates are not current status. Step 6 prioritizes CLI, Execution Trace, multi-file coding and complex task demos. Complete Sandbox Quiescence proof, production RBAC and distributed deployment are **not MVP deliverables**. Keep existing truthful failure/quarantine semantics. Current status: [README](../README.md), [IMPLEMENTATION_STATUS](../IMPLEMENTATION_STATUS.md).
+
 # Adaptive Agent Runtime for Software Engineering 实施方案书
 
 > 版本：MVP 面试项目收敛版（DeerFlow 源码审计后更新）  

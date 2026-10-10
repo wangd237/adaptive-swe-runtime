@@ -8,6 +8,18 @@
 
 ---
 
+## Active release scope — Developer MVP (2026-10-10)
+
+Coding Step 5 is merged to `main` ([PR #7](https://github.com/wangd237/adaptive-swe-runtime/pull/7)). The working target is a demonstrable **task-adaptive SWE Coding Agent MVP**, not a production hosted-agent system.
+
+**Next priority:** CLI / task entry, execution trace (bounded/redacted), multi-file coding and realistic DAG/repair demos. Full Sandbox Quiescence proof, production RBAC, distributed scheduling, remote multi-tenant sandbox platform, high availability and enterprise infrastructure are **explicit non-goals** unless requested and separately scoped. Do not turn the historical Step 5 production `NO-GO` into a new developer-MVP backlog.
+
+**Do not weaken existing invariants:** Scheduler must not mark native unknown quiescence as proven; external canonical tests passing is not a strict `ACCEPTED TaskResult`; keep isolation, tool/Workspace checks, credentials handling and evidence integrity already implemented. Feature improvements should make the Developer MVP useful without expanding the threat model.
+
+All historical frozen specifications and phase notes below remain as implementation constraints where applicable; when they discuss *additional production attestation*, this active MVP scope takes precedence as release planning, not as permission to falsify evidence.
+
+---
+
 ## 1. Mission
 
 A-SWE Runtime is **not** a DeerFlow fork with several extra agents.
