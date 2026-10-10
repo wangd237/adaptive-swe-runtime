@@ -28,6 +28,18 @@ def trusted_effect(info)->ToolEffect:
     """A config-namespace string cannot impersonate a deployed DeerFlow tool."""
     if info.delivery!="eager" or info.resolved_exposed_name!=info.contract_id:
         return ToolEffect.UNKNOWN
+    # Explicit runtime-owned isolated Docker capability, NEVER upstream host Bash.
+    # Provider identity still requires a host-attested grant in the DeerFlow
+    # inventory composer; string equality by itself is not a live admission.
+    if info.source=="aswe-runtime-docker":
+        return (ToolEffect.WORKSPACE_MUTATING
+                if (info.contract_id=="bash"
+                    and info.configured_name is None
+                    and info.implementation_id=="aswe.runtime.docker:bash.v1"
+                    and info.group=="runtime:isolated-command"
+                    and info.provenance=="aswe-runtime-owned-docker"
+                    and info.effect is ToolEffect.WORKSPACE_MUTATING)
+                else ToolEffect.UNKNOWN)
     if info.source=="fake-config":
         ident=f"config:{info.contract_id}"
         expected=STANDARD_EFFECTS.get(ident)
