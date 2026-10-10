@@ -35,3 +35,9 @@ a passing developer workflow is not an ACCEPTED strict TaskResult.
 
 Provider-side schema rejection is now retried using an ordinary JSON-text
 chat response plus Pydantic validation. This does not mock or bypass the LLM.
+
+## Explorer schema-recovery acceptance
+
+The first live Planner selected the full multi-agent topology; the next
+model response was incomplete. One bounded JSON fallback now handles
+invalid structured responses while preserving strict validation.
