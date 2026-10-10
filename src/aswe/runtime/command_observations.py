@@ -38,9 +38,7 @@ class ForegroundReceipt:
 class IsolatedPythonCommandBackend(ABC):
     """Nominal host-owned backend contract; no structural duck-type spoofing."""
 
-    @property
-    @abstractmethod
-    def workspace_root(self) -> Path: ...
+    workspace_root: Path
 
     @abstractmethod
     async def run(self, command: str, *, timeout: float, max_output: int): ...
