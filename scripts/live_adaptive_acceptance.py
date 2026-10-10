@@ -169,12 +169,22 @@ async def acceptance(summary: dict) -> None:
         require(observed.exit_code not in (None,0) and not observed.timed_out,
                 "BASELINE_TESTS_NOT_FAILING")
         summary["baseline_tests_failed"] = True
-        run = await asyncio.wait_for(execute_dev_workflow(
+        try:
+            run = await asyncio.wait_for(execute_dev_workflow(
             repository=original,task=TASK, runtime_dir=base / "runtime",
             check_argv=CHECK,image=image,max_repairs=1,
             adaptive=True,planner="llm",explorer_mode="llm",
             physical_dag=True,
-        ),timeout=1050)
+            ),timeout=1050)
+        except Exception:
+            # Record *only* event names to locate a provider failure without
+            # exposing raw model output, source snippets, tokens or endpoints.
+            stages=[]
+            for trace in (base/"runtime"/"tasks").glob("workflow-*/events.jsonl"):
+                for line in trace.read_text(encoding="utf-8").splitlines():
+                    stages.append(json.loads(line).get("event_type", "unknown"))
+            summary["stages_before_failure"]=stages[-20:]
+            raise
 
         events = [json.loads(s) for s in run.trace_path.read_text(
             encoding="utf-8").splitlines() if s]
