@@ -50,7 +50,7 @@ async def test_failed_canonical_round_schedules_repair_with_git_handoff(
     assert result.round_count==2
     assert result.verification_status=="passed"
     assert calls[1]["repository"]==result.round_reports[0].parent/"workspace"
-    assert "previous coding pass failed" in calls[1]["task"]
+    assert "previous code change did not pass" in calls[1]["task"]
     assert (repo/"calc.py").read_text()=="value=0\n"
     events=[json.loads(x) for x in result.trace_path.read_text().splitlines()]
     assert [e["event_type"] for e in events].count("workflow.test.finished")==2
