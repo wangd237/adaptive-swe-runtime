@@ -116,10 +116,20 @@ class PhysicalPreparedToolSource:
         )
 
     async def prepare_node(self, node):
+        from aswe.core.contracts.backend import NodeExecutionPreparation
         assert node.id==self.policy.node_id
         assert self.prepared is None and not self._consumed
-        self.prepared=node
-        return node
+        self.prepared=NodeExecutionPreparation(
+            preparation_id="physical-5fcb-preparation",
+            node_id=node.id, provider_id=node.provider_id,
+            compiled_policy_fingerprint=self.policy.fingerprint,
+            planning_inventory_fingerprint="test-fixed-source-contract",
+            live_inventory_fingerprint="test-fixed-source-contract",
+            effective_policy_fingerprint=self.policy.fingerprint,
+            backend_snapshot_id="physical-test-pinned",
+            drift_observed=False,
+        )
+        return self.prepared
 
     def claim_for_execution(self, preparation, invocation):
         from aswe.integrations.deerflow.preparation import DeerFlowPreparationError
