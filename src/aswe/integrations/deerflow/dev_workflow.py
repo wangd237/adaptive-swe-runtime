@@ -25,6 +25,8 @@ from aswe.integrations.deerflow.dev_llm_explorer import execute_llm_explorer
 from aswe.integrations.deerflow.dev_physical_dag import (
     compile_physical_developer_dag, DeveloperDagScheduler)
 from aswe.llm_config import load_llm_settings
+from aswe.integrations.deerflow.repair_context import (
+    feedback_from_test_output, repair_prompt, RepairTestFeedback)
 
 
 @dataclass(frozen=True)
@@ -82,6 +84,7 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
     reports: list[Path] = []
     final_report = None
     last_verification_status: str | None = None
+    failure_feedback: RepairTestFeedback | None = None
     if planner != "rules" and not adaptive:
         raise ValueError("LLM_PLANNER_REQUIRES_ADAPTIVE")
     planned = (await plan_developer_team(
@@ -102,7 +105,7 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
             physical=compile_physical_developer_dag(
                 workplan=semantic_plan,repository=repository,
                 image=image,model=load_llm_settings(env_file=env_file).model)
-            dag_scheduler=DeveloperDagScheduler(physical)
+            dag_scheduler=DeveloperDagScheduler(physical,max_repairs=max_repairs)
             sink.emit("task_dag.compiled",payload={
                 "task_dag_fingerprint":physical.dag.fingerprint,
                 "inventory_fingerprint":physical.inventory_fingerprint,
@@ -119,7 +122,8 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
             "contract_fingerprint":semantic_plan.contract_fingerprint,
             "nodes":semantic_plan.trace_nodes()})
         if decision.needs_exploration:
-            semantic_plan.require_ready("explorer",completed_nodes)
+            if dag_scheduler is None:
+                semantic_plan.require_ready("explorer",completed_nodes)
             if dag_scheduler is not None:
                 attempt=dag_scheduler.dispatch("explorer")
                 sink.emit("dag.scheduler.dispatch",node_id="explorer",payload={
@@ -150,7 +154,8 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
                                "read_only":True})
             sink.emit("semantic_node.finished",node_id="explorer",
                       payload={"work_kind":"discovery","status":"completed"})
-            completed_nodes.add("explorer")
+            if dag_scheduler is None:
+                completed_nodes.add("explorer")
             if dag_scheduler is not None:
                 dag_scheduler.finish("explorer",verified=True)
     sink.emit("workflow.started", payload={"max_repairs":max_repairs})
@@ -160,11 +165,10 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
         sink.emit("workflow.stage.started", node_id=node_id,
                   payload={"stage":stage,"round":number+1})
         prompt = (coding_task if number == 0 else
-            f"{coding_task}\n\nThe previous coding pass failed independent tests. "
-            "Inspect the current code and tests, diagnose remaining failures, "
-            "make the smallest repair, and rerun tests.")
+                  repair_prompt(coding_task, failure_feedback))
         if semantic_plan is not None:
-            semantic_plan.require_ready("coder",completed_nodes)
+            if dag_scheduler is None:
+                semantic_plan.require_ready("coder",completed_nodes)
             if dag_scheduler is not None:
                 attempt=dag_scheduler.dispatch("coder")
                 sink.emit("dag.scheduler.dispatch",node_id="coder",payload={
@@ -185,14 +189,15 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
                                "child_seq":event.seq,
                                **event.payload})
         if semantic_plan is not None:
-            if report.native_status == "completed":
+            if dag_scheduler is None and report.native_status == "completed":
                 completed_nodes.add("coder")
             if dag_scheduler is not None:
                 dag_scheduler.finish("coder",verified=report.native_status=="completed")
             sink.emit("semantic_node.finished",node_id="coder",payload={
                 "round":number+1, "status":report.native_status})
             if report.native_status == "completed":
-                semantic_plan.require_ready("__aswe_verify",completed_nodes)
+                if dag_scheduler is None:
+                    semantic_plan.require_ready("__aswe_verify",completed_nodes)
                 if dag_scheduler is not None:
                     attempt=dag_scheduler.dispatch("__aswe_verify")
                     sink.emit("dag.scheduler.dispatch",node_id="__aswe_verify",payload={
@@ -210,6 +215,16 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
                                             max_output=6000)
                     verification_status=("passed" if result.exit_code==0
                                          and not result.timed_out else "failed")
+                    if verification_status == "failed":
+                        from aswe.llm_config import load_llm_settings
+                        current_settings=load_llm_settings(env_file=env_file)
+                        failure_feedback=feedback_from_test_output(
+                            result.output,secrets=(current_settings.api_key,))
+                        sink.emit("repair.feedback.available",node_id="__aswe_verify",
+                                  payload={"round":number+1,
+                                           "output_sha256":failure_feedback.output_sha256,
+                                           "output_length":failure_feedback.output_length,
+                                           "source":"independent_docker_tester"})
                     sink.emit("dag.verification.executed",node_id="__aswe_verify",
                               payload={"round":number+1,"exit_code":result.exit_code,
                                        "timed_out":result.timed_out,
@@ -222,6 +237,8 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
                 if dag_scheduler is not None:
                     dag_scheduler.finish("__aswe_verify",
                                          verified=verification_status=="passed")
+        if report.native_status != "completed":
+            verification_status = "unverified"
         last_verification_status = verification_status
         sink.emit("workflow.test.finished", node_id=f"tester-{number}",
                   payload={"round":number+1, "check_id":report.verification_check_id,
@@ -232,15 +249,17 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
                            "verification_status":verification_status,
                            "changed_files":list(report.changed_files)})
         final_report = report
-        if verification_status == "passed":
+        if verification_status == "passed" and report.native_status == "completed":
             break
         if number == max_repairs or report.native_status != "completed":
             break
         # A failed canonical check is the only trigger for a new repair round.
         if verification_status != "failed":
             break
-        if dag_scheduler is not None:
-            dag_scheduler.reset_for_repair()
+        if dag_scheduler is not None and not dag_scheduler.schedule_repair():
+            sink.emit("workflow.repair.budget_exhausted",
+                      payload={"round":number+1,"budget":max_repairs})
+            break
         prior_workspace = path.parent / "workspace"
         await asyncio.to_thread(_checkpoint, prior_workspace)
         source = prior_workspace
@@ -263,6 +282,8 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
         "semantic_plan_fingerprint":semantic_plan.plan.fingerprint if semantic_plan else None,
         "task_dag_fingerprint":dag_scheduler.physical.dag.fingerprint if dag_scheduler else None,
         "dag_dispatch_attempts":dict(dag_scheduler.attempts) if dag_scheduler else {},
+        "repair_rounds_scheduled":dag_scheduler.repairs_scheduled if dag_scheduler else max(0,len(reports)-1),
+        "last_failure_output_sha256":failure_feedback.output_sha256 if failure_feedback else None,
         "explorer_mode":explorer_mode if decision and decision.needs_exploration else None,
     },ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
     return WorkflowResult(workflow_id,status,len(reports),destination,
