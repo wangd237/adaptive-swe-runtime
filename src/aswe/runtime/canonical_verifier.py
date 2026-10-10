@@ -19,6 +19,7 @@ from aswe.core.contracts._base import FrozenModel
 from aswe.core.contracts import AttemptEvidenceKind, EvidenceRef, WorkspaceRevision
 from aswe.core.fingerprint import canonical_json_bytes, fingerprint
 from aswe.core.ids import validate_safe_id
+from aswe.runtime.command_observations import ForegroundReceipt, IsolatedPythonCommandBackend
 from aswe.evidence import LocalEvidenceStore
 from aswe.repository import RepositoryBinding, capture_repository_state
 
@@ -157,6 +158,145 @@ class CanonicalVerifier:
             task_id=self.task_id, node_id=node_id, execution_id=execution_id,
             attempt=attempt, kind=AttemptEvidenceKind.TOOL_RECEIPT_LEDGER,
             payload=receipt, workspace_revision=revision,
+        )
+        return ref, receipt
+
+    async def run_isolated_python(
+        self, *, node_id: str, execution_id: str, attempt: int,
+        policy: CanonicalCommandPolicy, revision: WorkspaceRevision,
+        container: object,
+    ) -> tuple[EvidenceRef, CanonicalCommandReceipt]:
+        """5F-D: exact trusted Python verification in no-network Docker.
+
+        Only for an opt-in DockerCommandBackend whose writable mount is the
+        bound repository. The live-model secret remains in the host process;
+        model-editable Python tests only execute within the container, with
+        no environment/secret mounts. This is *not* general native Quiescence.
+        """
+        import asyncio
+        import re
+        import shlex
+
+        if (not isinstance(container, IsolatedPythonCommandBackend)
+                or Path(container.workspace_root).resolve() != Path(self.binding.repository_root).resolve()
+                or not isinstance(policy, CanonicalCommandPolicy)
+                or policy.argv[0] not in ("python", "python3")
+                or not node_id or not execution_id or attempt < 1):
+            raise ValueError("ISOLATED_CANONICAL_AUTHORITY_INVALID")
+        before = await asyncio.to_thread(capture_repository_state, self.binding)
+        if (revision.repository_state_fingerprint != before.fingerprint
+                or revision.head_sha != before.head_sha
+                or revision.base_sha != before.base_sha):
+            raise ValueError("isolated canonical verification pre-state is stale")
+        command = shlex.join(policy.argv)
+        # The Docker backend sets --network=none, --read-only, a single
+        # Workspace bind mount and CPU/PID/memory bounds. It executes this
+        # Runtime-compiled argv, not an Agent-selected Bash command.
+        result = await container.run(
+            command, timeout=policy.timeout_seconds, max_output=64000,
+        )
+        if (not isinstance(result.output_sha256, str)
+                or re.fullmatch(r"[0-9a-f]{64}", result.output_sha256) is None):
+            raise ValueError("ISOLATED_CANONICAL_OUTPUT_DIGEST_UNATTESTED")
+        after = await asyncio.to_thread(capture_repository_state, self.binding)
+        unchanged = before.fingerprint == after.fingerprint
+        timed_out = bool(result.timed_out)
+        returncode = result.exit_code
+        status = (
+            "unverified" if timed_out or not unchanged or returncode is None
+            else "holds" if returncode == 0 else "failed"
+        )
+        fields = dict(
+            task_id=self.task_id, node_id=node_id, execution_id=execution_id,
+            attempt=attempt, check_id=policy.check_id,
+            command_policy_fingerprint=policy.fingerprint,
+            argv_fingerprint=fingerprint(policy.argv), returncode=returncode,
+            timed_out=timed_out,
+            stdout_sha256=result.output_sha256,
+            # Docker runner's stdout/stderr are intentionally combined into
+            # one complete stream; no separate stderr attestation is claimed.
+            stderr_sha256=hashlib.sha256(b"").hexdigest(),
+            pre_repository_fingerprint=before.fingerprint,
+            post_repository_fingerprint=after.fingerprint,
+            observed_revision=revision, status=status,
+        )
+        digest = fingerprint(fields)
+        receipt = CanonicalCommandReceipt(
+            **fields, fingerprint=digest, attestation_hmac=self._mac(digest)
+        )
+        ref = self.store.put_attempt(
+            task_id=self.task_id, node_id=node_id, execution_id=execution_id,
+            attempt=attempt, kind=AttemptEvidenceKind.TOOL_RECEIPT_LEDGER,
+            payload=receipt, workspace_revision=revision,
+        )
+        self.validate(
+            ref, node_id=node_id, execution_id=execution_id,
+            attempt=attempt, revision=revision, check_id=policy.check_id,
+        )
+        return ref, receipt
+
+    def attest_foreground_observation(
+        self, *, observed: object, policy: CanonicalCommandPolicy,
+        revision: WorkspaceRevision,
+    ) -> tuple[EvidenceRef, CanonicalCommandReceipt]:
+        """5F-B2: seal a completed Runtime-owned foreground command observation.
+
+        This is a privileged Runtime-to-Runtime handoff, NEVER exposed to
+        model/sandbox code. The foreground runner owns the process, stdout/
+        stderr digests, process-group drain and pre/post Git captures.
+        CanonicalVerifier owns the independent signing key, frozen policy and
+        EvidenceStore. Unjoined or failed cleanup can only be UNVERIFIED.
+        """
+
+        if not isinstance(observed, ForegroundReceipt):
+            raise ValueError("CANONICAL_FOREGROUND_RECEIPT_UNTRUSTED")
+        if (observed.task_id != self.task_id
+                or observed.command_id != policy.check_id
+                or observed.command_policy_fingerprint != policy.fingerprint
+                or observed.argv_fingerprint != fingerprint(policy.argv)
+                or observed.observed_revision != revision
+                or observed.execution_id == "" or observed.attempt < 1
+                or observed.pre_repository_fingerprint != revision.repository_state_fingerprint
+                or observed.post_repository_fingerprint != revision.repository_state_fingerprint
+                or not observed.completion_observed):
+            raise ValueError("CANONICAL_FOREGROUND_PROVENANCE_MISMATCH")
+        if (observed.status == "holds"
+                and (not observed.process_group_drained
+                     or observed.timed_out or observed.returncode != 0)):
+            raise ValueError("CANONICAL_FOREGROUND_FALSE_SUCCESS")
+        if observed.status == "failed" and (
+                not observed.process_group_drained or observed.timed_out
+                or observed.returncode in (None, 0)):
+            raise ValueError("CANONICAL_FOREGROUND_INVALID_FAILURE")
+        if observed.status not in ("holds", "failed", "unverified"):
+            raise ValueError("CANONICAL_FOREGROUND_STATUS_INVALID")
+        # Even a caller-supplied 'holds' cannot be signed as success after
+        # any unexpected process/lease cleanup or workspace drift.
+        status = observed.status if observed.process_group_drained else "unverified"
+        fields = dict(
+            task_id=self.task_id, node_id=observed.node_id,
+            execution_id=observed.execution_id, attempt=observed.attempt,
+            check_id=policy.check_id, command_policy_fingerprint=policy.fingerprint,
+            argv_fingerprint=fingerprint(policy.argv), returncode=observed.returncode,
+            timed_out=observed.timed_out, stdout_sha256=observed.stdout_sha256,
+            stderr_sha256=observed.stderr_sha256,
+            pre_repository_fingerprint=observed.pre_repository_fingerprint,
+            post_repository_fingerprint=observed.post_repository_fingerprint,
+            observed_revision=revision, status=status,
+        )
+        digest = fingerprint(fields)
+        receipt = CanonicalCommandReceipt(
+            **fields, fingerprint=digest, attestation_hmac=self._mac(digest)
+        )
+        ref = self.store.put_attempt(
+            task_id=self.task_id, node_id=observed.node_id,
+            execution_id=observed.execution_id, attempt=observed.attempt,
+            kind=AttemptEvidenceKind.TOOL_RECEIPT_LEDGER,
+            payload=receipt, workspace_revision=revision,
+        )
+        self.validate(
+            ref, node_id=observed.node_id, execution_id=observed.execution_id,
+            attempt=observed.attempt, revision=revision, check_id=policy.check_id,
         )
         return ref, receipt
 

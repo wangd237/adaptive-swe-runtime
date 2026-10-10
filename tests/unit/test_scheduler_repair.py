@@ -177,10 +177,17 @@ async def test_consumer_commit_wins_then_reopen_fails_closed_even_prestart(tmp_p
     )])
     ticket = await core.claim("reviewer")
     running = asyncio.create_task(core.run_claim(ticket, backend, accept=accept))
-    for _ in range(50):
-        if core.states["reviewer"].logical_status is NodeLogicalStatus.RUNNING:
+    # A bounded *wall-clock* wait is required: 50 event-loop yields are not
+    # sufficient when the Scheduler checks evidence via asyncio.to_thread
+    # on loaded Actions runners.
+    deadline = asyncio.get_running_loop().time() + 5.0
+    while core.states["reviewer"].logical_status is not NodeLogicalStatus.RUNNING:
+        if running.done():
+            await running  # surface unexpected early exit, never mask it
             break
-        await asyncio.sleep(0)
+        if asyncio.get_running_loop().time() >= deadline:
+            break
+        await asyncio.sleep(0.005)
     assert core.states["reviewer"].logical_status is NodeLogicalStatus.RUNNING
     with pytest.raises(RepairScopeInvalidated, match="ACTIVE_DOWNSTREAM_DISPATCH"):
         await core.reopen_writer_from_verification(

@@ -117,6 +117,8 @@ class SchedulerCore:
         self._task_failed = False
         self.task_logical_status = TaskLogicalStatus.RUNNING
         self._committed: dict[str, CommittedExecution] = {}
+        # Exact invocation objects remain authoritative only while active.
+        self._active_invocations: dict[str, NodeExecutionInvocation] = {}
         self._terminal_mutex = asyncio.Lock()
         self._quiescence_unknown = False
         self._locally_cancelled_nodes: set[str] = set()
@@ -304,6 +306,7 @@ class SchedulerCore:
             self._committed[invocation.execution_id] = CommittedExecution(
                 backend=backend, owner=asyncio.current_task(),
             )
+            self._active_invocations[invocation.execution_id] = invocation
             self._pending_attempt_kinds.pop(ticket.node_id, None)
             if kind is NodeAttemptKind.REPAIR:
                 self._repair_feedback_revision.pop(ticket.node_id, None)
@@ -311,12 +314,59 @@ class SchedulerCore:
                 self._typed_repair_feedback.pop(ticket.node_id, None)
             return invocation
 
+    def is_committed_invocation(self, invocation: NodeExecutionInvocation) -> bool:
+        """Synchronous same-event-loop gate for a managed backend claim.
+
+        Must be called by the execution owner immediately after _commit and
+        before any await. A model-authored invocation or precommit ticket has
+        no matching authoritative entry. This is not a cross-process token.
+        """
+        if not isinstance(invocation, NodeExecutionInvocation):
+            return False
+        active = self._active_invocations.get(invocation.execution_id)
+        ticket = self.tickets.get(invocation.dispatch_ticket_id)
+        committed = self._committed.get(invocation.execution_id)
+        try:
+            owner = asyncio.current_task()
+        except RuntimeError:
+            return False
+        return (
+            active is invocation
+            and ticket is not None and ticket.state is NodeDispatchTicketState.COMMITTED
+            and committed is not None and committed.owner is owner
+            and self.task_id == invocation.task_id
+            and ticket.node_id == invocation.node_id
+            and ticket.task_dispatch_epoch == invocation.task_dispatch_epoch
+        )
+
+    def is_active_execution(self, invocation: NodeExecutionInvocation) -> bool:
+        """Execution-lifetime check for tool calls, including child Tasks.
+
+        Unlike commit-time identity, it does not require the caller to be the
+        dispatch-owning asyncio Task. The invocation object itself is a
+        Scheduler-owned reference and is not a bearer credential; the tool
+        guard must additionally check its pinned tool identity and principal.
+        """
+        if not isinstance(invocation, NodeExecutionInvocation):
+            return False
+        ticket = self.tickets.get(invocation.dispatch_ticket_id)
+        return (
+            self._active_invocations.get(invocation.execution_id) is invocation
+            and ticket is not None
+            and ticket.state is NodeDispatchTicketState.COMMITTED
+            and ticket.node_id == invocation.node_id
+            and ticket.task_dispatch_epoch == invocation.task_dispatch_epoch
+            and invocation.task_id == self.task_id
+            and invocation.execution_id in self._committed
+        )
+
     async def _finish(self, invocation: NodeExecutionInvocation, result: Any,
                       handoff: NodeHandoff | None, *,
                       certified_post: WorkspaceRevision | None = None,
                       own_acceptance_feedback: RepairFeedback | None = None,
                       own_evidence_refs: tuple[EvidenceRef, ...] = (),
-                      review_verdict_ref: EvidenceRef | None = None) -> None:
+                      review_verdict_ref: EvidenceRef | None = None,
+                      execution_evidence_refs: tuple[EvidenceRef, ...] = ()) -> None:
         close_dispatch = False
         async with self.state_mutex:
             state = self.states[invocation.node_id]
@@ -425,8 +475,9 @@ class SchedulerCore:
                 ),
                 "handoff": handoff if success else None,
                 "evidence_refs": (
-                    own_evidence_refs if own_certified_failure else
-                    running.evidence_refs + ((review_verdict_ref,) if review_verdict_ref else ())
+                    running.evidence_refs + execution_evidence_refs +
+                    (own_evidence_refs if own_certified_failure else ()) +
+                    ((review_verdict_ref,) if review_verdict_ref else ())
                 ),
             })
             changes: dict[str, Any] = {
@@ -940,6 +991,7 @@ class SchedulerCore:
         accept: Acceptance | None = None,
         review_gate: ReviewGate | None = None,
         review_evidence_store: LocalEvidenceStore | None = None,
+        execution_evidence_store: LocalEvidenceStore | None = None,
     ) -> NodeExecutionInvocation | None:
         """Deterministic FakeBackend orchestration; no model-derived acceptance.
 
@@ -948,6 +1000,7 @@ class SchedulerCore:
         """
         current_id = ticket.ticket_id
         invocation: NodeExecutionInvocation | None = None
+        preparation: Any | None = None
         completed_quiescent = False
         try:
             preparation = await backend.prepare_node(self.nodes[ticket.node_id])
@@ -1019,6 +1072,33 @@ class SchedulerCore:
                             "head_matches_baseline": state.head_matches_baseline,
                         })
                         certified_post = post
+                    # 5F-B: evidence references are native backend output
+                    # HINTS only. The Runtime supplies an independent evidence
+                    # store and verifies bytes/provenance before they may enter
+                    # an immutable historical Attempt. No automatic acceptance.
+                    native_refs = tuple(
+                        ref for ref in (
+                            getattr(result, "tool_receipt_ref", None),
+                            getattr(result, "workspace_evidence_ref", None),
+                        ) if ref is not None
+                    )
+                    if native_refs:
+                        if execution_evidence_store is None or len(set(native_refs)) != len(native_refs):
+                            raise ValueError("TRUSTED_EXECUTION_EVIDENCE_STORE_REQUIRED")
+                        for ref in native_refs:
+                            if (not isinstance(ref, EvidenceRef)
+                                    or ref.kind not in (
+                                        AttemptEvidenceKind.TOOL_RECEIPT_LEDGER,
+                                        AttemptEvidenceKind.WORKSPACE_CHANGESET,
+                                    )
+                                    or ref.source_node_id != invocation.node_id
+                                    or ref.source_execution_id != invocation.execution_id
+                                    or ref.source_attempt != invocation.attempt
+                                    or not ref.evidence_id.startswith(self.task_id + "__")):
+                                raise ValueError("EXECUTION_EVIDENCE_ATTEMPT_MISMATCH")
+                            await asyncio.to_thread(execution_evidence_store.get, ref)
+                    # A persisted diagnostic is not an Acceptance verdict and
+                    # cannot stand in for an independently verified Handoff.
                     if result.terminal_status is BackendTerminalStatus.COMPLETED and result.quiescent:
                         if (self.nodes[invocation.node_id].work_kind is WorkKind.REVIEW
                                 and review_gate is not None):
@@ -1062,6 +1142,7 @@ class SchedulerCore:
                         own_acceptance_feedback=own_fb,
                         own_evidence_refs=own_refs,
                         review_verdict_ref=review_ref,
+                        execution_evidence_refs=native_refs,
                     )
                 except BaseException:
                     await self._abort_committed(
@@ -1090,10 +1171,25 @@ class SchedulerCore:
                 await self.revoke(current_id)
             raise
         finally:
+            if invocation is None and preparation is not None:
+                # Any revoked/precommit-cancelled preparation must release its
+                # retained provider resources without creating an attempt.
+                # The optional hook is synchronous and must perform no I/O.
+                cleanup = getattr(backend, "release_preparation", None)
+                if not callable(cleanup):
+                    cleanup = getattr(backend, "discard_preparation", None)
+                if callable(cleanup):
+                    try:
+                        cleanup(preparation)
+                    except Exception:
+                        self.secondary_runtime_diagnostics.append(
+                            "PRECOMMIT_PREPARATION_CLEANUP_FAILED"
+                        )
             if invocation is not None:
                 item = self._committed[invocation.execution_id]
                 item.quiescent = completed_quiescent
                 item.done.set()
+                self._active_invocations.pop(invocation.execution_id, None)
             # A stale refresh can close the gate without a Writer attempt.
             await self._settle_if_drained()
 

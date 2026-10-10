@@ -1,0 +1,58 @@
+name: DeerFlow Pinned Native Integration
+
+on:
+  push:
+    branches: ['coding/**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pinned-native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: bytedance/deer-flow
+          ref: c0895d295bba34f6e95188fca380f555dabed891
+          path: vendor/deer-flow
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Verify exact upstream git source
+        run: |
+          test "$(git -C vendor/deer-flow rev-parse HEAD)" = "c0895d295bba34f6e95188fca380f555dabed891"
+          test -z "$(git -C vendor/deer-flow status --porcelain --untracked-files=no)"
+      - name: Install A-SWE and frozen DeerFlow Harness
+        run: |
+          uv pip install --system -e '.[dev]' -e vendor/deer-flow/backend/packages/harness
+      - name: Prove installed native imports and compiled tool surface
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m pytest -vv -x tests/integration/test_deerflow_pinned_native_step5eb.py tests/integration/test_deerflow_live_model_profile_step5fd.py tests/integration/test_deerflow_host_bash_filter_step5_release.py
+      - name: Pull isolated MVP coding image
+        run: |
+          docker pull alpine:3.20
+          docker image inspect alpine:3.20
+      - name: Physical isolated SWE Bash smoke
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m pytest -vv -x tests/integration/test_deerflow_docker_swe_step5fc.py
+      - name: Full offline SWE MVP physical integration
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m pytest -vv -x tests/integration/test_deerflow_mvp_e2e_step5fcb.py tests/integration/test_deerflow_docker_production_chain_step5_release.py
+      - name: Verify independent canonical Python in no-network container
+        env:
+          PYTHONPATH: src
+        run: |
+          docker pull python:3.12-slim
+          python -m pytest -vv -x tests/integration/test_deerflow_docker_canonical_step5fd.py

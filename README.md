@@ -50,3 +50,16 @@ No DeerFlow dependency or LLM integration has been added.
 - Canonical provider-neutral Capability registry, FakeBackend Inventory, ToolEffect and WorkspaceAccess resolution, materialized phase TaskDAG / exclusive WRITEs, real Git Tester post-node guard.
 - Frozen Stage-3 P3 physical scenarios 01/02/03/04/11 PASS on Step-4 branch, but the complete Step-4 adapter / live preflight / policy descriptor is **not yet accepted**.
 - Review: [Step-4 physical PoCs](audits/step4-physical-poc-audit.md).
+
+
+## Coding Step 5 — DeerFlow Adapter (in progress)
+
+- Isolated adapter namespace: `src/aswe/integrations/deerflow/`. First slice captures source-attested candidate BackendInventory from pinned DeerFlow `AppConfig`, actual eager tools, Subagent registry and observed Sandbox features.
+- Exact pinned upstream: `bytedance/deer-flow@c0895d295bba34f6e95188fca380f555dabed891`. The DeerFlow harness requires Python >=3.12. A-SWE Core unit CI remains Python 3.11/3.13.
+- Execution/cancellation/authorization/Bash receipt Go/No-Go is **not** yet passed. [Stage 5 entry](plan/step5-implementation-entry.md) · [source audit](audits/step5-gate-audit.md).
+
+
+### Step 5B — Model-only reasoning adapter
+
+- `DeerFlowReasoningBackend` implements Core `ReasoningBackend`; `ModelInvoker` selects a trusted explicit model from pinned AppConfig, applies current model-use AuthorizationProvider policy and validates strict JSON Schema outputs.
+- No tool-binding/Scheduler attempts and no model-supplied execution grants. [Step 5B audit](audits/step5b-model-invocation-review.md) records exact test and native-provider verification limits.

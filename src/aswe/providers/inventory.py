@@ -9,10 +9,10 @@ from aswe.capabilities.effects import ToolEffect,STANDARD_EFFECTS
 def inventory_fingerprint(values) -> str:
     """Canonical identity independent of Pydantic set/datetime serialization."""
     data=dict(values)
-    date=data["captured_at"]
-    if isinstance(date,str):
-        date=datetime.fromisoformat(date.replace("Z","+00:00"))
-    data["captured_at"]=date.isoformat()
+    # Observational wall-clock metadata is not deployment authority. Two
+    # identical configuration/tool snapshots captured seconds apart MUST have
+    # identical content fingerprints and must not count as backend drift.
+    data.pop("captured_at",None)
     for name in ("candidate_agent_types","candidate_skill_names",
                  "configured_model_names","sandbox_features"):
         data[name]=frozenset(data[name])

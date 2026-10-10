@@ -112,7 +112,10 @@ def test_snapshot_detects_changed_files_and_excludes_cache(tmp_path):
     (tmp_path / ".cache" / "ignored").write_text("cache")
     after = capture_filesystem_snapshot(tmp_path)
     assert changed_snapshot_paths(before, after) == ("a.py",)
-    assert after.complete
+    # An excluded directory is unobserved, not proof of a complete scan.
+    # This tightened 5F invariant prevents hidden cache writes from becoming
+    # false PROVEN_NONE attestations.
+    assert not after.complete
 
 
 def test_snapshot_limits_are_explicitly_incomplete(tmp_path):
