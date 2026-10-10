@@ -50,9 +50,11 @@ def test_cli_run_dispatches_task_to_application_entrypoint(monkeypatch,tmp_path,
     code=main(["run","Fix bug","--repo",str(tmp_path/"source"),
         "--runtime-dir",str(tmp_path/"runtime"),
         "--docker-image","python@sha256:"+"f"*64,
+        "--env-file",str(tmp_path/".env"),
         "--check-command","python -B -m unittest discover -s tests -q"])
     assert code==0
     assert recorded["task"]=="Fix bug"
+    assert recorded["env_file"]==tmp_path/".env"
     assert recorded["check_argv"]==("python","-B","-m","unittest",
                                    "discover","-s","tests","-q")
     assert "task-test" in capsys.readouterr().out
