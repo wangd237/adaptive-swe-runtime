@@ -67,7 +67,8 @@ def main(argv: list[str] | None = None) -> int:
                 image=options.docker_image, ref=options.ref,
                 max_repairs=options.max_repairs, adaptive=options.adaptive,
                 planner=options.planner, env_file=options.env_file,
-                explorer_mode=options.explorer))
+                explorer_mode=options.explorer,
+                physical_dag=options.adaptive))
             print(f"Workflow: {result.workflow_id}")
             print(f"Rounds: {result.round_count}")
             print(f"Canonical: {result.verification_status}")
