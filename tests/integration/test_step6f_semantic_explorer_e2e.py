@@ -59,9 +59,11 @@ async def test_semantic_explorer_coder_verifier_real_docker(
     events=[json.loads(x) for x in result.trace_path.read_text().splitlines()]
     assert [x["event_type"] for x in events].count("semantic_plan.validated")==1
     assert events[0]["event_type"]=="task_dag.compiled"
-    assert [node["provider"] for node in events[0]["payload"]["nodes"]] == [
-        "explorer","coder","tester"]
-    assert [node["id"] for node in events[0]["payload"]["nodes"]] == [
+    providers={node["id"]:node["provider"]
+               for node in events[0]["payload"]["nodes"]}
+    assert providers=={
+        "explorer":"explorer","coder":"coder","__aswe_verify":"tester"}
+    assert events[0]["payload"]["topological_order"]==[
         "explorer","coder","__aswe_verify"]
     assert events[2]["payload"]["nodes"] == [
         {"id":"explorer","work_kind":"discovery",
