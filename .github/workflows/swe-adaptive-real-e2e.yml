@@ -1,5 +1,4 @@
-# Explicitly paid LLM acceptance. The one-shot push gate below is restricted
-# to a single acceptance branch and a unique commit marker. Remove after run.
+# Paid real-LLM integration: explicitly manual, never push / pull_request.
 name: SWE Adaptive Real LLM E2E
 
 on:
@@ -9,8 +8,6 @@ on:
         description: "Type RUN to authorize paid Adaptive Planner/Explorer/Coder E2E"
         required: true
         type: string
-  push:
-    branches: ['coding/live-adaptive-acceptance']
 
 permissions:
   contents: read
@@ -21,11 +18,7 @@ concurrency:
 
 jobs:
   adaptive-real-llm:
-    if: >-
-      (github.event_name == 'workflow_dispatch' && inputs.authorization == 'RUN') ||
-      (github.event_name == 'push' &&
-       github.ref == 'refs/heads/coding/live-adaptive-acceptance' &&
-       contains(github.event.head_commit.message, '[run-live-adaptive]'))
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.authorization == 'RUN' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
