@@ -177,6 +177,33 @@ async def execute_case(summary: dict) -> None:
         upstream_unchanged=not bool(run_git(repo,"status","--porcelain"))
         child_reports=[json.loads(path.read_text(encoding="utf-8"))
                        for path in result.round_reports]
+        # Always diagnose the actual edited repository, even if native
+        # execution did not reach a terminal COMPLETED state. The diagnostic
+        # test is NOT an accepted Scheduler result or a claimed fix.
+        diagnostic=await DockerCommandBackend(
+            workspace_root=final_root,image=image).run(
+            " ".join(CHECK),timeout=45,max_output=900)
+        summary["post_coder_diagnostic_test_status"]=(
+            "passed" if diagnostic.exit_code==0 and not diagnostic.timed_out
+            else "failed" if diagnostic.exit_code is not None
+            else "unverified")
+        tool_events=[e for e in events if e["event_type"]=="tool.call.finished"]
+        summary["tool_status_counts"]=dict(Counter(
+            str(e["payload"].get("status","unspecified"))
+            if str(e["payload"].get("status","unspecified")) in (
+                "passed","failed","completed","success","error","rejected")
+            else "other"
+            for e in tool_events))
+        summary["tail_event_types"]=[
+            e["event_type"] for e in events[-14:]]
+        summary["child_delivery_statuses"]=[
+            report.get("delivery_status") for report in child_reports]
+        summary["child_scheduler_node_statuses"]=[
+            report.get("scheduler_node_status") for report in child_reports]
+        summary["child_agent_verification_levels"]=[
+            report.get("agent_verification_level") for report in child_reports]
+        summary["child_dynamic_command_counts"]=[
+            report.get("agent_dynamic_command_count") for report in child_reports]
         summary.update(
             verdict=result.verification_status,
             selected_roles=roles,
