@@ -552,3 +552,26 @@ async def test_real_langgraph_swe_coding_loop_read_edit_test_fail_repair_pass(tm
     assert guard._used_call_ids=={f"swe-{i}" for i in range(1,7)}
     assert [x["status"] for x in guard.receipt_snapshot()]==["completed"]*6
     assert (root/"README.md").read_text()=="Fix answer to 42"
+
+
+@pytest.mark.asyncio
+async def test_step6_real_native_guard_writes_digest_only_tool_trace(tmp_path):
+    from aswe.trace.minimal_events import LocalRuntimeEventSink
+    from aswe.integrations.deerflow.preparation import _digest
+    from aswe.integrations.deerflow.tool_guard import ToolCallGuard
+    sink=LocalRuntimeEventSink(tmp_path,"physical-task")
+    binding=physical_binding(execution_id="trace-real-native")
+    binding.guard.trace_sink=sink
+    assembler,_=native_assembler_with_offline_model()
+    executor=assembler.build(binding)
+    result=await executor._aexecute("Read fixture")
+    assert result.status.value=="completed"
+    events=sink.read_all()
+    assert len(events)==1
+    event=events[0]
+    assert event.event_type=="tool.call.finished"
+    assert event.node_id=="node-poc"
+    assert event.payload["tool_name"]=="read_file"
+    assert event.payload["status"]=="completed"
+    assert event.payload["arguments_digest"]
+    assert "README.md" not in sink.path.read_text()
