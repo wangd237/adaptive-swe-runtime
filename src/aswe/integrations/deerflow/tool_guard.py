@@ -17,6 +17,7 @@ from aswe.core.contracts.backend import NodeExecutionInvocation, NodeExecutionPr
 from aswe.capabilities.effects import DEERFLOW_USE_BY_CONTRACT, STANDARD_EFFECTS, ToolEffect
 from aswe.integrations.deerflow.controlled_swe import ControlledSWEWorkspace
 from aswe.integrations.deerflow.docker_bash_capability import RuntimeDockerBashSource
+from aswe.trace.minimal_events import LocalRuntimeEventSink
 from aswe.integrations.deerflow.preparation import (
     DeerFlowPreparationBackend, DeerFlowPreparationError, PinnedNodeResources,
     _tool_seal, _extension_seal, _digest,
@@ -192,7 +193,11 @@ class ToolCallGuard:
                  request_factory: Callable[..., Any], auth_enabled: bool,
                  policy: Any,
                  execution_live_checker: Callable[[NodeExecutionInvocation], bool],
-                 swe_runtime: ControlledSWEWorkspace | None = None):
+                 swe_runtime: ControlledSWEWorkspace | None = None,
+                 trace_sink: LocalRuntimeEventSink | None = None):
+        if trace_sink is not None and trace_sink.task_id != invocation.task_id:
+            _deny("TOOL_TRACE_TASK_MISMATCH")
+        self.trace_sink = trace_sink
         self.invocation = invocation
         self.resources = resources
         self.view = view
@@ -321,6 +326,9 @@ class ToolCallGuard:
         }
         with self._call_lock:
             self._tool_receipts.append(receipt)
+        if self.trace_sink is not None:
+            self.trace_sink.emit("tool.call.finished",node_id=self.invocation.node_id,
+                                 payload=receipt)
 
     def receipt_snapshot(self) -> tuple[dict[str, str], ...]:
         with self._call_lock:
@@ -495,9 +503,11 @@ class NodeExecutionBindingStore:
                  auth_request_factory: Callable[..., Any],
                  execution_live_checker: Callable[[NodeExecutionInvocation], bool],
                  swe_workspace_factory: Callable[[NodeExecutionInvocation, PinnedNodeResources, Any], ControlledSWEWorkspace] | None = None,
-                 expected_swe_workspace_root: Path | None = None):
+                 expected_swe_workspace_root: Path | None = None,
+                 trace_sink: LocalRuntimeEventSink | None = None):
         if swe_workspace_factory is not None and expected_swe_workspace_root is None:
             raise ValueError("trusted Scheduler Workspace root required for SWE profile")
+        self.trace_sink = trace_sink
         self.preparation_backend = preparation_backend
         self.swe_workspace_factory = swe_workspace_factory
         self.expected_swe_workspace_root = (
@@ -672,7 +682,7 @@ class NodeExecutionBindingStore:
                 request_factory=self.auth_request_factory, auth_enabled=enabled,
                 policy=self.preparation_backend.policy,
                 execution_live_checker=self.execution_live_checker,
-                swe_runtime=swe_runtime,
+                swe_runtime=swe_runtime,trace_sink=self.trace_sink,
             )
             record = NodeExecutionBinding(
                 execution_id=invocation.execution_id,
