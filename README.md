@@ -280,6 +280,15 @@ A separate manually authorized GitHub Actions workflow,
 `LLM Planner → physically resolved TaskDAG → LLM Explorer →
  native DeerFlow Coder → independent Docker Tester → optional Repair`.
 
+**Live acceptance result: PASS** — real model run
+[38042334500](https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38042334500)
+selected Explorer/Coder/Tester, compiled and dispatched the physical DAG,
+modified both affected Python modules, and passed the independent Docker
+regression tests with 8 native model turns and 17 tool-call events. The first
+round passed, so **Repair was not exercised** in this live run. See
+[the redacted acceptance report](docs/step6f_live_acceptance_result.md)
+for precise evidence and provider compatibility fixes.
+
 The disposable fixture is a cross-module order-cancellation regression.
 Baseline tests genuinely fail; two implementation files need fixes. The
 model receives the issue and source, not a scripted patch, and must modify
