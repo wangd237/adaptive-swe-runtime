@@ -38,6 +38,8 @@ def _parser() -> argparse.ArgumentParser:
     workflow.add_argument("--docker-image", required=True)
     workflow.add_argument("--ref", default="HEAD")
     workflow.add_argument("--max-repairs", type=int, default=1)
+    workflow.add_argument("--adaptive", action="store_true",
+                          help="select minimum developer team and explore code when needed")
     report = sub.add_parser("report", help="inspect an existing MVPTaskReport JSON artifact")
     report.add_argument("path", type=Path)
     report.add_argument("--json", action="store_true")
@@ -57,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
                 repository=options.repo, task=options.task,
                 runtime_dir=options.runtime_dir, check_argv=commands,
                 image=options.docker_image, ref=options.ref,
-                max_repairs=options.max_repairs))
+                max_repairs=options.max_repairs, adaptive=options.adaptive))
             print(f"Workflow: {result.workflow_id}")
             print(f"Rounds: {result.round_count}")
             print(f"Canonical: {result.verification_status}")
