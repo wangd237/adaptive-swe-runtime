@@ -58,3 +58,26 @@ async def test_network_error_does_not_trigger_extra_billable_retry():
             raise TimeoutError("simulated timeout")
     with pytest.raises(TimeoutError):
         await invoke_structured_compat(Timeout(),ProposedTeam,[("human","task")])
+
+
+
+@pytest.mark.asyncio
+async def test_validation_error_in_provider_structured_payload_gets_one_json_retry():
+    class PartialSchema:
+        def __init__(self):
+            self.calls=0
+        def with_structured_output(self,schema):
+            return self
+        async def ainvoke(self,messages):
+            self.calls+=1
+            if self.calls==1:
+                return SimpleNamespace(content='{"relevant_paths":["orders.py"]}')
+            return SimpleNamespace(content=(
+                '{"relevant_paths":["orders.py"],'
+                '"diagnosis":"Idempotency bug",'
+                '"suggested_approach":"Return false on repeated cancel"}'))
+    model=PartialSchema()
+    answer=await invoke_structured_compat(
+        model,ExplorerFinding,[("system","Read only"),("human","Look at source")])
+    assert answer.diagnosis=="Idempotency bug"
+    assert model.calls==2
