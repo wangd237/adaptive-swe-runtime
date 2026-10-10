@@ -45,8 +45,8 @@ class OneRoundCodingModel(BaseChatModel):
 async def test_actual_coder_failed_test_repair_passed_test(
         prepared_mvp, tmp_path, monkeypatch):
     repo, *_ = prepared_mvp
-    monkeypatch.setenv("OPENAI_API_KEY","offline-synthetic-not-sent")
-    monkeypatch.setenv("ASWE_MODEL","offline-model")
+    monkeypatch.setenv("LLM_API_KEY","offline-synthetic-not-sent")
+    monkeypatch.setenv("LLM_MODEL","offline-model")
     built = []
     def model_factory(**kwargs):
         index=len(built)

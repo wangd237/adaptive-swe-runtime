@@ -41,8 +41,21 @@ per-node tracing are next, not already delivered.
 ## Step 6B — Developer CLI coding entry (experimental)
 
 With frozen DeerFlow installed (Python 3.12+), Docker available and a
-digest-pinned Python image locally present, configure `OPENAI_API_KEY`,
-`ASWE_MODEL` and optional `ASWE_BASE_URL` in the **host environment**.
+digest-pinned Python image locally present, create a **local `.env`**
+from the provided example:
+
+```bash
+cp .env.example .env
+```
+
+Fill in `LLM_API_KEY`, `LLM_MODEL`, and optionally `LLM_BASE_URL`.
+The CLI automatically reads `.env` in the **current working directory**;
+`--env-file /path/to/.env` selects another file. Explicit process
+environment variables take precedence (e.g. GitHub Actions). The
+`.env` file is Git-ignored and must never be committed.
+
+The frozen DeerFlow provider adapter handles its SDK-specific key convention
+internally. The user-facing project settings are only `LLM_*`.
 
 ```bash
 aswe run "Fix the failing Python unit tests" \
@@ -152,7 +165,7 @@ toward the original Adaptive Team Formation plan, not its completion.
 ## Step 6E — Optional LLM-guided developer team planning
 
 `aswe workflow --adaptive --planner llm` uses the configured
-`OPENAI_API_KEY`, `ASWE_MODEL` and optional `ASWE_BASE_URL` to ask an LLM
+`LLM_API_KEY`, `LLM_MODEL` and optional `LLM_BASE_URL` (from `.env` or environment variables) to ask an LLM
 for a **structured minimum-team proposal** (Explorer needed or direct Coder,
 plus bounded coding/exploration objectives). The user task remains in the
 Coder objective. Runtime restricts available roles and continues to own the

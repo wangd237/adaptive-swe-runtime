@@ -10,6 +10,7 @@ Runtime test are real. This integration fixture still provides a *test-only*
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,7 @@ import subprocess
 
 import pytest
 
+from aswe.llm_config import load_llm_settings, vendor_model_key
 from aswe.integrations.deerflow.live_smoke_config import (
     LiveModelSettings, LiveSmokeConfigError,
 )
@@ -92,8 +94,7 @@ def _report_summary(report, *, tool_calls: int, failed_calls: int) -> None:
 
 async def test_live_model_autonomously_fixes_python_bug(prepared_mvp):
     settings = LiveModelSettings.from_environment()
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise LiveSmokeConfigError("LIVE_OPENAI_CLIENT_KEY_UNAVAILABLE")
+    credentials = load_llm_settings()
 
     repo, core, store, verifier, canonical_policy = prepared_mvp
     root = Path(repo.repository_root)
@@ -141,6 +142,12 @@ async def test_live_model_autonomously_fixes_python_bug(prepared_mvp):
 
     # Source-pinned vendor model factory, not a mock or direct SDK override.
     assembler = NativeSubagentAssembler.from_deerflow()
+    vendor_factory = assembler.seams.create_chat_model
+    def configured_vendor_factory(**kwargs):
+        with vendor_model_key(credentials.api_key):
+            return vendor_factory(**kwargs)
+    assembler = NativeSubagentAssembler(replace(
+        assembler.seams, create_chat_model=configured_vendor_factory))
     backend = NativeDeerFlowExecutionBackend(
         binding_store=binding_store, assembler=assembler,
         task_renderer=lambda _: (

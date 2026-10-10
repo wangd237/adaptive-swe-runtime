@@ -6,12 +6,12 @@ verification commands, model credentials or trusted execution authority.
 from __future__ import annotations
 
 from dataclasses import dataclass
-import os
 from pathlib import Path
 from typing import Any, Callable
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from aswe.llm_config import load_llm_settings
 from aswe.integrations.deerflow.adaptive_team import (
     TeamDecision, explore_repository, select_team,
 )
@@ -36,6 +36,7 @@ class PlannedTeam:
 async def plan_developer_team(
     *, task: str, repository: Path, mode: str = "rules",
     planner_factory: Callable[[], Any] | None = None,
+    env_file: Path | None = None,
 ) -> PlannedTeam:
     if mode not in ("rules", "llm"):
         raise ValueError("UNSUPPORTED_DEV_PLANNER_MODE")
@@ -47,15 +48,14 @@ async def plan_developer_team(
     # credentials. It cannot select a free-form agent roster.
     candidates = explore_repository(repository, task, max_files=20)
     if planner_factory is None:
-        if not os.environ.get("OPENAI_API_KEY") or not os.environ.get("ASWE_MODEL"):
-            raise ValueError("ASWE_MODEL_OR_OPENAI_API_KEY_MISSING")
+        settings = load_llm_settings(env_file=env_file)
         from langchain_openai import ChatOpenAI
         options: dict[str, Any] = {
-            "model": os.environ["ASWE_MODEL"], "temperature": 0,
-            "timeout": 60, "max_retries": 0,
+            "model": settings.model, "api_key": settings.api_key,
+            "temperature": 0, "timeout": 60, "max_retries": 0,
         }
-        if os.environ.get("ASWE_BASE_URL"):
-            options["base_url"] = os.environ["ASWE_BASE_URL"]
+        if settings.base_url:
+            options["base_url"] = settings.base_url
         planner = ChatOpenAI(**options)
     else:
         planner = planner_factory()

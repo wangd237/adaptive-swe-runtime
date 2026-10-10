@@ -9,3 +9,8 @@ htmlcov/
 dist/
 build/
 *.egg-info/
+
+# Local credentials; commit .env.example only
+.env
+.env.*
+!.env.example

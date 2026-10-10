@@ -1,6 +1,5 @@
 # 5F-D: explicitly PAID external model smoke. Never executes on push or PR.
-# GitHub registers workflow_dispatch only once this workflow file exists
-# on the repository default branch; keep PR #7 Draft until reviewed.
+# Keys are supplied by existing GitHub Secrets and mapped to LLM_*.
 name: SWE Real Model Smoke (Manual)
 
 on:
@@ -62,9 +61,9 @@ jobs:
       - name: Validate required secrets without printing their values
         env:
           ASWE_LIVE_SMOKE: '1'
-          SWE_LLM_API_KEY: ${{ secrets.SWE_LLM_API_KEY }}
-          SWE_LLM_MODEL: ${{ secrets.SWE_LLM_MODEL }}
-          SWE_LLM_BASE_URL: ${{ secrets.SWE_LLM_BASE_URL }}
+          LLM_API_KEY: ${{ secrets.SWE_LLM_API_KEY }}
+          LLM_MODEL: ${{ secrets.SWE_LLM_MODEL }}
+          LLM_BASE_URL: ${{ secrets.SWE_LLM_BASE_URL }}
         run: |
           python - <<'PY'
           from aswe.integrations.deerflow.live_smoke_config import LiveModelSettings
@@ -76,10 +75,9 @@ jobs:
         env:
           ASWE_LIVE_SMOKE: '1'
           PYTHONPATH: src
-          SWE_LLM_API_KEY: ${{ secrets.SWE_LLM_API_KEY }}
-          SWE_LLM_BASE_URL: ${{ secrets.SWE_LLM_BASE_URL }}
-          SWE_LLM_MODEL: ${{ secrets.SWE_LLM_MODEL }}
-          OPENAI_API_KEY: ${{ secrets.SWE_LLM_API_KEY }}
+          LLM_API_KEY: ${{ secrets.SWE_LLM_API_KEY }}
+          LLM_BASE_URL: ${{ secrets.SWE_LLM_BASE_URL }}
+          LLM_MODEL: ${{ secrets.SWE_LLM_MODEL }}
           ASWE_LIVE_REPORT_PATH: ${{ runner.temp }}/aswe-live-report.json
           LANGCHAIN_TRACING_V2: 'false'
           LANGSMITH_TRACING: 'false'

@@ -30,6 +30,7 @@ def _parser() -> argparse.ArgumentParser:
                      help="independent Python test command, e.g. 'python -B -m unittest discover -s tests -q'")
     run.add_argument("--docker-image", required=True, help="existing Docker image pinned by @sha256 digest")
     run.add_argument("--ref", default="HEAD", help="Git reference to clone")
+    run.add_argument("--env-file", type=Path, help="LLM settings file (default: .env in current directory)")
     workflow = sub.add_parser("workflow", help="Coder -> Tester -> Repair developer workflow")
     workflow.add_argument("task")
     workflow.add_argument("--repo", type=Path, required=True)
@@ -37,6 +38,7 @@ def _parser() -> argparse.ArgumentParser:
     workflow.add_argument("--check-command", required=True)
     workflow.add_argument("--docker-image", required=True)
     workflow.add_argument("--ref", default="HEAD")
+    workflow.add_argument("--env-file", type=Path, help="LLM settings file (default: .env in current directory)")
     workflow.add_argument("--max-repairs", type=int, default=1)
     workflow.add_argument("--planner", choices=("rules","llm"), default="rules",
                           help="bounded developer team proposal; llm uses ASWE_MODEL")
@@ -62,7 +64,7 @@ def main(argv: list[str] | None = None) -> int:
                 runtime_dir=options.runtime_dir, check_argv=commands,
                 image=options.docker_image, ref=options.ref,
                 max_repairs=options.max_repairs, adaptive=options.adaptive,
-                planner=options.planner))
+                planner=options.planner, env_file=options.env_file))
             print(f"Workflow: {result.workflow_id}")
             print(f"Rounds: {result.round_count}")
             print(f"Canonical: {result.verification_status}")
@@ -79,7 +81,8 @@ def main(argv: list[str] | None = None) -> int:
             report_path, report, trace_path = asyncio.run(execute_swe_task(
                 repository=options.repo,task=options.task,
                 runtime_dir=options.runtime_dir,check_argv=commands,
-                image=options.docker_image,ref=options.ref))
+                image=options.docker_image,ref=options.ref,
+                env_file=options.env_file))
             print(f"Task: {report.task_id}")
             print(f"Report: {report_path}")
             print(f"Trace: {trace_path}")

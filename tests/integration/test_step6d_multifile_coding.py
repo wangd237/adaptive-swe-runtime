@@ -61,8 +61,8 @@ async def test_multifile_repair_actual_deerflow_docker_and_timeline(
     subprocess.run(["git","-c","user.name=CI","-c",
                     "user.email=ci@example.invalid","commit","-m","two-file fixture"],
                    cwd=src,check=True,capture_output=True)
-    monkeypatch.setenv("OPENAI_API_KEY","offline-ci-not-transmitted")
-    monkeypatch.setenv("ASWE_MODEL","offline-scripted")
+    monkeypatch.setenv("LLM_API_KEY","offline-ci-not-transmitted")
+    monkeypatch.setenv("LLM_MODEL","offline-scripted")
     output, report, trace_path = await execute_swe_task(
         repository=src,runtime_dir=tmp_path/"runs",
         task="Repair the calc and helper modules; make all tests pass",

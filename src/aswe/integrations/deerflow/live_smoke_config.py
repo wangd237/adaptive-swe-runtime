@@ -3,8 +3,8 @@
 This module has NO network calls and does not import pinned DeerFlow.
 Only manually triggered live smoke may instantiate a real provider. The API
 key never enters an AppConfig snapshot, logging payload, task prompt, Git
-workspace or model-visible tool context; ChatOpenAI reads OPENAI_API_KEY from
-the trusted runner process environment.
+workspace or model-visible tool context; the frozen ChatOpenAI provider
+receives an internal, scoped adapter key during model construction.
 """
 from __future__ import annotations
 
@@ -37,15 +37,15 @@ class LiveModelSettings:
             raise LiveSmokeConfigError("LIVE_SMOKE_EXPLICIT_OPT_IN_REQUIRED")
         if not source.get("GITHUB_ACTIONS") == "true":
             raise LiveSmokeConfigError("LIVE_SMOKE_MANUAL_ACTIONS_ONLY")
-        key = source.get("SWE_LLM_API_KEY", "")
+        key = source.get("LLM_API_KEY", "")
         if not isinstance(key, str) or not key.strip() or any(
             ch in key for ch in ("\n", "\r")
         ):
             raise LiveSmokeConfigError("LIVE_LLM_API_KEY_MISSING")
-        model = source.get("SWE_LLM_MODEL", "")
+        model = source.get("LLM_MODEL", "")
         if not isinstance(model, str) or not re.fullmatch(r"[a-zA-Z0-9_.:/+-]{1,160}", model):
             raise LiveSmokeConfigError("LIVE_LLM_MODEL_INVALID")
-        raw_url = source.get("SWE_LLM_BASE_URL", "")
+        raw_url = source.get("LLM_BASE_URL", "")
         url = raw_url.strip() if isinstance(raw_url, str) else ""
         if url:
             try:
@@ -75,10 +75,10 @@ class LiveModelSettings:
                 raise LiveSmokeConfigError("LIVE_LLM_BASE_URL_INVALID")
         return cls(model=model, base_url=url or None)
 
-    def build_vendor_app_config(self, config, *, api_key_env: str = "OPENAI_API_KEY"):
+    def build_vendor_app_config(self, config, *, api_key_env: str = "LLM_API_KEY"):
         """Assemble real frozen DeerFlow ChatOpenAI profile without raw keys."""
         if not os.environ.get(api_key_env):
-            raise LiveSmokeConfigError("LIVE_OPENAI_CLIENT_KEY_UNAVAILABLE")
+            raise LiveSmokeConfigError("LIVE_LLM_CLIENT_KEY_UNAVAILABLE")
         from deerflow.config.model_config import ModelConfig
         from aswe.integrations.deerflow.inventory import assert_pinned_deerflow_source
         from deerflow.config import model_config as model_config_module
