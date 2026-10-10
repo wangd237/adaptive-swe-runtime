@@ -160,6 +160,81 @@ class CanonicalVerifier:
         )
         return ref, receipt
 
+    async def run_isolated_python(
+        self, *, node_id: str, execution_id: str, attempt: int,
+        policy: CanonicalCommandPolicy, revision: WorkspaceRevision,
+        container: object,
+    ) -> tuple[EvidenceRef, CanonicalCommandReceipt]:
+        """5F-D: exact trusted Python verification in no-network Docker.
+
+        Only for an opt-in DockerCommandBackend whose writable mount is the
+        bound repository. The live-model secret remains in the host process;
+        model-editable Python tests only execute within the container, with
+        no environment/secret mounts. This is *not* general native Quiescence.
+        """
+        import asyncio
+        import re
+        import shlex
+        from aswe.integrations.deerflow.controlled_swe import DockerCommandBackend
+
+        if (not isinstance(container, DockerCommandBackend)
+                or Path(container.workspace_root).resolve() != Path(self.binding.repository_root).resolve()
+                or not isinstance(policy, CanonicalCommandPolicy)
+                or policy.argv[0] not in ("python", "python3")
+                or not node_id or not execution_id or attempt < 1):
+            raise ValueError("ISOLATED_CANONICAL_AUTHORITY_INVALID")
+        before = await asyncio.to_thread(capture_repository_state, self.binding)
+        if (revision.repository_state_fingerprint != before.fingerprint
+                or revision.head_sha != before.head_sha
+                or revision.base_sha != before.base_sha):
+            raise ValueError("isolated canonical verification pre-state is stale")
+        command = shlex.join(policy.argv)
+        # The Docker backend sets --network=none, --read-only, a single
+        # Workspace bind mount and CPU/PID/memory bounds. It executes this
+        # Runtime-compiled argv, not an Agent-selected Bash command.
+        result = await container.run(
+            command, timeout=policy.timeout_seconds, max_output=64000,
+        )
+        if (not isinstance(result.output_sha256, str)
+                or re.fullmatch(r"[0-9a-f]{64}", result.output_sha256) is None):
+            raise ValueError("ISOLATED_CANONICAL_OUTPUT_DIGEST_UNATTESTED")
+        after = await asyncio.to_thread(capture_repository_state, self.binding)
+        unchanged = before.fingerprint == after.fingerprint
+        timed_out = bool(result.timed_out)
+        returncode = result.exit_code
+        status = (
+            "unverified" if timed_out or not unchanged or returncode is None
+            else "holds" if returncode == 0 else "failed"
+        )
+        fields = dict(
+            task_id=self.task_id, node_id=node_id, execution_id=execution_id,
+            attempt=attempt, check_id=policy.check_id,
+            command_policy_fingerprint=policy.fingerprint,
+            argv_fingerprint=fingerprint(policy.argv), returncode=returncode,
+            timed_out=timed_out,
+            stdout_sha256=result.output_sha256,
+            # Docker runner's stdout/stderr are intentionally combined into
+            # one complete stream; no separate stderr attestation is claimed.
+            stderr_sha256=hashlib.sha256(b"").hexdigest(),
+            pre_repository_fingerprint=before.fingerprint,
+            post_repository_fingerprint=after.fingerprint,
+            observed_revision=revision, status=status,
+        )
+        digest = fingerprint(fields)
+        receipt = CanonicalCommandReceipt(
+            **fields, fingerprint=digest, attestation_hmac=self._mac(digest)
+        )
+        ref = self.store.put_attempt(
+            task_id=self.task_id, node_id=node_id, execution_id=execution_id,
+            attempt=attempt, kind=AttemptEvidenceKind.TOOL_RECEIPT_LEDGER,
+            payload=receipt, workspace_revision=revision,
+        )
+        self.validate(
+            ref, node_id=node_id, execution_id=execution_id,
+            attempt=attempt, revision=revision, check_id=policy.check_id,
+        )
+        return ref, receipt
+
     def attest_foreground_observation(
         self, *, observed: object, policy: CanonicalCommandPolicy,
         revision: WorkspaceRevision,
