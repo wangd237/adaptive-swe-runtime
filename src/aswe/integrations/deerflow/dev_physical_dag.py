@@ -157,7 +157,7 @@ class DeveloperDagScheduler:
             raise ValueError("DEV_DAG_NODE_NOT_READY")
         # A failed verification must explicitly authorize repair. No
         # second Coder/Tester dispatch can bypass the budget or feedback.
-        if self.verification_failed and node_id != "__aswe_verify":
+        if self.verification_failed:
             raise ValueError("DEV_DAG_REPAIR_NOT_SCHEDULED")
         self.active.add(node_id)
         self.attempts[node_id] = self.attempts.get(node_id, 0) + 1
