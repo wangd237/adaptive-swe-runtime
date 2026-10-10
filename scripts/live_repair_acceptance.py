@@ -19,21 +19,36 @@ from aswe.integrations.deerflow.dev_workflow import execute_dev_workflow
 from aswe.integrations.deerflow.controlled_swe import DockerCommandBackend
 from aswe.integrations.deerflow.live_smoke_config import LiveModelSettings
 from scripts.live_adaptive_acceptance import (
-    CHECK, AcceptanceFailed, python_image_digest, require, seed_repository,
+    CHECK, AcceptanceFailed, python_image_digest, require, seed_repository, git,
 )
 
 TASK = (
-    "Investigate the cross-module order cancellation regression across "
-    "shop/inventory.py and shop/orders.py. This is a TWO-MILESTONE repair: "
-    "IN THE FIRST CODING PASS, fix ONLY the stock-release accounting in "
-    "shop/inventory.py; do NOT change shop/orders.py in that initial pass, "
-    "even if other tests reveal a second issue. The independent Runtime "
-    "Tester intentionally checks the complete order cancellation behavior. "
-    "AFTER TESTER FAILS and Runtime schedules a Repair pass, fix the "
-    "remaining idempotency/refund bug in shop/orders.py, using the actual "
-    "test-failure output. Do not edit any test files. Both milestones "
-    "must pass the full unittest regression suite to finish the task."
+    "Investigate order cancellation stock restoration involving "
+    "shop/inventory.py and shop/orders.py. IN THE FIRST CODING STAGE, "
+    "fix ONLY Inventory.release in shop/inventory.py so cancellation "
+    "restores reserved units. Do not modify shop/orders.py during this "
+    "first coding stage; the focused inventory unittest is your local "
+    "coding check. The independent Runtime Tester owns the full "
+    "cross-module regression suite. IF that wider test subsequently "
+    "fails and schedules a Repair stage, the first-stage scope is LIFTED: "
+    "you may then fix shop/orders.py to make cancellation idempotent, "
+    "eliminate duplicate refunds, and pass the full regression suite. "
+    "Never change tests. All code decisions and edits must be your own."
 )
+
+FOCUSED_CHECK = ("python","-B","-m","unittest","tests.test_inventory","-q")
+INVENTORY_TEST = """import unittest
+
+from shop.inventory import Inventory
+
+
+class InventoryRegressionTests(unittest.TestCase):
+    def test_release_restores_reservation(self):
+        inventory = Inventory({"widget": 5})
+        inventory.release("widget", 3)
+        self.assertEqual(inventory.available["widget"], 8)
+"""
+
 
 
 async def run_acceptance(summary: dict) -> None:
@@ -48,6 +63,12 @@ async def run_acceptance(summary: dict) -> None:
         root=Path(temp)
         source=root/"repository"
         seed_repository(source)
+        (source/"tests/test_inventory.py").write_text(
+            INVENTORY_TEST,encoding="utf-8")
+        git(source,"add","tests/test_inventory.py")
+        git(source,"-c","user.name=ASWE-Test",
+            "-c","user.email=aswe-test@example.invalid",
+            "commit","-m","Add targeted inventory unit test")
         initial=await DockerCommandBackend(
             workspace_root=source,image=image).run(
             " ".join(CHECK), timeout=45,max_output=2500)
@@ -61,6 +82,7 @@ async def run_acceptance(summary: dict) -> None:
                 check_argv=CHECK,image=image,
                 adaptive=True,planner="llm",explorer_mode="llm",
                 physical_dag=True,max_repairs=1,
+                initial_coder_check_argv=FOCUSED_CHECK,
             ),timeout=1100)
         except Exception:
             # Names only, never prompt/secret/trace content.
@@ -87,7 +109,8 @@ async def run_acceptance(summary: dict) -> None:
         final_workspace=result.round_reports[-1].parent/"workspace"
         unchanged_tests=all(
             (source / path).read_bytes()==(final_workspace / path).read_bytes()
-            for path in ("tests/__init__.py","tests/test_cancellation.py"))
+            for path in ("tests/__init__.py","tests/test_cancellation.py",
+                         "tests/test_inventory.py"))
         changed_modules=[
             path for path in ("shop/inventory.py","shop/orders.py")
             if (source / path).read_bytes()!=(final_workspace / path).read_bytes()
@@ -95,6 +118,8 @@ async def run_acceptance(summary: dict) -> None:
         summary.update(
             verdict=result.verification_status,
             round_count=result.round_count,
+            focused_coder_check=list(FOCUSED_CHECK),
+            full_tester_check=list(CHECK),
             physical_dag=bool(next((e for e in events
                                     if e["event_type"]=="task_dag.compiled"),None)),
             selected_roles=next((e["payload"]["roles"] for e in events
