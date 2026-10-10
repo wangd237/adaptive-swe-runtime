@@ -75,7 +75,7 @@ class LiveModelSettings:
                 raise LiveSmokeConfigError("LIVE_LLM_BASE_URL_INVALID")
         return cls(model=model, base_url=url or None)
 
-    def apply_to_vendor_app_config(self, config, *, api_key_env: str = "OPENAI_API_KEY") -> None:
+    def build_vendor_app_config(self, config, *, api_key_env: str = "OPENAI_API_KEY"):
         """Assemble real frozen DeerFlow ChatOpenAI profile without raw keys."""
         if not os.environ.get(api_key_env):
             raise LiveSmokeConfigError("LIVE_OPENAI_CLIENT_KEY_UNAVAILABLE")
@@ -93,11 +93,16 @@ class LiveModelSettings:
         if self.base_url:
             kwargs["base_url"] = self.base_url
         profile = ModelConfig(**kwargs)
-        # Only one explicitly chosen provider may be visible in this run.
-        config.models = [profile]
-        # Pydantic AppConfig assignment may revalidate/copy model entries.
-        # Compare the complete immutable selected value, not Python identity.
-        selected = config.get_model_config(self.profile_name)
+        # Frozen AppConfig indexes names in its *after* model validator.
+        # Assignment to an already-built .models list leaves the private
+        # _models_by_name stale. Reconstruct the whole typed snapshot instead
+        # of mutating a shared or cached configuration in place.
+        raw = config.model_dump(mode="python")
+        raw["models"] = [profile.model_dump(mode="python")]
+        reconstructed = type(config).model_validate(raw)
+        selected = reconstructed.get_model_config(self.profile_name)
         if (selected is None
-                or selected.model_dump(mode="json") != profile.model_dump(mode="json")):
+                or selected.model_dump(mode="json") != profile.model_dump(mode="json")
+                or len(reconstructed.models) != 1):
             raise LiveSmokeConfigError("LIVE_MODEL_PROFILE_NOT_SELECTED")
+        return reconstructed
