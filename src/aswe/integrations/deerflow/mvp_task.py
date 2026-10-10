@@ -52,6 +52,10 @@ class MVPTaskReport:
     workspace_status: str
     quiescence_proven: bool
     delivery_status: str
+    agent_tool_changed_paths: tuple[str, ...] = ()
+    agent_dynamic_command_count: int = 0
+    agent_last_dynamic_command_exit_code: int | None = None
+    agent_verification_level: str = "not_observed"
 
     @property
     def tests_passed(self) -> bool:
@@ -172,6 +176,8 @@ class MVPTaskRunner:
                 or scheduler.task_id != verifier.task_id
                 or Path(repository.repository_root).resolve() !=
                    Path(verifier.binding.repository_root).resolve()
+                or Path(repository.repository_root).resolve() !=
+                   Path(scheduler.workspace.lifecycle.current.workspace_root).resolve()
                 or max_diff_chars < 1000 or max_diff_chars > 1_000_000):
             raise MVPIntegrationError("MVP_RUNTIME_AUTHORITY_MISMATCH")
         self.scheduler = scheduler
@@ -242,4 +248,20 @@ class MVPTaskRunner:
             workspace_status=self.scheduler.workspace.lifecycle.current.status.value,
             quiescence_proven=quiescent,
             delivery_status=level,
+            agent_tool_changed_paths=tuple(
+                getattr(getattr(execution,"development_summary",None),
+                        "file_tool_changed_paths",())
+            ),
+            agent_dynamic_command_count=int(
+                getattr(getattr(execution,"development_summary",None),
+                        "dynamic_command_count",0)
+            ),
+            agent_last_dynamic_command_exit_code=getattr(
+                getattr(execution,"development_summary",None),
+                "last_dynamic_command_exit_code",None
+            ),
+            agent_verification_level=getattr(
+                getattr(execution,"development_summary",None),
+                "verification_level","not_observed"
+            ),
         )
