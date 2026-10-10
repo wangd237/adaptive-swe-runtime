@@ -137,9 +137,32 @@ class _ReservedContextGraph:
             state, config=config, context=sealed,
             stream_mode=stream_mode, **kwargs,
         )
+        seen_model_messages: set[str] = set()
+        model_round = 0
         try:
             async for part in native_stream:
                 _assert_owner(self._binding)
+                # Observe *completed* model turns in native graph values,
+                # not prompts, message content, or inferred token usage.
+                sink = self._binding.guard.trace_sink
+                if sink is not None and isinstance(part, Mapping):
+                    messages = part.get("messages", ())
+                    if isinstance(messages, (list, tuple)):
+                        for msg in messages:
+                            if getattr(msg, "type", None) != "ai":
+                                continue
+                            identity = getattr(msg, "id", None)
+                            key = str(identity) if identity else str(id(msg))
+                            if key in seen_model_messages:
+                                continue
+                            seen_model_messages.add(key)
+                            model_round += 1
+                            calls = getattr(msg, "tool_calls", ()) or ()
+                            sink.emit("model.turn.finished", node_id=inv.node_id,
+                                payload={"execution_id":inv.execution_id,
+                                         "attempt":inv.attempt,"run_id":inv.run_id,
+                                         "round":model_round,
+                                         "tool_call_count":len(calls)})
                 yield part
         finally:
             close = getattr(native_stream, "aclose", None)

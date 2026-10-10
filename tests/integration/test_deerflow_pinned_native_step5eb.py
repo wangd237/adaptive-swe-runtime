@@ -567,8 +567,11 @@ async def test_step6_real_native_guard_writes_digest_only_tool_trace(tmp_path):
     result=await executor._aexecute("Read fixture")
     assert result.status.value=="completed"
     events=sink.read_all()
-    assert len(events)==1
-    event=events[0]
+    assert [e.event_type for e in events]==[
+        "model.turn.finished","tool.call.finished","model.turn.finished"]
+    assert [e.payload["round"] for e in events
+            if e.event_type=="model.turn.finished"]==[1,2]
+    event=events[1]
     assert event.event_type=="tool.call.finished"
     assert event.node_id=="node-poc"
     assert event.payload["tool_name"]=="read_file"

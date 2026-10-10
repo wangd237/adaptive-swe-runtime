@@ -35,6 +35,19 @@ async def test_real_cli_application_composes_native_compiler_and_docker(
     events=[json.loads(x) for x in trace_path.read_text().splitlines()]
     assert events[0]["event_type"]=="plan.compiled"
     assert [x["event_type"] for x in events].count("tool.call.finished")==6
+    assert [x["event_type"] for x in events].count("model.turn.finished")>=6
+    assert [x["event_type"] for x in events].count("scheduler.execution.committed")==1
+    assert [x["event_type"] for x in events].count("verification.finished")==1
+    assert [x["event_type"] for x in events].count("repair.decision")==1
+    execution_ids={x["payload"]["execution_id"] for x in events
+                   if x["event_type"] in ("model.turn.finished","tool.call.finished",
+                                          "verification.finished","repair.decision")}
+    assert execution_ids=={report.execution_id}
+    model_rounds=[x["payload"]["round"] for x in events
+                  if x["event_type"]=="model.turn.finished"]
+    assert model_rounds==list(range(1,len(model_rounds)+1))
+    assert all("content" not in x["payload"] and "prompt" not in x["payload"]
+               for x in events)
     assert events[-1]["event_type"]=="mvp.task.finished"
     assert (Path(repo.repository_root)/"calc.py").read_text()=="def answer():\n    return 1\n"
     assert "return 42" not in trace_path.read_text()
