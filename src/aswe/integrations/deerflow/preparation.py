@@ -19,6 +19,11 @@ from aswe.capabilities.effects import ToolEffect, trusted_effect
 from aswe.integrations.deerflow.inventory import (
     DeerFlowInventoryError, _schema_fingerprint, inventory_from_assembled_tools,
 )
+from aswe.integrations.deerflow.docker_bash_capability import (
+    DockerBashCapability, DockerBashCapabilityError,
+    RuntimeDockerBashSource, compose_docker_bash_inventory,
+)
+from aswe.integrations.deerflow.controlled_swe import DockerCommandBackend
 from aswe.planning.descriptor import CompiledPlanDescriptor
 from aswe.providers.inventory import BackendInventorySnapshot
 from aswe.providers.policy import NodeExecutionPolicy, OperatorSurface
@@ -138,6 +143,7 @@ class PinnedNodeResources:
     tool_seals: tuple[tuple[Any, ...], ...]
     extension_seal: tuple[Any, ...]
     binding_digest: str
+    docker_bash_grant: DockerBashCapability | None = None
 
     def assert_intact(self) -> None:
         """Re-check observable snapshot seals just before managed assembly.
@@ -153,7 +159,10 @@ class PinnedNodeResources:
                     "extensions": getattr(self.app_config, "extensions", None),
                 }) != self.extension_config_digest
                 or tuple(_tool_seal(t) for t in self.tools) != self.tool_seals
-                or _extension_seal(self.extensions) != self.extension_seal):
+                or _extension_seal(self.extensions) != self.extension_seal
+                or (self.docker_bash_grant is not None and not any(
+                    isinstance(t, RuntimeDockerBashSource)
+                    and t.grant == self.docker_bash_grant for t in self.tools))):
             raise DeerFlowPreparationError("PREPARED_SNAPSHOT_MUTATED")
 
 
@@ -179,6 +188,8 @@ class DeerFlowPreparationBackend:
         source_verifier: Callable[[], None],
         commit_checker: Callable[[NodeExecutionInvocation], bool] | None = None,
         max_pending: int = 32,
+        docker_bash_backend: DockerCommandBackend | None = None,
+        docker_bash_grant: DockerBashCapability | None = None,
     ):
         if not isinstance(descriptor, CompiledPlanDescriptor):
             raise DeerFlowPreparationError("COMPILED_DESCRIPTOR_REQUIRED")
@@ -211,6 +222,12 @@ class DeerFlowPreparationBackend:
         self.source_verifier = source_verifier
         self.commit_checker = commit_checker
         self.max_pending = max_pending
+        if (docker_bash_backend is None) != (docker_bash_grant is None):
+            raise DeerFlowPreparationError("DOCKER_BASH_GRANT_REQUIRED")
+        if docker_bash_grant is not None:
+            docker_bash_grant.assert_matches(docker_bash_backend)
+        self.docker_bash_backend = docker_bash_backend
+        self.docker_bash_grant = docker_bash_grant
         self._pending: dict[str, tuple[NodeExecutionPreparation, PinnedNodeResources]] = {}
         self._claimed_execution_ids: set[str] = set()
 
@@ -220,7 +237,9 @@ class DeerFlowPreparationBackend:
                       operator_supplier: Callable[[], OperatorSurface],
                       sandbox_supplier: Callable[[], Any],
                       commit_checker: Callable[[NodeExecutionInvocation], bool] | None = None,
-                      max_pending: int = 32):
+                      max_pending: int = 32,
+                      docker_bash_backend: DockerCommandBackend | None = None,
+                      docker_bash_grant: DockerBashCapability | None = None):
         try:
             from langchain.tools import BaseTool
             from deerflow.config import get_app_config
@@ -257,6 +276,8 @@ class DeerFlowPreparationBackend:
             implementation_resolver=lambda use: resolve_variable(use, BaseTool),
             source_verifier=verify, commit_checker=commit_checker,
             max_pending=max_pending,
+            docker_bash_backend=docker_bash_backend,
+            docker_bash_grant=docker_bash_grant,
         )
 
     @property
@@ -312,6 +333,15 @@ class DeerFlowPreparationBackend:
                 active_agent_types=(self.policy.backend_agent_type,),
                 sandbox=self.sandbox_supplier(),
             )
+            if self.docker_bash_grant is not None:
+                self.docker_bash_grant.assert_matches(self.docker_bash_backend)
+                live = compose_docker_bash_inventory(
+                    native=live, backend=self.docker_bash_backend,
+                    grant=self.docker_bash_grant,
+                )
+                # No native host Bash is ever reintroduced to assembled.
+                if any(t.name == "bash" for t in assembled):
+                    raise DeerFlowPreparationError("DOCKER_BASH_HOST_COLLISION")
             operator = self.operator_supplier()
             effective, diagnostics, allowed = revalidate_live(
                 policy=self.policy, planning=self.planning,
@@ -338,6 +368,8 @@ class DeerFlowPreparationBackend:
             if not set(self.policy.required_business_tools).issubset(selected):
                 raise DeerFlowPreparationError("REQUIRED_TOOL_NOT_PINNED")
             by_name = {t.name: t for t in assembled}
+            if self.docker_bash_grant is not None:
+                by_name["bash"] = RuntimeDockerBashSource(self.docker_bash_grant)
             tools = tuple(by_name[live.candidate_tools[tid].resolved_exposed_name] for tid in selected)
             if len({id(t) for t in tools}) != len(tools):
                 raise DeerFlowPreparationError("DUPLICATE_SELECTED_TOOL_OBJECT")
@@ -392,6 +424,7 @@ class DeerFlowPreparationBackend:
                 extension_config_digest=extension_config_digest,
                 tool_seals=seals, extension_seal=extension_seal,
                 binding_digest=binding_digest,
+                docker_bash_grant=(self.docker_bash_grant if "bash" in selected else None),
             )
             token = "df-prep-" + secrets.token_hex(16)
             prepared = NodeExecutionPreparation(
