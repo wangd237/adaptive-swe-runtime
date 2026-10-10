@@ -72,8 +72,11 @@ async def execute_swe_task(*, repository: Path, task: str, runtime_dir: Path,
     assert_pinned_deerflow_source(vendor_tools.__file__)
     task_id = new_safe_id("task")
     home = runtime_dir.expanduser().resolve()
+    original = repository.expanduser().resolve(strict=True)
+    if home == original or home.is_relative_to(original):
+        raise RunConfigurationError("RUNTIME_DIR_MUST_BE_OUTSIDE_SOURCE_REPOSITORY")
     root = home / "tasks" / task_id / "workspace"
-    repo = bootstrap_repository(repository.expanduser().resolve(), root, requested_ref=ref)
+    repo = bootstrap_repository(original, root, requested_ref=ref)
     root = Path(repo.repository_root)
     runtime_root = home / "tasks" / task_id
     model = os.environ["ASWE_MODEL"]
