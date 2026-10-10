@@ -19,6 +19,7 @@ from aswe.core.contracts._base import FrozenModel
 from aswe.core.contracts import AttemptEvidenceKind, EvidenceRef, WorkspaceRevision
 from aswe.core.fingerprint import canonical_json_bytes, fingerprint
 from aswe.core.ids import validate_safe_id
+from aswe.runtime.command_observations import ForegroundReceipt, IsolatedPythonCommandBackend
 from aswe.evidence import LocalEvidenceStore
 from aswe.repository import RepositoryBinding, capture_repository_state
 
@@ -175,9 +176,8 @@ class CanonicalVerifier:
         import asyncio
         import re
         import shlex
-        from aswe.integrations.deerflow.controlled_swe import DockerCommandBackend
 
-        if (not isinstance(container, DockerCommandBackend)
+        if (not isinstance(container, IsolatedPythonCommandBackend)
                 or Path(container.workspace_root).resolve() != Path(self.binding.repository_root).resolve()
                 or not isinstance(policy, CanonicalCommandPolicy)
                 or policy.argv[0] not in ("python", "python3")
@@ -247,7 +247,6 @@ class CanonicalVerifier:
         CanonicalVerifier owns the independent signing key, frozen policy and
         EvidenceStore. Unjoined or failed cleanup can only be UNVERIFIED.
         """
-        from aswe.integrations.deerflow.managed_foreground import ForegroundReceipt
 
         if not isinstance(observed, ForegroundReceipt):
             raise ValueError("CANONICAL_FOREGROUND_RECEIPT_UNTRUSTED")
