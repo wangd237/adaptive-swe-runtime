@@ -35,7 +35,7 @@ async def test_planner_fallback_to_plain_json_does_not_lose_requirements():
     assert result.needs_explorer
     assert result.coder_objective=="Fix the bug"
     assert len(model.calls)==2
-    assert "Required JSON schema:" in str(model.calls[-1])
+    assert "Use all required keys exactly" in str(model.calls[-1])
 
 
 @pytest.mark.asyncio
