@@ -49,7 +49,7 @@ jobs:
         env:
           PYTHONPATH: src
         run: |
-          python -m pytest -vv -x tests/integration/test_deerflow_mvp_e2e_step5fcb.py
+          python -m pytest -vv -x tests/integration/test_deerflow_mvp_e2e_step5fcb.py tests/integration/test_deerflow_docker_production_chain_step5_release.py
       - name: Verify independent canonical Python in no-network container
         env:
           PYTHONPATH: src
