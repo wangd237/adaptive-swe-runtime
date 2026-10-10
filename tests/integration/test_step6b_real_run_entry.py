@@ -16,7 +16,7 @@ async def test_real_cli_application_composes_native_compiler_and_docker(
     monkeypatch.delenv("LLM_API_KEY", raising=False)
     monkeypatch.delenv("LLM_MODEL", raising=False)
     local_env = tmp_path / ".env"
-    local_env.write_text("LLM_API_KEY=offline-only-not-transmitted\\nLLM_MODEL=offline-scripted\\n")
+    local_env.write_text("LLM_API_KEY=offline-only-not-transmitted\nLLM_MODEL=offline-scripted\n")
     home=tmp_path/"run-storage"
     report_path,report,trace_path=await execute_swe_task(
         repository=Path(repo.repository_root),
