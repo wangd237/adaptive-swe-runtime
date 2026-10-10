@@ -24,6 +24,8 @@ from aswe.integrations.deerflow.native_execution import (
     NativeSubagentAssembler, NativeDeerFlowExecutionBackend,
 )
 from aswe.integrations.deerflow.mvp_task import MVPTaskRunner
+from aswe.integrations.deerflow.controlled_swe import DockerCommandBackend
+from aswe.runtime.canonical_verifier import make_command_policy
 from tests.integration.test_deerflow_mvp_e2e_step5fcb import physical_binding_store
 from tests.unit.test_deerflow_controlled_swe_step5fc import policy as coding_policy
 from tests.unit.test_deerflow_mvp_task_step5fcb import prepared_mvp
@@ -101,6 +103,18 @@ async def test_live_model_autonomously_fixes_python_bug(prepared_mvp):
     # The model must independently read, reason, call tools, and correct code.
     compiled_policy = coding_policy(tools=("read_file", "str_replace", "bash"))
     image = _python_image_digest()
+    # The model's token lives in the host process. Never import Agent-written
+    # calc.py in a host subprocess with inherited credentials. Both dynamic
+    # Agent Bash and the independent canonical regression run inside Docker,
+    # without any model environment/secret mounts.
+    canonical_policy = make_command_policy(
+        "mvp-python-regression-container",
+        ("python", "-B", "-m", "unittest", "discover", "-s", "tests", "-q"),
+        timeout_seconds=45,
+    )
+    isolated_verifier = DockerCommandBackend(
+        workspace_root=root, image=image,
+    )
     binding_store = physical_binding_store(
         core=core, repository=repo, image=image,
         compiled_policy=compiled_policy,
@@ -141,6 +155,7 @@ async def test_live_model_autonomously_fixes_python_bug(prepared_mvp):
     runner = MVPTaskRunner(
         scheduler=core, backend=backend, repository=repo,
         verifier=verifier, policy=canonical_policy,
+        isolated_canonical_container=isolated_verifier,
     )
 
     # The normal Native/Subagent timeout applies; this is just an outer
