@@ -30,6 +30,14 @@ def _parser() -> argparse.ArgumentParser:
                      help="independent Python test command, e.g. 'python -B -m unittest discover -s tests -q'")
     run.add_argument("--docker-image", required=True, help="existing Docker image pinned by @sha256 digest")
     run.add_argument("--ref", default="HEAD", help="Git reference to clone")
+    workflow = sub.add_parser("workflow", help="Coder -> Tester -> Repair developer workflow")
+    workflow.add_argument("task")
+    workflow.add_argument("--repo", type=Path, required=True)
+    workflow.add_argument("--runtime-dir", type=Path, required=True)
+    workflow.add_argument("--check-command", required=True)
+    workflow.add_argument("--docker-image", required=True)
+    workflow.add_argument("--ref", default="HEAD")
+    workflow.add_argument("--max-repairs", type=int, default=1)
     report = sub.add_parser("report", help="inspect an existing MVPTaskReport JSON artifact")
     report.add_argument("path", type=Path)
     report.add_argument("--json", action="store_true")
@@ -40,6 +48,22 @@ def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     options = parser.parse_args(argv)
     try:
+        if options.command == "workflow":
+            from aswe.integrations.deerflow.dev_workflow import execute_dev_workflow
+            from aswe.planning.acceptance import _validate_argv
+            commands = tuple(shlex.split(options.check_command))
+            _validate_argv(commands)
+            result = asyncio.run(execute_dev_workflow(
+                repository=options.repo, task=options.task,
+                runtime_dir=options.runtime_dir, check_argv=commands,
+                image=options.docker_image, ref=options.ref,
+                max_repairs=options.max_repairs))
+            print(f"Workflow: {result.workflow_id}")
+            print(f"Rounds: {result.round_count}")
+            print(f"Canonical: {result.verification_status}")
+            print(f"Report: {result.report_path}")
+            print(f"Trace: {result.trace_path}")
+            return 0 if result.verification_status == "passed" else 1
         if options.command == "run":
             from aswe.integrations.deerflow.developer_entry import execute_swe_task
             commands = tuple(shlex.split(options.check_command))

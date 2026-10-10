@@ -101,6 +101,35 @@ rather than fabricating a successful dependency or repair.
 DAG or Scheduler-level Repair. Those need a developer-mode stage isolation
 design, without weakening the existing strict Scheduler acceptance contract.
 
+## Step 6D — Developer Coder / Tester / Repair workflow
+
+`aswe workflow` is an opt-in lightweight multi-round task command. It
+reuses the real frozen-DeerFlow `aswe run` coding entry for each round,
+independent Docker canonical tests as the **Tester** stage, and performs a
+bounded Repair round **only when the canonical check fails**.
+
+```bash
+aswe workflow "Fix the failing tests" \
+  --repo /path/to/clean-repository \
+  --runtime-dir /tmp/aswe-runs \
+  --docker-image 'python@sha256:<local-digest>' \
+  --check-command 'python -B -m unittest discover -s tests -q' \
+  --max-repairs 1
+```
+
+Each round retains its own exact child task trace and report; a top-level
+workflow trace links their events and records Coder, Tester, Repair and result.
+A repair starts from the previous round's *disposable clone*, with its
+changes committed as an intermediate development checkpoint. The original
+repository remains untouched. Failed or unverified native executions do not
+automatically qualify for repair; only an independently observed canonical
+test failure does.
+
+This is a developer workflow, **not** multi-node strict Scheduler acceptance
+or a production multi-agent architecture. Each coding round still has a
+separate Scheduler task and native quarantine semantics. The final verdict
+is a canonical test result, not an `ACCEPTED TaskResult`.
+
 ## Accepted implementation
 
 - Provider-neutral frozen contracts and two-stage deterministic TaskDAG identity (Step 0).
