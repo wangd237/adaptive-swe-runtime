@@ -55,7 +55,8 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
                                ref: str = "HEAD", max_repairs: int = 1,
                                model_factory: Callable[..., Any] | None = None,
                                adaptive: bool = False, planner: str = "rules",
-                               planner_factory: Callable[[], Any] | None = None) -> WorkflowResult:
+                               planner_factory: Callable[[], Any] | None = None,
+                               env_file: Path | None = None) -> WorkflowResult:
     if not (0 <= max_repairs <= 3):
         raise ValueError("WORKFLOW_REPAIR_BUDGET_INVALID")
     workflow_id = new_safe_id("workflow")
@@ -69,7 +70,7 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
         raise ValueError("LLM_PLANNER_REQUIRES_ADAPTIVE")
     planned = (await plan_developer_team(
         task=task, repository=repository, mode=planner,
-        planner_factory=planner_factory) if adaptive else None)
+        planner_factory=planner_factory, env_file=env_file) if adaptive else None)
     decision = planned.decision if planned else None
     if decision is not None:
         sink.emit("team.selected", payload={
@@ -100,7 +101,7 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
         path, report, trace = await execute_swe_task(
             repository=source, task=prompt, runtime_dir=home,
             check_argv=check_argv, image=image, ref=source_ref,
-            model_factory=model_factory)
+            model_factory=model_factory, env_file=env_file)
         reports.append(path)
         # Preserve both the per-run provenance and the overall task timeline.
         for event in LocalRuntimeEventSink(home, report.task_id).read_all():
