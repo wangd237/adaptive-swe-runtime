@@ -7,7 +7,6 @@ authority are separately host-compiled.
 from __future__ import annotations
 
 import asyncio
-import os
 from pathlib import Path
 from dataclasses import replace
 from typing import Callable, Any
@@ -31,6 +30,7 @@ from aswe.runtime.scheduler import SchedulerCore
 from aswe.runtime.canonical_verifier import CanonicalVerifier, make_command_policy
 from aswe.evidence import LocalEvidenceStore
 from aswe.trace.minimal_events import LocalRuntimeEventSink
+from aswe.llm_config import load_llm_settings, vendor_model_key
 
 
 class RunConfigurationError(ValueError):
@@ -40,16 +40,16 @@ class RunConfigurationError(ValueError):
 async def execute_swe_task(*, repository: Path, task: str, runtime_dir: Path,
                            check_argv: tuple[str, ...], image: str,
                            ref: str = "HEAD",
-                           model_factory: Callable[..., Any] | None = None):
+                           model_factory: Callable[..., Any] | None = None,
+                           env_file: Path | None = None):
     """Clone an immutable base, then execute the real frozen DeerFlow graph.
 
-    Requires installed pinned vendor, Docker and host-supplied OPENAI_API_KEY.
+    Requires installed pinned vendor, Docker and LLM_* from .env or environment.
     Does not permit secret-bearing workspace files to become provider env.
     """
     if not task.strip() or not check_argv or len(task) > 12000:
         raise RunConfigurationError("TASK_OR_CHECK_INVALID")
-    if not os.environ.get("OPENAI_API_KEY") or not os.environ.get("ASWE_MODEL"):
-        raise RunConfigurationError("ASWE_MODEL_OR_OPENAI_API_KEY_MISSING")
+    llm = load_llm_settings(env_file=env_file)
     from deerflow.config.app_config import AppConfig
     from deerflow.subagents.config import SubagentConfig
     from deerflow.tools.tools import get_available_tools
@@ -79,8 +79,8 @@ async def execute_swe_task(*, repository: Path, task: str, runtime_dir: Path,
     repo = bootstrap_repository(original, root, requested_ref=ref)
     root = Path(repo.repository_root)
     runtime_root = home / "tasks" / task_id
-    model = os.environ["ASWE_MODEL"]
-    url = os.environ.get("ASWE_BASE_URL")
+    model = llm.model
+    url = llm.base_url
     config = AppConfig.model_validate({
         "sandbox":{"use":"deerflow.sandbox.local:LocalSandboxProvider","allow_host_bash":False},
         "tools":[{"name":name,"group":"swe","use":DEERFLOW_USE_BY_CONTRACT[name]}
@@ -189,6 +189,13 @@ async def execute_swe_task(*, repository: Path, task: str, runtime_dir: Path,
     if model_factory is not None:
         assembler=NativeSubagentAssembler(replace(
             assembler.seams,create_chat_model=model_factory))
+    else:
+        vendor_factory = assembler.seams.create_chat_model
+        def configured_vendor_factory(**kwargs):
+            with vendor_model_key(llm.api_key):
+                return vendor_factory(**kwargs)
+        assembler = NativeSubagentAssembler(replace(
+            assembler.seams, create_chat_model=configured_vendor_factory))
     backend=NativeDeerFlowExecutionBackend(
         binding_store=binding,assembler=assembler,
         task_renderer=lambda _node:task,enable_native_execution=True,
