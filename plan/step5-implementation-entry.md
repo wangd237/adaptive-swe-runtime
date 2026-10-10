@@ -1,3 +1,5 @@
+> **CURRENT STATUS (2026-10-10): Step 5 Developer MVP merged to `main` via [PR #7](https://github.com/wangd237/adaptive-swe-runtime/pull/7). This file is a chronological implementation-entry record, not an active list of production release blockers. Historical `NO-GO` and `Draft/Open` statements refer to pre-merge stages. Formal Sandbox Quiescence, production RBAC and distributed deployment are out of Developer MVP scope. See [README](../README.md) and [IMPLEMENTATION_STATUS](../IMPLEMENTATION_STATUS.md).**
+
 # Coding Step 5 — DeerFlow Execution Adapter Implementation Entry
 
 **Status:** IN PROGRESS — 5A Inventory Identity and 5B Model-only Reasoning Adapter coded on `coding/step5-deerflow-adapter`. **Real shared mutable Workspace DeerFlow execution: NO-GO.** This entry preserves the pre-existing P0 Design Freeze; it grants no release waiver.
