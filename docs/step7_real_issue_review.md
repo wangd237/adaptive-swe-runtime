@@ -56,3 +56,17 @@ output enter Actions summaries/artifacts.
 
 An explicit one-time real-model execution is authorized for the fixed
 boltons #500 commit and the host-owned reproduction tests above.
+
+## First live trial: advisory Explorer failure
+
+[Run 38052082735](https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38052082735)
+reproduced the actual upstream bug, compiled the physical DAG, and
+started Explorer. The provider's structured Explorer reply was invalid
+(`ValidationError`), so the job did not reach Coder.
+
+Step 7B improvement: an invalid *advisory* Explorer payload now has a
+clearly marked read-only Git-index fallback, while provider/network
+errors are still fatal. This avoids treating malformed LLM advice as a
+task execution authority while letting Coder work independently. The
+fallback is explicitly reflected in the Trace, not claimed as a
+successful LLM diagnosis.
