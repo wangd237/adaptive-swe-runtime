@@ -64,6 +64,24 @@ test argv and pre-pulled Docker digest. No automatic multi-agent DAG planning,
 no production RBAC and no formal Sandbox Quiescence attestation. A passed
 canonical test is reported separately from strict Scheduler acceptance.
 
+## Step 6C — Correlated Execution Timeline
+
+The existing `aswe trace TASK_ID --runtime-dir PATH --json` command now
+presents a single append-only timeline combining compiled plan identity,
+task lifecycle, Scheduler dispatch request/claim, committed
+`execution_id`/`run_id`/`attempt`, **observed native LangGraph model
+turns**, tool receipts, independent canonical verification and the
+single-node MVP repair decision.
+
+Model-turn events carry only ordinal and tool-call counts, not model
+messages, prompts or provider credentials. Tool events carry digests,
+not arguments or outputs. `repair.decision: not_scheduled` accurately
+states that Step 6's one-writer CLI does not yet run a Scheduler repair
+branch; it is not a fictitious Repair execution.
+
+The CLI does not yet compile or run dynamic multi-node plans. Complex DAG
+and real retry/repair timelines remain later Step 6 work.
+
 ## Accepted implementation
 
 - Provider-neutral frozen contracts and two-stage deterministic TaskDAG identity (Step 0).
