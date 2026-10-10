@@ -220,3 +220,31 @@ async def test_step6_actual_mvp_runner_persists_bounded_trace(prepared_mvp,tmp_p
     assert "return 42" not in str(events)
     assert main(["trace",core.task_id,"--runtime-dir",str(tmp_path/"traces"),
                  "--json"])==0
+
+
+@pytest.mark.asyncio
+async def test_step6d_real_two_node_dag_quarantine_blocks_dependent_with_trace(
+        prepared_mvp,tmp_path):
+    from aswe.trace.minimal_events import LocalRuntimeEventSink
+    from aswe.core.contracts import WorkspaceAccess
+    from tests.unit.test_scheduler_foundation import node, scheduler
+    repo,_,store,verifier,policy=prepared_mvp
+    core,_=scheduler(
+        Path(repo.repository_root),
+        node("writer",ordinal=0),
+        node("tester",deps=("writer",),ordinal=1,
+             access=WorkspaceAccess.READ,kind=WorkKind.VERIFICATION),
+    )
+    core.revision=rev(capture_repository_state(repo))
+    trace=LocalRuntimeEventSink(tmp_path/"traces",core.task_id)
+    report=await MVPTaskRunner(
+        scheduler=core,backend=NativeShapedWriter(repo),repository=repo,
+        verifier=verifier,policy=policy,trace_sink=trace
+    ).run_node("writer")
+    assert report.verification_status=="passed"
+    assert core.states["tester"].logical_status is NodeLogicalStatus.BLOCKED
+    blocked=[x for x in trace.read_all() if x.event_type=="scheduler.node.blocked"]
+    assert len(blocked)==1
+    assert blocked[0].node_id=="tester"
+    assert blocked[0].payload["trigger_execution_id"]==report.execution_id
+    assert len(core.states["tester"].attempts)==0
