@@ -27,9 +27,8 @@ a genuine first Docker FAIL, a real feedback fingerprint, a second genuine
 native LLM edit, a second Docker PASS, and unchanged test sources. If the first
 Coder solves everything, that is an ordinary pass but not a Repair acceptance.
 
-The GitHub workflow is restricted to an explicit one-shot staging-branch
-push marker for initial acceptance and manual `RUN` thereafter. Temporary
-push activation will be removed before merging to `main`.
+The first paid run used a temporary explicit branch marker. The successful
+run is complete and this workflow is now **manual `RUN` only** on `main`.
 
 
 ## First real repair attempt
@@ -75,3 +74,49 @@ This run uses a focused inventory unit test in the first genuine Coder pass,
 then the authoritative full cancellation regression in the DAG Tester.
 Both external coding rounds, when a Repair is needed, are real model calls.
 Only GitHub Actions with existing Secrets may run it. No patch is injected.
+
+## Final acceptance — PASSED (2026-10-10)
+
+Successful external-model Actions run:
+https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38050950435
+
+The separately uploaded `aswe-real-llm-repair-result` artifact confirms:
+
+| Requirement | Observed |
+|---|---|
+| Scripted models | No; genuine external LLM |
+| Task DAG physically compiled | Yes |
+| Adaptive selected team | Minimal `coder` for this task (valid) |
+| DAG dispatch order | `coder → __aswe_verify → coder → __aswe_verify` |
+| First Coder check | Focused inventory unittest — passed |
+| First independent Tester | Full cancellation suite — **failed** |
+| Failure feedback | SHA-256 `4494c21b811a179df3ff2839c2a0f55824af3fe297e89f5db5c84483c81a0bed` |
+| Repair scheduling | 1 authorized Repair round |
+| Second Coder | Real LLM; native execution completed |
+| Second independent Tester | Full cancellation suite — **passed** |
+| Coder attempts | 2 |
+| Native model-turn events | 15 |
+| Tool-call events | 24 |
+| Modified code | `shop/inventory.py`, `shop/orders.py` |
+| Test sources | Unchanged |
+| Final outcome | **PASS** |
+
+In this controlled progressive-testing scenario, the first Coder runs a
+focused unit check, while the separately dispatched Tester runs the full
+regression suite. The first genuinely failing full regression is not
+injected or fabricated. Its diagnostics are supplied as *untrusted test
+data* to the next real LLM, which fixes the outstanding cancellation issue.
+
+Earlier attempts demonstrate why the new acceptance is necessary:
+[38050394522](https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38050394522)
+observed genuine `failed → passed` Repair but the test harness mistakenly
+counted child tool-guard feedback as top-level feedback and rejected valid
+single-Coder team selection;
+[38050590455](https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38050590455)
+saw the first real model fix both bugs immediately, so no Repair was needed.
+
+This final passed run proves a **real-model bounded repair loop**, but does
+not prove all real Issues repair themselves, or strict global SchedulerCore
+NodeHandoff acceptance. The top-level developer scheduler owns the physical
+DAG's scheduling and repair decisions; each native coding invocation still
+uses its internal strict SchedulerCore to govern tool execution.
