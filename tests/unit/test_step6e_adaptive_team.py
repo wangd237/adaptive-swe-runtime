@@ -60,7 +60,9 @@ async def test_adaptive_workflow_traces_selection_and_real_explorer(tmp_path,mon
     events=[json.loads(x) for x in result.trace_path.read_text().splitlines()]
     assert events[0]["event_type"]=="team.selected"
     assert events[0]["payload"]["roles"]==["explorer","coder","tester"]
-    assert events[1]["event_type"]=="explorer.finished"
+    assert events[1]["event_type"]=="semantic_plan.validated"
+    assert events[2]["event_type"]=="semantic_node.started"
+    assert events[3]["event_type"]=="explorer.finished"
     assert "orders.py" in calls[0]["task"]
     assert events[-1]["event_type"]=="workflow.finished"
     report=json.loads(result.report_path.read_text())
