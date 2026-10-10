@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from aswe.integrations.deerflow.adaptive_team import explore_repository
 from aswe.llm_config import load_llm_settings
+from aswe.integrations.deerflow.json_compat import invoke_structured_compat
 
 
 class ExplorerFinding(BaseModel):
@@ -60,8 +61,7 @@ async def execute_llm_explorer(
         model=ChatOpenAI(**opts)
     else:
         model=explorer_factory()
-    structured=model.with_structured_output(ExplorerFinding)
-    response=await structured.ainvoke([
+    finding=await invoke_structured_compat(model, ExplorerFinding, [
         ("system",
          "You are a read-only software repository Explorer. Analyze the "
          "provided source excerpts; describe likely relevant paths and "
@@ -71,8 +71,6 @@ async def execute_llm_explorer(
         ("human",f"Task:\n{task[:5000]}\n\nTracked code excerpts:\n" +
          "\n\n".join(excerpts)),
     ])
-    finding = (response if isinstance(response,ExplorerFinding)
-               else ExplorerFinding.model_validate(response))
     # Model-proposed paths are never allowed to escape the observed index.
     permitted=set(candidates)
     return ExplorerFinding(

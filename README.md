@@ -270,6 +270,40 @@ accepted `NodeHandoff`s. No production Sandbox Quiescence, RBAC or
 distributed scheduling are claimed. The current LLM Planner chooses a
 minimal topology rather than authoring an arbitrary multi-package workplan.
 
+## Step 6F — Real-model Adaptive Workflow acceptance
+
+A separate manually authorized GitHub Actions workflow,
+`SWE Adaptive Real LLM E2E`, runs the *full* current developer chain with
+**real model calls**, using existing `SWE_LLM_*` Secrets mapped to the shared
+`LLM_*` configuration:
+
+`LLM Planner → physically resolved TaskDAG → LLM Explorer →
+ native DeerFlow Coder → independent Docker Tester → optional Repair`.
+
+**Live acceptance result: PASS** — real model run
+[38042334500](https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38042334500)
+selected Explorer/Coder/Tester, compiled and dispatched the physical DAG,
+modified both affected Python modules, and passed the independent Docker
+regression tests with 8 native model turns and 17 tool-call events. The first
+round passed, so **Repair was not exercised** in this live run. See
+[the redacted acceptance report](docs/step6f_live_acceptance_result.md)
+for precise evidence and provider compatibility fixes.
+
+The disposable fixture is a cross-module order-cancellation regression.
+Baseline tests genuinely fail; two implementation files need fixes. The
+model receives the issue and source, not a scripted patch, and must modify
+the implementation without touching tests. The workflow emits a **redacted
+summary only** (role selection, DAG dispatches, native tool activity, test
+results, changed paths and repair outcome). It does not publish raw prompts,
+provider errors or patch bodies. A passed first attempt is reported as
+`repair_not_needed`, not as a fictitious Repair execution.
+
+To run again after the first bounded acceptance, open GitHub Actions →
+`SWE Adaptive Real LLM E2E` → Run workflow and enter **RUN** to authorize
+model usage. The legacy single-agent real model smoke remains separate.
+The live run is not included in ordinary CI, and live success is not a
+strict-Scheduler `ACCEPTED TaskResult`.
+
 ## Accepted implementation
 
 - Provider-neutral frozen contracts and two-stage deterministic TaskDAG identity (Step 0).
