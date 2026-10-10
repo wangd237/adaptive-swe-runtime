@@ -16,6 +16,9 @@ def repository(tmp_path):
         p=repo/path;p.parent.mkdir(parents=True,exist_ok=True)
         p.write_text("pass\n")
     subprocess.run(["git","-C",str(repo),"add","-A"],check=True)
+    subprocess.run(["git","-C",str(repo),"-c","user.name=CI",
+                    "-c","user.email=ci@example.invalid","commit","-m","fixture"],
+                   check=True,capture_output=True)
     return repo
 
 
@@ -57,7 +60,9 @@ async def test_adaptive_workflow_traces_selection_and_real_explorer(tmp_path,mon
     events=[json.loads(x) for x in result.trace_path.read_text().splitlines()]
     assert events[0]["event_type"]=="team.selected"
     assert events[0]["payload"]["roles"]==["explorer","coder","tester"]
-    assert events[1]["event_type"]=="explorer.finished"
+    assert events[1]["event_type"]=="semantic_plan.validated"
+    assert events[2]["event_type"]=="semantic_node.started"
+    assert events[3]["event_type"]=="explorer.finished"
     assert "orders.py" in calls[0]["task"]
     assert events[-1]["event_type"]=="workflow.finished"
     report=json.loads(result.report_path.read_text())

@@ -186,6 +186,47 @@ exploration and Coder/Tester execution, not yet a complete integration of
 the frozen SemanticPlanner/PlanValidator/TaskDAG for independently executed
 multi-agent nodes. Rules-based `--adaptive` remains the no-extra-LLM default.
 
+## Step 6F — Validated semantic stages and independent LLM Explorer
+
+`aswe workflow ... --adaptive --planner llm --explorer llm` now has a
+**distinct read-only LLM Explorer** followed by the existing pinned DeerFlow
+Coding Agent and independent Docker verification. Both model roles can use
+the same `LLM_*` settings from `.env`; no second API key is needed.
+With `--explorer index` (default) the Explorer still uses Git-index paths
+without an extra model call.
+
+The Runtime compiles the original task and selected minimum team through
+`ConstraintCompiler` and `SemanticPlanValidator`: a real
+`ValidatedWorkPlan` with `explorer → coder → __aswe_verify` for
+exploration tasks, or `coder → __aswe_verify` for simple tasks.
+The verification gate is injected by the validator, not the model.
+The developer runner checks predecessor completion before entering the
+next stage and records the validated workplan fingerprint in the trace/report.
+
+The Explorer reads bounded excerpts from tracked Git source and returns a
+structured finding. Its model-suggested file paths are checked against
+the actual Git index. Both its diagnosis and candidate paths are handed to
+Coder as *advisory context* (fixing the earlier overwritten-context bug);
+the trace records paths and identities but not raw code/prompts.
+
+```bash
+aswe workflow "Investigate the regression in orders.py" \
+  --repo ./repo --runtime-dir ./runtime-data \
+  --adaptive --planner llm --explorer llm \
+  --docker-image 'python@sha256:<local-digest>' \
+  --check-command 'python -B -m unittest discover -s tests -q'
+```
+
+**Limit:** this stage plan is validated by the *semantic* compiler and
+dependency-checked by the developer runner; it is **not yet a full Step-4
+physically resolved multi-node TaskDAG dispatched by one strict
+`SchedulerCore`**. The Coder retains the native compiled single-node
+execution and canonical verifier. We do not report strict Scheduler
+`ACCEPTED` for a developer workflow. A pinned DeerFlow + real Docker
+E2E runs a separate scripted Explorer model followed by a scripted Coder
+model, with genuine tools and independent canonical verification. Live
+external-model success for the complete new topology remains unverified.
+
 ## Accepted implementation
 
 - Provider-neutral frozen contracts and two-stage deterministic TaskDAG identity (Step 0).

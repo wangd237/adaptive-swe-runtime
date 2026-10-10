@@ -55,4 +55,4 @@ jobs:
           PYTHONPATH: src
         run: |
           docker pull python:3.12-slim
-          python -m pytest -vv -x tests/integration/test_deerflow_docker_canonical_step5fd.py tests/integration/test_step6b_real_run_entry.py tests/integration/test_step6d_multifile_coding.py tests/integration/test_step6d_workflow_e2e.py
+          python -m pytest -vv -x tests/integration/test_deerflow_docker_canonical_step5fd.py tests/integration/test_step6b_real_run_entry.py tests/integration/test_step6d_multifile_coding.py tests/integration/test_step6d_workflow_e2e.py tests/integration/test_step6f_semantic_explorer_e2e.py

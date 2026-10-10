@@ -19,6 +19,8 @@ from aswe.trace.minimal_events import LocalRuntimeEventSink
 from aswe.integrations.deerflow.developer_entry import execute_swe_task
 from aswe.integrations.deerflow.adaptive_team import explore_repository
 from aswe.integrations.deerflow.dev_team_planner import plan_developer_team
+from aswe.integrations.deerflow.dev_execution_plan import compile_developer_workplan
+from aswe.integrations.deerflow.dev_llm_explorer import execute_llm_explorer
 
 
 @dataclass(frozen=True)
@@ -56,9 +58,15 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
                                model_factory: Callable[..., Any] | None = None,
                                adaptive: bool = False, planner: str = "rules",
                                planner_factory: Callable[[], Any] | None = None,
-                               env_file: Path | None = None) -> WorkflowResult:
+                               env_file: Path | None = None,
+                               explorer_mode: str = "index",
+                               explorer_factory: Callable[[], Any] | None = None) -> WorkflowResult:
     if not (0 <= max_repairs <= 3):
         raise ValueError("WORKFLOW_REPAIR_BUDGET_INVALID")
+    if explorer_mode not in ("index", "llm"):
+        raise ValueError("WORKFLOW_EXPLORER_MODE_INVALID")
+    if explorer_mode == "llm" and not adaptive:
+        raise ValueError("LLM_EXPLORER_REQUIRES_ADAPTIVE")
     workflow_id = new_safe_id("workflow")
     home = runtime_dir.expanduser().resolve()
     sink = LocalRuntimeEventSink(home, workflow_id, workspace_root=repository)
@@ -72,32 +80,66 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
         task=task, repository=repository, mode=planner,
         planner_factory=planner_factory, env_file=env_file) if adaptive else None)
     decision = planned.decision if planned else None
+    semantic_plan = None
+    completed_nodes: set[str] = set()
+    coding_task = planned.coder_objective if planned else task
     if decision is not None:
+        semantic_plan = compile_developer_workplan(
+            repository=repository, ref=ref,task=task,
+            workflow_id=workflow_id, decision=decision,
+            coder_objective=coding_task,
+            explorer_objective=planned.explorer_objective)
         sink.emit("team.selected", payload={
             "roles":list(decision.roles),"reason":decision.reason,
             "complexity":decision.complexity,
             "planning_mode":planned.planning_mode,
             "matched_paths":list(decision.evidence_paths)})
+        sink.emit("semantic_plan.validated", payload={
+            "workplan_fingerprint":semantic_plan.plan.fingerprint,
+            "contract_fingerprint":semantic_plan.contract_fingerprint,
+            "nodes":semantic_plan.trace_nodes()})
         if decision.needs_exploration:
+            semantic_plan.require_ready("explorer",completed_nodes)
             discovered = explore_repository(repository,planned.explorer_objective)
-            sink.emit("explorer.finished", node_id="explorer-0",
+            sink.emit("semantic_node.started",node_id="explorer",
+                      payload={"work_kind":"discovery","mode":explorer_mode})
+            if explorer_mode == "llm":
+                finding = await execute_llm_explorer(
+                    repository=repository,ref=ref,
+                    task=planned.explorer_objective,
+                    env_file=env_file,explorer_factory=explorer_factory)
+                discovered = tuple(dict.fromkeys(
+                    finding.relevant_paths + tuple(discovered)))
+                # Output from independent Explorer is advisory only.
+                coding_task += (
+                    "\n\nRead-only Explorer findings (verify independently):"
+                    "\nRelevant files: " + ", ".join(finding.relevant_paths) +
+                    "\nDiagnosis: " + finding.diagnosis +
+                    "\nSuggested approach: " + finding.suggested_approach)
+            coding_task += (
+                "\n\nRepository exploration candidates (verify before editing): "
+                + ", ".join(discovered))
+            sink.emit("explorer.finished", node_id="explorer",
                       payload={"candidate_paths":list(discovered),
-                               "source":"git_index","read_only":True})
-            # Advisory hints only; no changes to tool grants or runtime policy.
-            task = (task + "\\n\\nRepository exploration candidates (verify before editing): "
-                    + ", ".join(discovered))
-    if planned is not None:
-        task = planned.coder_objective
+                               "source":"llm_readonly" if explorer_mode == "llm"
+                                         else "git_index",
+                               "read_only":True})
+            sink.emit("semantic_node.finished",node_id="explorer",
+                      payload={"work_kind":"discovery","status":"completed"})
+            completed_nodes.add("explorer")
     sink.emit("workflow.started", payload={"max_repairs":max_repairs})
     for number in range(max_repairs + 1):
         stage = "coder" if number == 0 else "repair"
         node_id = f"{stage}-{number}"
         sink.emit("workflow.stage.started", node_id=node_id,
                   payload={"stage":stage,"round":number+1})
-        prompt = (task if number == 0 else
-            f"{task}\n\nThe previous coding pass failed independent tests. "
+        prompt = (coding_task if number == 0 else
+            f"{coding_task}\n\nThe previous coding pass failed independent tests. "
             "Inspect the current code and tests, diagnose remaining failures, "
             "make the smallest repair, and rerun tests.")
+        if semantic_plan is not None:
+            semantic_plan.require_ready("coder",completed_nodes)
+            sink.emit("semantic_node.started",node_id="coder",payload={"round":number+1})
         path, report, trace = await execute_swe_task(
             repository=source, task=prompt, runtime_dir=home,
             check_argv=check_argv, image=image, ref=source_ref,
@@ -110,6 +152,18 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
                                "child_node_id":event.node_id,
                                "child_seq":event.seq,
                                **event.payload})
+        if semantic_plan is not None:
+            if report.native_status == "completed":
+                completed_nodes.add("coder")
+            sink.emit("semantic_node.finished",node_id="coder",payload={
+                "round":number+1, "status":report.native_status})
+            if report.native_status == "completed":
+                semantic_plan.require_ready("__aswe_verify",completed_nodes)
+                sink.emit("semantic_node.started",node_id="__aswe_verify",
+                          payload={"round":number+1})
+                sink.emit("semantic_node.finished",node_id="__aswe_verify",payload={
+                    "round":number+1, "status":report.verification_status,
+                    "source":"independent_canonical_verifier"})
         sink.emit("workflow.test.finished", node_id=f"tester-{number}",
                   payload={"round":number+1, "check_id":report.verification_check_id,
                            "verification_status":report.verification_status,
@@ -145,6 +199,8 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
         "round_count":len(reports),"round_reports":[str(p) for p in reports],
         "trace_path":str(sink.path),
         "selected_roles":list(decision.roles) if decision else ["coder","tester"],
+        "semantic_plan_fingerprint":semantic_plan.plan.fingerprint if semantic_plan else None,
+        "explorer_mode":explorer_mode if decision and decision.needs_exploration else None,
     },ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
     return WorkflowResult(workflow_id,status,len(reports),destination,
                           sink.path,tuple(reports))
