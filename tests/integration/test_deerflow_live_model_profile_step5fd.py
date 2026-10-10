@@ -13,13 +13,13 @@ from aswe.integrations.deerflow.live_smoke_config import LiveModelSettings
 
 
 def test_live_profile_builds_real_frozen_chatopenai_without_api_request(monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "offline-test-key-no-network")
+    monkeypatch.setenv("LLM_API_KEY", "offline-test-key-no-network")
     settings=LiveModelSettings.from_environment({
         "ASWE_LIVE_SMOKE": "1",
         "GITHUB_ACTIONS": "true",
-        "SWE_LLM_API_KEY": "offline-test-key-no-network",
-        "SWE_LLM_MODEL": "offline-test-model",
-        "SWE_LLM_BASE_URL": "https://unused.provider.invalid/v1",
+        "LLM_API_KEY": "offline-test-key-no-network",
+        "LLM_MODEL": "offline-test-model",
+        "LLM_BASE_URL": "https://unused.provider.invalid/v1",
     })
     config=AppConfig.model_validate({
         "sandbox": {"use": "deerflow.sandbox.local:LocalSandboxProvider",
@@ -43,13 +43,13 @@ def test_live_profile_builds_real_frozen_chatopenai_without_api_request(monkeypa
 
 
 def test_live_profile_official_base_url_omitted(monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "offline-test-key-no-network")
+    monkeypatch.setenv("LLM_API_KEY", "offline-test-key-no-network")
     settings=LiveModelSettings.from_environment({
         "ASWE_LIVE_SMOKE": "1",
         "GITHUB_ACTIONS": "true",
-        "SWE_LLM_API_KEY": "offline-test-key-no-network",
-        "SWE_LLM_MODEL": "offline-test-model",
-        "SWE_LLM_BASE_URL": "",
+        "LLM_API_KEY": "offline-test-key-no-network",
+        "LLM_MODEL": "offline-test-model",
+        "LLM_BASE_URL": "",
     })
     config=AppConfig.model_validate({
         "sandbox": {"use": "deerflow.sandbox.local:LocalSandboxProvider",
