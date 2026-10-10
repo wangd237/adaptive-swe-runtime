@@ -95,5 +95,9 @@ class LiveModelSettings:
         profile = ModelConfig(**kwargs)
         # Only one explicitly chosen provider may be visible in this run.
         config.models = [profile]
-        if config.get_model_config(self.profile_name) is not profile:
+        # Pydantic AppConfig assignment may revalidate/copy model entries.
+        # Compare the complete immutable selected value, not Python identity.
+        selected = config.get_model_config(self.profile_name)
+        if (selected is None
+                or selected.model_dump(mode="json") != profile.model_dump(mode="json")):
             raise LiveSmokeConfigError("LIVE_MODEL_PROFILE_NOT_SELECTED")
