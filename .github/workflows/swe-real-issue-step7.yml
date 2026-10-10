@@ -1,0 +1,70 @@
+# PAID Step 7A real upstream issue: manually authorized RUN only.
+name: SWE Step 7 Real Issue E2E
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorization:
+        description: "Type RUN to authorize a paid real GitHub Issue task"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aswe-step7-real-issue
+  cancel-in-progress: false
+
+jobs:
+  real-upstream-issue:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.authorization == 'RUN' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: bytedance/deer-flow
+          ref: c0895d295bba34f6e95188fca380f555dabed891
+          path: vendor/deer-flow
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Verify pinned DeerFlow baseline and install
+        run: |
+          test "$(git -C vendor/deer-flow rev-parse HEAD)" = "c0895d295bba34f6e95188fca380f555dabed891"
+          test -z "$(git -C vendor/deer-flow status --porcelain --untracked-files=no)"
+          uv pip install --system -e '.[dev]' -e vendor/deer-flow/backend/packages/harness
+      - name: Prepare isolated digest-pinned Python test image
+        run: |
+          docker pull python:3.12-slim
+          docker image inspect python:3.12-slim --format '{{index .RepoDigests 0}}'
+      - name: Unscripted Adaptive SWE on real boltons issue 500
+        timeout-minutes: 23
+        env:
+          ASWE_LIVE_SMOKE: '1'
+          ASWE_STEP7_LIVE_ONCE: '1'
+          PYTHONPATH: 'src:.'
+          LLM_API_KEY: ${{ secrets.SWE_LLM_API_KEY }}
+          LLM_MODEL: ${{ secrets.SWE_LLM_MODEL }}
+          LLM_BASE_URL: ${{ secrets.SWE_LLM_BASE_URL }}
+          LANGCHAIN_TRACING_V2: 'false'
+          LANGSMITH_TRACING: 'false'
+          ASWE_STEP7_REPORT_PATH: ${{ runner.temp }}/step7-real-issue-result.json
+        run: |
+          python scripts/step7_real_issue.py
+      - name: Upload redacted real Issue evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aswe-step7-real-issue-result
+          path: ${{ runner.temp }}/step7-real-issue-result.json
+          retention-days: 7
+          if-no-files-found: ignore

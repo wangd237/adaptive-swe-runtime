@@ -10,7 +10,7 @@ from pathlib import Path
 import subprocess
 from typing import Any, Callable
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError
 
 from aswe.integrations.deerflow.adaptive_team import explore_repository
 from aswe.llm_config import load_llm_settings
@@ -22,6 +22,11 @@ class ExplorerFinding(BaseModel):
     relevant_paths: tuple[str, ...] = Field(max_length=8)
     diagnosis: str = Field(min_length=1, max_length=1200)
     suggested_approach: str = Field(min_length=1, max_length=1200)
+    _fallback_used: bool = PrivateAttr(default=False)
+
+    @property
+    def used_index_fallback(self) -> bool:
+        return self._fallback_used
 
 
 async def execute_llm_explorer(
@@ -61,7 +66,8 @@ async def execute_llm_explorer(
         model=ChatOpenAI(**opts)
     else:
         model=explorer_factory()
-    finding=await invoke_structured_compat(model, ExplorerFinding, [
+    try:
+        finding=await invoke_structured_compat(model, ExplorerFinding, [
         ("system",
          "You are a read-only software repository Explorer. Analyze the "
          "provided source excerpts; describe likely relevant paths and "
@@ -70,7 +76,23 @@ async def execute_llm_explorer(
          "Your output is advice for a separate coding agent."),
         ("human",f"Task:\n{task[:5000]}\n\nTracked code excerpts:\n" +
          "\n\n".join(excerpts)),
-    ])
+        ])
+    except (ValidationError, ValueError) as exc:
+        # Read-only Explorer output is ADVISORY. A malformed model response
+        # cannot override policy, but it also must not block the whole
+        # coding task. Network/auth errors still propagate unchanged.
+        if not (isinstance(exc, ValidationError) or
+                str(exc).startswith("LLM_STRUCTURED_JSON_")):
+            raise
+        fallback=ExplorerFinding(
+            relevant_paths=tuple(candidates[:8]),
+            diagnosis="LLM Explorer returned invalid structured analysis.",
+            suggested_approach=(
+                "Treat these Git-index paths as search hints only. "
+                "Independently inspect the code and regression tests before editing."),
+        )
+        fallback._fallback_used=True
+        return fallback
     # Model-proposed paths are never allowed to escape the observed index.
     permitted=set(candidates)
     return ExplorerFinding(
