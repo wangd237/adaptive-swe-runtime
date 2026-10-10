@@ -1,5 +1,4 @@
-# PAID real LLM repair test: temporary branch-only one-shot push trigger.
-# Remove push trigger after executing; future invocations must be manual RUN.
+# PAID real LLM repair test: manual RUN only; never run on push/PR.
 name: SWE Real LLM Repair E2E
 
 on:
@@ -9,8 +8,6 @@ on:
         description: "Type RUN to authorize external model repair test"
         required: true
         type: string
-  push:
-    branches: ['coding/step6g-unified-scheduling-repair']
 
 permissions:
   contents: read
@@ -21,11 +18,7 @@ concurrency:
 
 jobs:
   real-repair:
-    if: >-
-      (github.event_name == 'workflow_dispatch' && inputs.authorization == 'RUN') ||
-      (github.event_name == 'push' &&
-       github.ref == 'refs/heads/coding/step6g-unified-scheduling-repair' &&
-       contains(github.event.head_commit.message, '[run-live-repair]'))
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.authorization == 'RUN' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
