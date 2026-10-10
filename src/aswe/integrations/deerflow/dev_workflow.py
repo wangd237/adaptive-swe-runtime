@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 import json
+import shlex
 from pathlib import Path
 import subprocess
 from typing import Any, Callable
@@ -80,6 +81,7 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
     source_ref = ref
     reports: list[Path] = []
     final_report = None
+    last_verification_status: str | None = None
     if planner != "rules" and not adaptive:
         raise ValueError("LLM_PLANNER_REQUIRES_ADAPTIVE")
     planned = (await plan_developer_team(
@@ -173,6 +175,7 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
             check_argv=check_argv, image=image, ref=source_ref,
             model_factory=model_factory, env_file=env_file)
         reports.append(path)
+        verification_status = report.verification_status
         # Preserve both the per-run provenance and the overall task timeline.
         for event in LocalRuntimeEventSink(home, report.task_id).read_all():
             sink.emit(event.event_type, node_id=node_id,
@@ -193,30 +196,47 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
                     attempt=dag_scheduler.dispatch("__aswe_verify")
                     sink.emit("dag.scheduler.dispatch",node_id="__aswe_verify",payload={
                         "attempt":attempt,"provider_id":"tester",
-                        "execution":"independent_canonical_result_from_child"})
+                        "execution":"isolated_docker_test"})
                 sink.emit("semantic_node.started",node_id="__aswe_verify",
                           payload={"round":number+1})
+                if dag_scheduler is not None:
+                    from aswe.integrations.deerflow.controlled_swe import DockerCommandBackend
+                    # This is a separate, scheduler-dispatched Docker check
+                    # after Coder terminates, not merely copied child evidence.
+                    runner=DockerCommandBackend(workspace_root=path.parent / "workspace",
+                                                image=image)
+                    result=await runner.run(shlex.join(check_argv),timeout=90,
+                                            max_output=6000)
+                    verification_status=("passed" if result.exit_code==0
+                                         and not result.timed_out else "failed")
+                    sink.emit("dag.verification.executed",node_id="__aswe_verify",
+                              payload={"round":number+1,"exit_code":result.exit_code,
+                                       "timed_out":result.timed_out,
+                                       "status":verification_status,
+                                       "child_verification_status":report.verification_status})
                 sink.emit("semantic_node.finished",node_id="__aswe_verify",payload={
-                    "round":number+1, "status":report.verification_status,
-                    "source":"independent_canonical_verifier"})
+                    "round":number+1, "status":verification_status,
+                    "source":("dag_scheduler_docker" if dag_scheduler is not None
+                              else "child_canonical_verifier")})
                 if dag_scheduler is not None:
                     dag_scheduler.finish("__aswe_verify",
-                                         verified=report.verification_status=="passed")
+                                         verified=verification_status=="passed")
+        last_verification_status = verification_status
         sink.emit("workflow.test.finished", node_id=f"tester-{number}",
                   payload={"round":number+1, "check_id":report.verification_check_id,
-                           "verification_status":report.verification_status,
+                           "verification_status":verification_status,
                            "execution_id":report.execution_id})
         sink.emit("workflow.stage.finished", node_id=node_id,
                   payload={"round":number+1,"native_status":report.native_status,
-                           "verification_status":report.verification_status,
+                           "verification_status":verification_status,
                            "changed_files":list(report.changed_files)})
         final_report = report
-        if report.verification_status == "passed":
+        if verification_status == "passed":
             break
         if number == max_repairs or report.native_status != "completed":
             break
         # A failed canonical check is the only trigger for a new repair round.
-        if report.verification_status != "failed":
+        if verification_status != "failed":
             break
         if dag_scheduler is not None:
             dag_scheduler.reset_for_repair()
@@ -228,7 +248,7 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
                   payload={"from_task_id":report.task_id,"round":number+2,
                            "reason":"canonical_tests_failed"})
     assert final_report is not None
-    status = final_report.verification_status
+    status = last_verification_status or final_report.verification_status
     sink.emit("workflow.finished",payload={
         "verification_status":status,"round_count":len(reports),
         "final_child_task_id":final_report.task_id})
