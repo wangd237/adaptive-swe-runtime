@@ -68,3 +68,10 @@ are checked for modifications at the end.
 
 This is controlled progressive test coverage, not proof of spontaneous
 Repair frequency on arbitrary GitHub Issues.
+
+## Explicit final two-tier real-model run
+
+This run uses a focused inventory unit test in the first genuine Coder pass,
+then the authoritative full cancellation regression in the DAG Tester.
+Both external coding rounds, when a Repair is needed, are real model calls.
+Only GitHub Actions with existing Secrets may run it. No patch is injected.
