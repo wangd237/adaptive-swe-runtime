@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from aswe.capabilities.effects import ToolEffect
-from aswe.providers.inventory import BackendToolInfo
+from aswe.providers.inventory import (BackendToolInfo, BackendInventorySnapshot, inventory_fingerprint)
 from aswe.integrations.deerflow.controlled_swe import DockerCommandBackend
 
 DOCKER_BASH_IMPLEMENTATION_ID = "aswe.runtime.docker:bash.v1"
@@ -58,3 +58,29 @@ class DockerBashCapability:
             provenance="aswe-runtime-owned-docker",
             effect=ToolEffect.WORKSPACE_MUTATING,
         )
+
+
+def compose_docker_bash_inventory(
+    *, native: BackendInventorySnapshot,
+    backend: DockerCommandBackend,
+    grant: DockerBashCapability,
+) -> BackendInventorySnapshot:
+    """Merge independently provisioned Docker into a *real* native observation.
+
+    Native host bash must be absent. This never modifies the upstream
+    get_available_tools() result or impersonates its config implementation.
+    Caller must supply source-pinned, freshly captured native inventory.
+    """
+    grant.assert_matches(backend)
+    if native.backend_id != "deerflow" or not native.candidate_agent_types:
+        raise DockerBashCapabilityError("DOCKER_BASH_NATIVE_INVENTORY_UNATTESTED")
+    if "bash" in native.candidate_tools:
+        raise DockerBashCapabilityError("DOCKER_BASH_NATIVE_HOST_COLLISION")
+    new_tools = dict(native.candidate_tools)
+    new_tools["bash"] = grant.tool_info()
+    body = native.model_dump(mode="python", exclude={"fingerprint"})
+    body["candidate_tools"] = new_tools
+    body["sandbox_features"] = frozenset(native.sandbox_features) | {
+        "aswe_runtime_docker_no_network",
+    }
+    return BackendInventorySnapshot(**body, fingerprint=inventory_fingerprint(body))
