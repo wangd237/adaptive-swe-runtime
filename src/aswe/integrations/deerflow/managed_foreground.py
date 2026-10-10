@@ -17,6 +17,7 @@ import signal
 import sys
 from typing import Callable
 
+from aswe.runtime.command_observations import ForegroundReceipt
 from aswe.core.contracts.backend import NodeExecutionInvocation
 from aswe.core.contracts import WorkspaceRevision
 from aswe.planning.acceptance import CompiledAcceptancePlan, VerificationCommand, _validate_argv
@@ -30,31 +31,6 @@ class ForegroundExecutionError(RuntimeError):
     def __init__(self, code: str):
         self.code = code
         super().__init__(code)
-
-
-@dataclass(frozen=True)
-class ForegroundReceipt:
-    task_id: str
-    node_id: str
-    execution_id: str
-    attempt: int
-    command_id: str
-    command_fingerprint: str
-    policy_fingerprint: str
-    command_policy_fingerprint: str
-    argv_fingerprint: str
-    returncode: int | None
-    timed_out: bool
-    completion_observed: bool
-    process_group_drained: bool
-    pre_repository_fingerprint: str
-    post_repository_fingerprint: str
-    status: str
-    stdout_sha256: str
-    stderr_sha256: str
-    observed_revision: WorkspaceRevision
-    # This host observation is NOT a CanonicalVerifier HMAC verdict.
-    authority: str = "runtime-foreground-command-observation"
 
 
 class _Run:
