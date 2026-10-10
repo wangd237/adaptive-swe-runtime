@@ -2,6 +2,7 @@ import ast
 from pathlib import Path
 
 FORBIDDEN_ROOTS={"deerflow"}
+FORBIDDEN_PREFIXES=("aswe.integrations.deerflow",)
 PROTECTED=("core","runtime","workspace","repository","evidence","planning","evaluation")
 
 def test_no_deerflow_imports_in_core_layers()->None:
@@ -17,8 +18,8 @@ def test_no_deerflow_imports_in_core_layers()->None:
                 if isinstance(node,ast.ImportFrom): module=node.module
                 elif isinstance(node,ast.Import):
                     for alias in node.names:
-                        if alias.name.split(".")[0] in FORBIDDEN_ROOTS:
+                        if alias.name.split(".")[0] in FORBIDDEN_ROOTS or alias.name.startswith(FORBIDDEN_PREFIXES):
                             violations.append(f"{path}: import {alias.name}")
-                if module and module.split(".")[0] in FORBIDDEN_ROOTS:
+                if module and (module.split(".")[0] in FORBIDDEN_ROOTS or module.startswith(FORBIDDEN_PREFIXES)):
                     violations.append(f"{path}: from {module} import ...")
     assert violations==[]
