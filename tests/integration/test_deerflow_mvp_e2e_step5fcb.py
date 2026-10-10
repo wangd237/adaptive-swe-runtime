@@ -68,86 +68,109 @@ class RealGraphScriptedRepairModel(BaseChatModel):
         return ChatResult(generations=[ChatGeneration(message=message)])
 
 
-class CommittedPhysicalBindingStore:
-    """Fixture composes genuine vendor graph, Guard and Docker AFTER commit."""
+class PhysicalPreparedToolSource:
+    """Test-only precommit tool source; full 5C physical inventory is separate.
 
-    def __init__(self, *, core, repository, image, compiled_policy):
+    Unlike 5D and native execution, this preparer does NOT run the frozen
+    5C inventory/compiler workflow. Its source and identity are test-fixed.
+    """
+
+    def __init__(self, *, core, repository, compiled_policy):
+        from aswe.capabilities.effects import DEERFLOW_USE_BY_CONTRACT
         self.core=core
         self.repository=repository
-        self.image=image
         self.policy=compiled_policy
-        self.preparation_backend=self
-        self.last_binding=None
-        self.bind_calls=0
-        self.release_calls=0
+        self.prepared=None
+        self.resources=None
+        self._consumed=False
+        self._tool_names=("read_file","str_replace","bash")
+        configs=[
+            {"name":name, "group":"swe", "use":DEERFLOW_USE_BY_CONTRACT[name]}
+            for name in self._tool_names
+        ]
+        cfg=AppConfig.model_validate({
+            "sandbox":{"use":"deerflow.sandbox.local:LocalSandboxProvider",
+                       "allow_host_bash":False},
+            "tools":configs,
+        })
+        sub=SubagentConfig(
+            name="general-purpose",description="physical MVP coding",
+            model="inherit",tools=list(self._tool_names),
+            disallowed_tools=[],skills=[],system_prompt="Repair calc.answer",
+            max_turns=25,timeout_seconds=50,
+        )
+        # Only tool NAME and Use contract from frozen 5C are supplied by this
+        # fixture. 5D replaces these objects with sealed runtime wrappers.
+        original=tuple(
+            SimpleNamespace(name=name, func=None, coroutine=None, args_schema=None)
+            for name in self._tool_names
+        )
+        self.resources=SimpleNamespace(
+            model_name="offline-pinned",
+            app_config=cfg,subagent_config=sub,extensions=get_loaded_extensions(),
+            node_id=self.policy.node_id,
+            effective_max_turns=25,effective_timeout_seconds=50,
+            policy_fingerprint=self.policy.fingerprint,
+            allowed_tool_ids=self._tool_names,tools=original,
+            assert_intact=lambda:None,
+        )
 
     async def prepare_node(self, node):
         assert node.id==self.policy.node_id
+        assert self.prepared is None and not self._consumed
+        self.prepared=node
         return node
 
+    def claim_for_execution(self, preparation, invocation):
+        from aswe.integrations.deerflow.preparation import DeerFlowPreparationError
+        if (self._consumed or preparation is not self.prepared
+                or not self.core.is_committed_invocation(invocation)
+                or not self.core.is_active_execution(invocation)
+                or invocation.node_id!=self.policy.node_id):
+            raise DeerFlowPreparationError("PHYSICAL_TEST_PREPARATION_IDENTITY_UNTRUSTED")
+        self._consumed=True
+        return self.resources
+
     def release_preparation(self, preparation):
-        pass
+        self.prepared=None
 
-    async def bind(self, *, preparation, invocation):
-        assert self.core.is_committed_invocation(invocation)
-        assert self.core.is_active_execution(invocation)
-        assert invocation.node_id == self.policy.node_id
-        self.bind_calls += 1
-        assert self.bind_calls==1
-        root=Path(self.repository.repository_root)
-        runtime=ControlledSWEWorkspace(
-            invocation=invocation,policy=self.policy,root=root,
-            command_backend=DockerCommandBackend(workspace_root=root,image=self.image),
-        )
-        tools=runtime.make_tools(("read_file","str_replace","bash"))
-        resources=SimpleNamespace(
-            model_name="offline-pinned",
-            app_config=AppConfig.model_validate({
-                "sandbox":{"use":"deerflow.sandbox.local:LocalSandboxProvider",
-                           "allow_host_bash":False}
-            }),
-            subagent_config=SubagentConfig(
-                name="general-purpose",description="physical MVP coding",
-                model="inherit",tools=[tool.name for tool in tools],
-                disallowed_tools=[],skills=[],system_prompt="Repair calc.answer",
-                max_turns=25,timeout_seconds=50,
-            ),
-            extensions=get_loaded_extensions(),
-            node_id=invocation.node_id,
-            effective_max_turns=25,effective_timeout_seconds=50,
-            policy_fingerprint=self.policy.fingerprint,
-            assert_intact=lambda:None,
-        )
-        principal=SimpleNamespace(
-            user_id="mvp-runtime-owned",role="worker",
-            oauth_provider=None,oauth_id=None,channel_user_id=None,
-            is_internal=False,attributes={},
-        )
-        view=BoundToolView(
-            names=tuple(tool.name for tool in tools),objects=tools,
-            object_seals=tuple(_tool_seal(tool) for tool in tools),
-        )
-        guard=ToolCallGuard(
-            invocation=invocation,resources=resources,view=view,
-            principal=principal,provider=None,request_factory=None,
-            auth_enabled=False,policy=self.policy,
-            execution_live_checker=self.core.is_active_execution,
-            swe_runtime=runtime,
-        )
-        binding=NodeExecutionBinding(
-            execution_id=invocation.execution_id,
-            preparation_id="installed-offline-physical-e2e",
-            invocation=invocation,resources=resources,tool_view=view,
-            guard=guard,swe_runtime=runtime,
-        )
-        self.last_binding=binding
-        return binding
 
-    def release(self,execution_id):
-        self.release_calls+=1
-        assert self.last_binding is not None
-        assert self.last_binding.execution_id==execution_id
-        self.last_binding.guard.close()
+def physical_binding_store(*, core, repository, image, compiled_policy):
+    """Real Step 5D BindingStore and Runtime-created guarded SWE tools."""
+    from aswe.integrations.deerflow.tool_guard import NodeExecutionBindingStore
+
+    prepared=PhysicalPreparedToolSource(
+        core=core,repository=repository,compiled_policy=compiled_policy)
+    root=Path(repository.repository_root)
+    principal=SimpleNamespace(
+        user_id="mvp-runtime-owned",role="worker",
+        oauth_provider=None,oauth_id=None,channel_user_id=None,
+        is_internal=False,attributes={},
+    )
+    def build_swe(invocation, resources, policy):
+        assert core.is_committed_invocation(invocation)
+        return ControlledSWEWorkspace(
+            invocation=invocation,policy=policy,root=root,
+            command_backend=DockerCommandBackend(workspace_root=root,image=image),
+        )
+    real_store=NodeExecutionBindingStore(
+        preparation_backend=prepared,
+        principal_supplier=lambda _:principal,
+        provider_supplier=lambda _:None,
+        auth_request_factory=lambda **kwargs:kwargs,
+        execution_live_checker=core.is_active_execution,
+        swe_workspace_factory=build_swe,
+        expected_swe_workspace_root=root,
+    )
+    # The collector is test-only and reads the actual immutable binding
+    # returned by Step 5D, without changing its identity.
+    original_bind=real_store.bind
+    async def capture_bind(*, preparation, invocation):
+        bound=await original_bind(preparation=preparation,invocation=invocation)
+        real_store._captured_for_e2e=bound
+        return bound
+    real_store.bind=capture_bind
+    return real_store
 
 
 @pytest.mark.asyncio
@@ -157,7 +180,7 @@ async def test_real_installed_deerflow_real_docker_scheduler_to_verified_mvp_rep
     policy=write_policy(tools=("read_file","str_replace","bash"))
     assert policy.node_id=="writer"
     image=local_image_digest()
-    binding_store=CommittedPhysicalBindingStore(
+    binding_store=physical_binding_store(
         core=core,repository=repo,image=image,compiled_policy=policy,
     )
     assembler=NativeSubagentAssembler.from_deerflow()
@@ -185,8 +208,10 @@ async def test_real_installed_deerflow_real_docker_scheduler_to_verified_mvp_rep
     assert result.scheduler_failed and not result.quiescence_proven
     assert result.canonical_receipt_ref is not None
     assert store.get(result.canonical_receipt_ref)["status"]=="holds"
-    assert binding_store.bind_calls==1 and binding_store.release_calls==1
-    binding=binding_store.last_binding
+    assert binding_store.preparation_backend._consumed
+    assert binding_store.active_count==0
+    assert len(binding_store._used)==1
+    binding=binding_store._captured_for_e2e
     assert binding.guard.closed
     receipts=binding.guard.receipt_snapshot()
     assert len(receipts)==6
