@@ -1,3 +1,12 @@
+## Step 5F-C-B — Committed end-to-end SWE MVP / Independent Canonical Verification (2026-10-10)
+
+- `src/aswe/integrations/deerflow/mvp_task.py` introduces `MVPTaskRunner` and typed `MVPTaskReport` / `to_json()`. The Runner invokes **real SchedulerCore.claim/run_claim** with an execution probe; after native execution, but still under Scheduler WorkspaceAccess, it captures Git diff and post-state and performs independent exact `CanonicalVerifier.run()` plus `validate()` against the actual modified repo.
+- Strict Scheduler stays fail-closed and quarantines when native Quiescence is unknown. MVP returns `tests_passed_scheduler_quarantined` when the separate HMAC-signed host regression passes, never `NodeHandoff ACCEPTED`, and distinguishes native failure, failed independent verification, unavailable checker, and missing evidence. Includes changed files, bounded patch, actual canonical EvidenceRef, verified returncode and advisory agent tool/command metrics.
+- `tests/unit/test_deerflow_mvp_task_step5fcb.py` exercises actual Git, Scheduler commit and Runtime's independent Python unittest under Core 3.11/3.13; tamper/identity and negative verdicts are checked.
+- `tests/integration/test_deerflow_mvp_e2e_step5fcb.py` physically composes installed source-pinned DeerFlow `SubagentExecutor`, real `NodeExecutionBindingStore.bind()` after genuine Scheduler Commit, LangGraph model/tool loop, **actual no-network Docker Bash** (failure → repair → success), and **real independent Python canonical unittest** (HMAC result, Git Diff) in one CI job. Offline model is scripted. A fixture-prepared test tool-source substitutes for the full 5C production provider/Inventory in this particular E2E: do not mislabel as complete production provider authorization.
+- Added an installed-frozen-vendor CI stage to `.github/workflows/deerflow-pinned-native.yml`. Audit: `audits/step5fcb-e2e-mvp-task-review.md`.
+- **5F-C-B offline physical Scoped GO only after latest SHA CI fully green**. Deferred: remote model/provider credentials, full 5C live inventoried tools as a single assembly, production quiescence, accepted DAG/TaskResult semantics, UI/API and benchmarks. PR #7 Draft/Open/unmerged.
+
 ## Step 5F-C-A — Controlled SWE Coding Loop / Opt-in Docker Bash (2026-10-09)
 
 - User-requested MVP priority shift: complete physical Quiescence Attestation deferred. Existing Core Scheduler UNKNOWN/quarantine is **not** falsely promoted to success. No blanket weakening of ToolCallGuard or hard Handoff verification.
