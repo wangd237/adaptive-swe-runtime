@@ -134,11 +134,17 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
             discovered = explore_repository(repository,planned.explorer_objective)
             sink.emit("semantic_node.started",node_id="explorer",
                       payload={"work_kind":"discovery","mode":explorer_mode})
+            explorer_fallback = False
             if explorer_mode == "llm":
                 finding = await execute_llm_explorer(
                     repository=repository,ref=ref,
                     task=planned.explorer_objective,
                     env_file=env_file,explorer_factory=explorer_factory)
+                explorer_fallback = finding.used_index_fallback
+                if explorer_fallback:
+                    sink.emit("explorer.structured_fallback",node_id="explorer",
+                              payload={"reason":"invalid_llm_structured_output",
+                                       "source":"git_index"})
                 discovered = tuple(dict.fromkeys(
                     finding.relevant_paths + tuple(discovered)))
                 # Output from independent Explorer is advisory only.
@@ -152,8 +158,9 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
                 + ", ".join(discovered))
             sink.emit("explorer.finished", node_id="explorer",
                       payload={"candidate_paths":list(discovered),
-                               "source":"llm_readonly" if explorer_mode == "llm"
-                                         else "git_index",
+                               "source":("git_index_fallback" if explorer_fallback
+                                         else "llm_readonly" if explorer_mode == "llm"
+                                         else "git_index"),
                                "read_only":True})
             sink.emit("semantic_node.finished",node_id="explorer",
                       payload={"work_kind":"discovery","status":"completed"})
