@@ -1,3 +1,15 @@
+# Implementation Status — Current Developer MVP Baseline
+
+**As of 2026-10-10: Step 5 Developer MVP CLOSED / MERGED** via [PR #7](https://github.com/wangd237/adaptive-swe-runtime/pull/7), merge commit `1fa6e5858cdb3f06253cd5c2e40370a308440e3c`. Core/Runtime dependency inversion, Runtime-owned Docker Bash tool identity, real 5C/5D compiled inventory integration and frozen DeerFlow offline physical E2E were merged. Head-matching [Python CI](https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38032079321) and [pinned native CI](https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38032079301) passed. [Real-model smoke](https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38018937188) independently passed a single coding fixture.
+
+**Project scope:** developer-oriented SWE Agent MVP, not production service. Work next on CLI/task entrypoint, execution trace/observability, multi-file coding and representative multi-step repair/DAG demos. Do not add full native Sandbox Quiescence attestation, production RBAC, distributed Scheduler or remote multi-tenant platform to the roadmap. Preserve the existing conservative behavior: native quiescence remains unproven, so Scheduler quarantine is *not* an accepted TaskResult, even when the separate canonical test passes.
+
+**Document interpretation:** material below is a chronological **pre-merge audit log**, not the current release verdict. Its historical `NO-GO`, `Draft/Open` and production-gate statements describe earlier commits and stricter scopes; they do not supersede this Developer MVP closure. Detailed historical audits stay intact for traceability.
+
+---
+
+## Archived chronological Step 5 implementation log (historical snapshots)
+
 ## Step 5 Global Design Freeze Audit (2026-10-10)
 
 **Verdict: NO-GO for global Step 5 closure or PR #7 merge as completed baseline.** This does not overturn 5F-D's evidence-backed real-model `Scoped GO`; nor does it reopen the user's deliberate deferral of native Sandbox Quiescence.
