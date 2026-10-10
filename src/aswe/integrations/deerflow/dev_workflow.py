@@ -17,6 +17,7 @@ from typing import Any, Callable
 from aswe.core.ids import new_safe_id
 from aswe.trace.minimal_events import LocalRuntimeEventSink
 from aswe.integrations.deerflow.developer_entry import execute_swe_task
+from aswe.integrations.deerflow.adaptive_team import select_team, explore_repository
 
 
 @dataclass(frozen=True)
@@ -51,7 +52,8 @@ def _checkpoint(workspace: Path) -> None:
 async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path,
                                check_argv: tuple[str, ...], image: str,
                                ref: str = "HEAD", max_repairs: int = 1,
-                               model_factory: Callable[..., Any] | None = None) -> WorkflowResult:
+                               model_factory: Callable[..., Any] | None = None,
+                               adaptive: bool = False) -> WorkflowResult:
     if not (0 <= max_repairs <= 3):
         raise ValueError("WORKFLOW_REPAIR_BUDGET_INVALID")
     workflow_id = new_safe_id("workflow")
@@ -61,6 +63,20 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
     source_ref = ref
     reports: list[Path] = []
     final_report = None
+    decision = select_team(task, repository) if adaptive else None
+    if decision is not None:
+        sink.emit("team.selected", payload={
+            "roles":list(decision.roles),"reason":decision.reason,
+            "complexity":decision.complexity,
+            "matched_paths":list(decision.evidence_paths)})
+        if decision.needs_exploration:
+            discovered = explore_repository(repository,task)
+            sink.emit("explorer.finished", node_id="explorer-0",
+                      payload={"candidate_paths":list(discovered),
+                               "source":"git_index","read_only":True})
+            # Advisory hints only; no changes to tool grants or runtime policy.
+            task = (task + "\\n\\nRepository exploration candidates (verify before editing): "
+                    + ", ".join(discovered))
     sink.emit("workflow.started", payload={"max_repairs":max_repairs})
     for number in range(max_repairs + 1):
         stage = "coder" if number == 0 else "repair"
@@ -117,6 +133,7 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
         "workflow_id":workflow_id,"verification_status":status,
         "round_count":len(reports),"round_reports":[str(p) for p in reports],
         "trace_path":str(sink.path),
+        "selected_roles":list(decision.roles) if decision else ["coder","tester"],
     },ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
     return WorkflowResult(workflow_id,status,len(reports),destination,
                           sink.path,tuple(reports))

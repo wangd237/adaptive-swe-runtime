@@ -130,6 +130,25 @@ or a production multi-agent architecture. Each coding round still has a
 separate Scheduler task and native quarantine semantics. The final verdict
 is a canonical test result, not an `ACCEPTED TaskResult`.
 
+## Step 6E — Adaptive minimum-team selection (first increment)
+
+Use `aswe workflow ... --adaptive` to enable a bounded, developer-mode
+topology selector. Small, clearly anchored edits select `coder`; multi-file,
+cross-module, or unclear code locations select `explorer → coder → tester`.
+The Explorer uses the real repository Git index to supply bounded candidate
+paths to the existing native DeerFlow Coding Agent. The existing independent
+Docker verification remains the Tester, and canonical failures may trigger
+the existing limited Repair workflow.
+
+`team.selected` and `explorer.finished` events record the selection basis
+and actual inspected path candidates in the workflow Trace.
+
+**Scope honesty:** this first increment uses a deterministic minimal-team
+policy rather than an LLM SemanticPlanner; Explorer is read-only repository
+discovery rather than a separate LLM agent. It does not yet dynamically
+compile and dispatch a multi-node Scheduler DAG. This is a functional step
+toward the original Adaptive Team Formation plan, not its completion.
+
 ## Accepted implementation
 
 - Provider-neutral frozen contracts and two-stage deterministic TaskDAG identity (Step 0).
