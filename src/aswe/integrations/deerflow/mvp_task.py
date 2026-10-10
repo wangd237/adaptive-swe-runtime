@@ -25,6 +25,7 @@ from aswe.runtime.canonical_verifier import (
     CanonicalCommandPolicy, CanonicalCommandReceipt, CanonicalVerifier,
 )
 from aswe.runtime.scheduler import SchedulerCore
+from aswe.trace.minimal_events import LocalRuntimeEventSink
 
 
 class MVPIntegrationError(RuntimeError):
@@ -191,7 +192,8 @@ class MVPTaskRunner:
                  policy: CanonicalCommandPolicy,
                  execution_evidence_store: LocalEvidenceStore | None = None,
                  max_diff_chars: int = 32_000,
-                 isolated_canonical_container: Any | None = None):
+                 isolated_canonical_container: Any | None = None,
+                 trace_sink: LocalRuntimeEventSink | None = None):
         if (not isinstance(scheduler, SchedulerCore)
                 or not isinstance(repository, RepositoryBinding)
                 or not isinstance(verifier, CanonicalVerifier)
@@ -217,6 +219,9 @@ class MVPTaskRunner:
                        Path(repository.repository_root).resolve()):
                 raise MVPIntegrationError("MVP_CANONICAL_ISOLATION_UNTRUSTED")
         self.isolated_canonical_container = isolated_canonical_container
+        if trace_sink is not None and trace_sink.task_id != scheduler.task_id:
+            raise MVPIntegrationError("MVP_TRACE_TASK_IDENTITY_MISMATCH")
+        self.trace_sink = trace_sink
         self._ran = False
 
     async def run_node(self, node_id: str) -> MVPTaskReport:
@@ -231,6 +236,9 @@ class MVPTaskRunner:
             repository=self.repository, verifier=self.verifier, policy=self.policy,
             isolated_canonical_container=self.isolated_canonical_container,
         )
+        if self.trace_sink is not None:
+            self.trace_sink.emit("mvp.task.started", node_id=node_id,
+                                 payload={"check_id": self.policy.check_id})
         ticket = await self.scheduler.claim(node_id)
         invocation = await self.scheduler.run_claim(
             ticket, probe,
@@ -262,7 +270,7 @@ class MVPTaskRunner:
             if probe.verification_status == "failed"
             else "unverified"
         )
-        return MVPTaskReport(
+        report = MVPTaskReport(
             task_id=self.scheduler.task_id, node_id=node_id,
             execution_id=invocation.execution_id, attempt=invocation.attempt,
             native_status=terminal,
@@ -296,3 +304,16 @@ class MVPTaskRunner:
                 "verification_level","not_observed"
             ),
         )
+        if self.trace_sink is not None:
+            self.trace_sink.emit("mvp.task.finished", node_id=node_id,
+                payload={
+                    "execution_id": report.execution_id,
+                    "attempt": report.attempt,
+                    "native_status": report.native_status,
+                    "verification_status": report.verification_status,
+                    "delivery_status": report.delivery_status,
+                    "changed_files": list(report.changed_files),
+                    "dynamic_command_count": report.agent_dynamic_command_count,
+                    "quiescence_proven": report.quiescence_proven,
+                })
+        return report

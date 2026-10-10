@@ -16,6 +16,28 @@ A-SWE is a **developer-oriented, task-adaptive Software Engineering Agent Runtim
 
 **Next: Step 6 — SWE Agent Usability & Observability.** Focus on a usable CLI/task entrypoint, execution trace, multi-file coding tasks, and richer task/DAG/repair demonstrations. Full formal sandbox quiescence, production RBAC, distributed scheduling/Workspace and enterprise platform features are **out of scope**, not deferred release blockers. Keep existing correctness checks; do not weaken Scheduler evidence or silently claim production guarantees.
 
+## Step 6 — CLI & Execution Trace (first increment)
+
+Install for local inspection: `pip install -e .`.
+
+```bash
+aswe trace TASK_ID --runtime-dir ./runtime-data --json
+aswe trace TASK_ID --runtime-dir ./runtime-data --tail 20
+aswe report ./mvp-report.json
+aswe report ./mvp-report.json --json
+```
+
+The MVP Runner can now emit append-only `mvp.task.started` and
+`mvp.task.finished` events through an optional `LocalRuntimeEventSink`.
+Events contain bounded status/identity metadata rather than prompts, command
+output or patch bodies. Canonical verdict and strict Scheduler quarantine
+remain distinct.
+
+**Scope:** this first CLI increment inspects existing runs; it does *not*
+yet submit a new coding task, initialize a model, or create a native
+DeerFlow execution session. An actual `aswe run` entrypoint and per-tool /
+per-node tracing are next, not already delivered.
+
 ## Accepted implementation
 
 - Provider-neutral frozen contracts and two-stage deterministic TaskDAG identity (Step 0).
