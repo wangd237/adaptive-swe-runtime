@@ -1,4 +1,4 @@
-## Step 5F-D — Real Model SWE Smoke (Prepared, Not Yet Executed) — 2026-10-10
+## Step 5F-D — Real Model SWE Smoke (Real API Run Scoped GO) — 2026-10-10
 
 - User reports adding GitHub Actions Secrets `SWE_LLM_API_KEY`, `SWE_LLM_BASE_URL`, `SWE_LLM_MODEL`. The actual values cannot be inspected through the GitHub connector and no external model HTTP request has yet been made.
 - Added `live_smoke_config.py` for explicit manual Actions opt-in, sanitized HTTPS/model/key input validation and frozen `AppConfig` reconstruction. The real pinned `ChatOpenAI` factory reads `OPENAI_API_KEY` from runner environment; the key never enters the AppConfig snapshot, model prompt or Docker tool mount. Frozen `AppConfig._models_by_name` is rebuilt by full model validation, not stale list mutation.
@@ -264,3 +264,13 @@
 - Future finalization must consume the compiled contract fingerprint from the authoritative planner/compiler; it may not be inferred from model prose.
 
 See audits/step2-poc-audit.md, audits/step2-poc-coverage.json and audits/step2-finalization-review.md.
+
+
+## 5F-D Live Model Run #38018937188 — Verified (2026-10-10)
+
+- **Real live result: Scoped GO** for *one actual paid-model autonomous coding smoke*, on commit `1cc3567eeed4550254b0cff35f9f2183bcbefe59`; GitHub Actions run: https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38018937188. This was a `workflow_dispatch` on `coding/step5-deerflow-adapter`. Workflow conclusion `success`; no retries recorded.
+- Actual model stage `One real LLM autonomous repair and canonical verification` succeeded. GitHub Actions credentials preflight succeeded; the run uploaded artifact `swe-live-mvp-report` (ID `11657392376`), retrieved and parsed independently.
+- Report: `native_status=completed`, `verification_status=passed`, `verified_returncode=0`, `tests_passed=true`, canonical check `mvp-python-regression-container`, nonempty canonical EvidenceRef bound to this execution, `agent_dynamic_command_count=2`, `agent_last_dynamic_command_exit_code=0`, `agent_tool_changed_paths=["calc.py"]`, `changed_files=["calc.py"]`, `git_diff_truncated=false`. Exact observed patch: `calc.py` `return 1` → `return 42`; regression test file was not modified.
+- **Not strict ACCEPTED**: report honestly states `scheduler_failed=true`, `scheduler_node_status=failed`, `workspace_status=quarantined`, `quiescence_proven=false`, `delivery_status=tests_passed_scheduler_quarantined`. Full Sandbox Quiescence remains deferred and no strict NodeHandoff/TaskResult was signed.
+- Limits: script includes instructions to inspect specified files and run unittest, but **model tool calls were not hardcoded**. Only aggregated command counts and patch are stored; no full per-tool/model transcript, so **the real-model run does not independently prove a failing-test→repair retry or reasoning trajectory**. No repeatability study, unknown token/cost, no provider stress/benchmark, no production 5C inventory/Authz single physical composition. The test fixed only a trivial Python regression; do not claim general SWE-bench capability.
+- Decision: **5F-D minimal real-model smoke accepted, within expressly limited scope**. PR #7 remains Draft/Open/unmerged. Before full Step 5 Design Freeze consider optional per-tool structured trace without secrets, reliable provider cost counters, and a harder multi-step bug. Do NOT replay paid API calls automatically.
