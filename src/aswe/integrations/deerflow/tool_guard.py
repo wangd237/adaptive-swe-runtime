@@ -16,6 +16,7 @@ from typing import Any, Awaitable, Callable, Mapping
 from aswe.core.contracts.backend import NodeExecutionInvocation, NodeExecutionPreparation
 from aswe.capabilities.effects import DEERFLOW_USE_BY_CONTRACT, STANDARD_EFFECTS, ToolEffect
 from aswe.integrations.deerflow.controlled_swe import ControlledSWEWorkspace
+from aswe.integrations.deerflow.docker_bash_capability import RuntimeDockerBashSource
 from aswe.integrations.deerflow.preparation import (
     DeerFlowPreparationBackend, DeerFlowPreparationError, PinnedNodeResources,
     _tool_seal, _extension_seal, _digest,
@@ -83,6 +84,11 @@ def _static_surface(resources: PinnedNodeResources) -> tuple[str, ...]:
     if len(tool_config) != len(getattr(resources.app_config, "tools", ())):
         _deny("DUPLICATE_CONFIG_TOOL")
     for contract_id, tool in zip(resources.allowed_tool_ids, resources.tools):
+        if contract_id == "bash" and isinstance(tool, RuntimeDockerBashSource):
+            if (resources.docker_bash_grant is None
+                    or tool.grant != resources.docker_bash_grant):
+                _deny("DOCKER_BASH_GRANT_MISMATCH")
+            continue
         if (tool.name != contract_id or contract_id not in tool_config
                 or tool_config[contract_id] != DEERFLOW_USE_BY_CONTRACT.get(contract_id)):
             _deny("DYNAMIC_TOOL_PROVENANCE_FORBIDDEN")
@@ -611,6 +617,15 @@ class NodeExecutionBindingStore:
                 if not _decision_ok(verdict):
                     _deny("MODEL_AUTHORIZATION_DENIED")
             source_tools = tuple(t for t in resources.tools if t.name in visible)
+            if any(isinstance(t, RuntimeDockerBashSource) for t in source_tools):
+                if (swe_factory is None or resources.docker_bash_grant is None
+                        or self.preparation_backend.docker_bash_backend is None):
+                    _deny("DOCKER_BASH_EXECUTION_NOT_PROVISIONED")
+                try:
+                    resources.docker_bash_grant.assert_matches(
+                        self.preparation_backend.docker_bash_backend)
+                except Exception:
+                    _deny("DOCKER_BASH_GRANT_DRIFT")
             swe_runtime = None
             if swe_factory is not None:
                 swe_runtime = swe_factory(invocation, resources, self.preparation_backend.policy)
@@ -619,6 +634,14 @@ class NodeExecutionBindingStore:
                         or swe_runtime.policy is not self.preparation_backend.policy
                         or swe_runtime.root != self.expected_swe_workspace_root):
                     _deny("SWE_RUNTIME_AUTHORITY_MISMATCH")
+                if resources.docker_bash_grant is not None:
+                    if (swe_runtime.command_backend is not
+                            self.preparation_backend.docker_bash_backend):
+                        _deny("DOCKER_BASH_BACKEND_REBOUND")
+                    try:
+                        resources.docker_bash_grant.assert_matches(swe_runtime.command_backend)
+                    except Exception:
+                        _deny("DOCKER_BASH_GRANT_DRIFT")
                 view_tools = swe_runtime.make_tools(tuple(t.name for t in source_tools))
                 if (len(view_tools) != len(source_tools)
                         or any(t.name != orig.name for t,orig in zip(view_tools, source_tools))):
