@@ -50,3 +50,9 @@ jobs:
           PYTHONPATH: src
         run: |
           python -m pytest -vv -x tests/integration/test_deerflow_mvp_e2e_step5fcb.py
+      - name: Verify independent canonical Python in no-network container
+        env:
+          PYTHONPATH: src
+        run: |
+          docker pull python:3.12-slim
+          python -m pytest -vv -x tests/integration/test_deerflow_docker_canonical_step5fd.py
