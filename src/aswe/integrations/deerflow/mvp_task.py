@@ -77,12 +77,14 @@ class MVPTaskReport:
 
 class _VerificationProbe:
     def __init__(self, *, delegate: Any, task_id: str, repository: RepositoryBinding,
-                 verifier: CanonicalVerifier, policy: CanonicalCommandPolicy):
+                 verifier: CanonicalVerifier, policy: CanonicalCommandPolicy,
+                 isolated_canonical_container: Any | None = None):
         self.delegate = delegate
         self.task_id = task_id
         self.repository = repository
         self.verifier = verifier
         self.policy = policy
+        self.isolated_canonical_container = isolated_canonical_container
         self.result: Any | None = None
         self.invocation: NodeExecutionInvocation | None = None
         self.receipt: CanonicalCommandReceipt | None = None
@@ -139,11 +141,18 @@ class _VerificationProbe:
             "head_matches_baseline": self.post_state.head_matches_baseline,
         })
         try:
-            ref, receipt = await asyncio.to_thread(
-                self.verifier.run,
-                node_id=invocation.node_id, execution_id=invocation.execution_id,
-                attempt=invocation.attempt, policy=self.policy, revision=revision,
-            )
+            if self.isolated_canonical_container is None:
+                ref, receipt = await asyncio.to_thread(
+                    self.verifier.run,
+                    node_id=invocation.node_id, execution_id=invocation.execution_id,
+                    attempt=invocation.attempt, policy=self.policy, revision=revision,
+                )
+            else:
+                ref, receipt = await self.verifier.run_isolated_python(
+                    node_id=invocation.node_id, execution_id=invocation.execution_id,
+                    attempt=invocation.attempt, policy=self.policy, revision=revision,
+                    container=self.isolated_canonical_container,
+                )
             checked = await asyncio.to_thread(
                 self.verifier.validate, ref,
                 node_id=invocation.node_id, execution_id=invocation.execution_id,
@@ -181,7 +190,8 @@ class MVPTaskRunner:
                  repository: RepositoryBinding, verifier: CanonicalVerifier,
                  policy: CanonicalCommandPolicy,
                  execution_evidence_store: LocalEvidenceStore | None = None,
-                 max_diff_chars: int = 32_000):
+                 max_diff_chars: int = 32_000,
+                 isolated_canonical_container: Any | None = None):
         if (not isinstance(scheduler, SchedulerCore)
                 or not isinstance(repository, RepositoryBinding)
                 or not isinstance(verifier, CanonicalVerifier)
@@ -200,6 +210,13 @@ class MVPTaskRunner:
         self.policy = policy
         self.evidence_store = execution_evidence_store
         self.max_diff_chars = max_diff_chars
+        if isolated_canonical_container is not None:
+            from aswe.integrations.deerflow.controlled_swe import DockerCommandBackend
+            if (not isinstance(isolated_canonical_container,DockerCommandBackend)
+                    or Path(isolated_canonical_container.workspace_root).resolve() !=
+                       Path(repository.repository_root).resolve()):
+                raise MVPIntegrationError("MVP_CANONICAL_ISOLATION_UNTRUSTED")
+        self.isolated_canonical_container = isolated_canonical_container
         self._ran = False
 
     async def run_node(self, node_id: str) -> MVPTaskReport:
@@ -212,6 +229,7 @@ class MVPTaskRunner:
         probe = _VerificationProbe(
             delegate=self.backend, task_id=self.scheduler.task_id,
             repository=self.repository, verifier=self.verifier, policy=self.policy,
+            isolated_canonical_container=self.isolated_canonical_container,
         )
         ticket = await self.scheduler.claim(node_id)
         invocation = await self.scheduler.run_claim(
