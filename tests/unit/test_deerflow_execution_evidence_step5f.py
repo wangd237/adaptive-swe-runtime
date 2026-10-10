@@ -118,6 +118,25 @@ async def test_external_supervisor_fixture_plus_complete_clean_git_scans_prove_n
 
 
 @pytest.mark.asyncio
+async def test_mutable_swe_profile_cannot_claim_no_mutation_after_reverted_write(repository_fixture,tmp_path):
+    """A WRITE tool may change then restore bytes; clean scans cannot certify none."""
+    repo=repository_fixture
+    store=collector(repo,tmp_path,supervisor=FakeSupervisor())
+    base=await store.begin(invocation(repo))
+    target=Path(repo.repository_root)/"transient.py"
+    target.write_text("temporary write\\n")
+    target.unlink()
+    mutable_guard=guard()
+    mutable_guard.swe_runtime=object()  # synthetic trusted binding seam
+    result=await store.finish(base,guard=mutable_guard,native_task_done=True)
+    assert not result.quiescent
+    assert result.mutation_evidence is MutationEvidence.UNKNOWN
+    assert result.workspace_delta is not None
+    assert result.workspace_delta.mutation_evidence is not MutationEvidence.PROVEN_NONE
+    assert "EVIDENCE_MUTABLE_SWE_PROFILE_UNATTESTED" in result.unknown_reasons
+
+
+@pytest.mark.asyncio
 async def test_attempt_local_git_and_filesystem_mutation_is_observed(repository_fixture,tmp_path):
     repo=repository_fixture
     store=collector(repo,tmp_path,supervisor=FakeSupervisor())
