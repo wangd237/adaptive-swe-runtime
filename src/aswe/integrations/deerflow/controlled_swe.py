@@ -37,6 +37,7 @@ class ShellOutcome:
     exit_code: int | None
     output: str
     timed_out: bool = False
+    output_sha256: str | None = None
 
 
 class IsolatedCommandBackend(Protocol):
@@ -135,12 +136,23 @@ class DockerCommandBackend:
                             raise SWEExecutionDenied("SWE_DOCKER_CLEANUP_UNVERIFIED")
                     except (OSError,asyncio.TimeoutError):
                         raise SWEExecutionDenied("SWE_DOCKER_CLEANUP_UNVERIFIED") from None
+            # The model sees bounded text, but the Runtime verification
+            # receipt may require a digest of *all* bytes, including output
+            # past the truncation limit.
+            output.seek(0)
+            digest=hashlib.sha256()
+            while True:
+                chunk=output.read(65536)
+                if not chunk:
+                    break
+                digest.update(chunk)
             output.seek(0)
             raw=output.read(max_output)
             return ShellOutcome(
                 exit_code=None if timed_out else process.returncode,
                 output=raw.decode("utf-8","replace"),
                 timed_out=timed_out,
+                output_sha256=digest.hexdigest(),
             )
 
 
