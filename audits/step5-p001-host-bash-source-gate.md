@@ -2,7 +2,7 @@
 
 Date: 2026-10-10
 Branch: coding/step5-deerflow-adapter
-Status: OPEN / production positive E2E NOT ATTESTED.
+Status: OFFLINE PHYSICAL GO at f56d0268; deployment authorization still gated.
 
 ## Observed pinned source
 
@@ -52,3 +52,46 @@ This validates 5D/native/Docker but is not a production 5C proof.
 Do not declare strict TaskResult ACCEPTED without real quiescence. No live
 paid-model rerun is required; scripted offline native model is adequate for
 this particular authority-composition gate.
+
+
+## 2026-10-10 implementation update — offline physical chain PASS
+
+Reviewed implementation head: `f56d0268973a3eed34dd08f4d631f9f7a0c5e216`.
+
+- Compiler trusted-effect contract recognizes a separate
+  `aswe.runtime.docker:bash.v1`, not the native
+  `config:deerflow.sandbox.tools:bash_tool`.
+- `compose_docker_bash_inventory` merges only a checked Runtime
+  `DockerCommandBackend` / immutable Docker grant into a native observation,
+  and rejects a native `bash` collision. The original native assembled
+  tool objects are not replaced with a fabricated host tool.
+- `DeerFlowPreparationBackend` reassembles real frozen DeerFlow tools
+  during 5C, builds a fresh live inventory, combines the independently
+  issued grant, checks the original compiled descriptor and live
+  preflight, and pins an inert runtime source token for Bash.
+- `NodeExecutionBindingStore` checks that token/grant/backend match
+  only after a Scheduler-committed execution, and converts the source
+  to execution-scoped Runtime tools. Frozen LangGraph/native tooling
+  invokes the Runtime Docker implementation; host Bash remains denied.
+- Test `tests/integration/test_deerflow_docker_production_chain_step5_release.py`
+  uses real DeerFlow `get_available_tools` and resolved native tool objects,
+  actual compiler `resolve_workplan`, `compile_policies`,
+  `compile_plan_descriptor`, original Scheduler claim and 5C/5D,
+  real pinned `NativeSubagentAssembler`, Docker Bash, independent
+  Python canonical verification and Git Diff. Only model replies are
+  scripted. It does **not** use `PhysicalPreparedToolSource`.
+- Latest matching SHA GitHub Actions passed:
+  - Python CI: https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38031513812
+  - Installed native + Docker: https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38031513813
+- Real native tool schemas can include callable fields not representable
+  as Pydantic JSON Schema. Such schemas have a `None` schema hash,
+  NOT a fabricated hash; pinned source + implementation identity remain
+  mandatory.
+
+**P0-01 limited conclusion: OFFLINE PHYSICAL GO for Runtime-owned Docker Bash,
+compiled inventory/descriptor and real 5C/5D SWE execution chain.**
+This test uses an explicitly supplied offline AppConfig and actual
+SubagentConfig instance, plus disabled external authorization. It does not
+establish deployed config loading/production `AuthorizationProvider`
+credentials, full production task entrypoint, native Sandbox Quiescence, or
+strict Scheduler ACCEPTED / TaskResult. Those remain separately gated.
