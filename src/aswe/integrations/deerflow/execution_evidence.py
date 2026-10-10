@@ -174,6 +174,14 @@ class ExecutionEvidenceCollector:
                 receipts = ()
         except Exception:
             reasons.append("TOOL_RECEIPT_LEDGER_UNAVAILABLE")
+        # A WRITE-enabled SWE tool view can mutate and restore files without
+        # leaving a final Git delta. Until a trusted mutation-attribution
+        # contract is available, never attest PROVEN_NONE for that profile.
+        # Guard is host-created after Scheduler Commit; do not infer effects
+        # from model-visible tool names or from the observed Git diff.
+        mutable_profile = getattr(guard, "swe_runtime", None) is not None
+        if mutable_profile:
+            reasons.append("EVIDENCE_MUTABLE_SWE_PROFILE_UNATTESTED")
         quiescent = not reasons
         try:
             # Snapshot AFTER resource verification; no subprocess/worktree
@@ -190,9 +198,10 @@ class ExecutionEvidenceCollector:
                 before_filesystem=baseline.filesystem, after_filesystem=post_fs,
                 before_repository=baseline.repository, after_repository=post_repo,
                 repository_root=str(self.root),
-                # 5D/5E physically prohibit mutating tools. If this condition
-                # changes, fail rather than guessing an effect from names.
-                mutating_tool_admitted=False,
+                # This boolean is derived from the trusted bound SWE runtime.
+                # A mutable profile cannot prove absence of mutations merely
+                # because the final worktree resembles the baseline.
+                mutating_tool_admitted=mutable_profile,
             )
             if (not post_repo.head_matches_baseline
                     or post_repo.base_sha != baseline.repository.base_sha):
