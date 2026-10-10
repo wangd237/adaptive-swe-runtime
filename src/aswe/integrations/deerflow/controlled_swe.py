@@ -19,6 +19,7 @@ import tempfile
 from pathlib import Path
 from typing import Protocol, Any
 
+from aswe.runtime.command_observations import IsolatedPythonCommandBackend
 from aswe.core.contracts.backend import NodeExecutionInvocation
 from aswe.core.contracts.workspace import WorkspaceAccess
 from aswe.providers.policy import NodeExecutionPolicy
@@ -51,7 +52,7 @@ class IsolatedCommandBackend(Protocol):
     async def run(self, command: str, *, timeout: float, max_output: int) -> ShellOutcome: ...
 
 
-class DockerCommandBackend:
+class DockerCommandBackend(IsolatedPythonCommandBackend):
     """Disposable no-network Docker process with only one writable repo mount.
 
     Image must be an immutable locally cached SHA256 reference (pull disabled).
