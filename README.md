@@ -38,6 +38,32 @@ yet submit a new coding task, initialize a model, or create a native
 DeerFlow execution session. An actual `aswe run` entrypoint and per-tool /
 per-node tracing are next, not already delivered.
 
+## Step 6B — Developer CLI coding entry (experimental)
+
+With frozen DeerFlow installed (Python 3.12+), Docker available and a
+digest-pinned Python image locally present, configure `OPENAI_API_KEY`,
+`ASWE_MODEL` and optional `ASWE_BASE_URL` in the **host environment**.
+
+```bash
+aswe run "Fix the failing Python unit tests" \
+  --repo /path/to/clean-git-repo \
+  --runtime-dir /tmp/aswe-runs \
+  --docker-image 'python@sha256:<local-image-digest>' \
+  --check-command 'python -B -m unittest discover -s tests -q'
+```
+
+`aswe run` clones a pinned Git baseline into a new isolated worktree under
+`--runtime-dir`, compiles the single Writer node, uses the actual model and
+native DeerFlow graph with guarded Runtime tools, then runs an independent
+Docker-isolated canonical Python test. It emits `report.json` and
+`events.jsonl`. The original repository remains untouched. Model arguments
+and patch contents are not included in JSONL trace.
+
+**Initial limitations:** one compiled writer node; user supplies trusted
+test argv and pre-pulled Docker digest. No automatic multi-agent DAG planning,
+no production RBAC and no formal Sandbox Quiescence attestation. A passed
+canonical test is reported separately from strict Scheduler acceptance.
+
 ## Accepted implementation
 
 - Provider-neutral frozen contracts and two-stage deterministic TaskDAG identity (Step 0).
