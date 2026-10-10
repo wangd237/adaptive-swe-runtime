@@ -6,7 +6,7 @@ import pytest
 from aswe.integrations.deerflow.developer_entry import execute_swe_task
 from tests.unit.test_deerflow_mvp_task_step5fcb import prepared_mvp
 from tests.integration.test_deerflow_mvp_e2e_step5fcb import RealGraphScriptedRepairModel
-from tests.integration.test_deerflow_docker_canonical_step5fd import _python_image_digest
+from tests.integration.test_deerflow_docker_canonical_step5fd import _digest
 
 
 @pytest.mark.asyncio
@@ -19,7 +19,7 @@ async def test_real_cli_application_composes_native_compiler_and_docker(
     report_path,report,trace_path=await execute_swe_task(
         repository=Path(repo.repository_root),
         task="Repair calc.answer so that unittest passes",
-        runtime_dir=home, image=_python_image_digest(),
+        runtime_dir=home, image=_digest(),
         check_argv=("python","-B","-m","unittest","discover","-s","tests","-q"),
         model_factory=lambda **kwargs:RealGraphScriptedRepairModel(),
     )
