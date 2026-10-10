@@ -17,7 +17,8 @@ from typing import Any, Callable
 from aswe.core.ids import new_safe_id
 from aswe.trace.minimal_events import LocalRuntimeEventSink
 from aswe.integrations.deerflow.developer_entry import execute_swe_task
-from aswe.integrations.deerflow.adaptive_team import select_team, explore_repository
+from aswe.integrations.deerflow.adaptive_team import explore_repository
+from aswe.integrations.deerflow.dev_team_planner import plan_developer_team
 
 
 @dataclass(frozen=True)
@@ -53,7 +54,8 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
                                check_argv: tuple[str, ...], image: str,
                                ref: str = "HEAD", max_repairs: int = 1,
                                model_factory: Callable[..., Any] | None = None,
-                               adaptive: bool = False) -> WorkflowResult:
+                               adaptive: bool = False, planner: str = "rules",
+                               planner_factory: Callable[[], Any] | None = None) -> WorkflowResult:
     if not (0 <= max_repairs <= 3):
         raise ValueError("WORKFLOW_REPAIR_BUDGET_INVALID")
     workflow_id = new_safe_id("workflow")
@@ -63,20 +65,28 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
     source_ref = ref
     reports: list[Path] = []
     final_report = None
-    decision = select_team(task, repository) if adaptive else None
+    if planner != "rules" and not adaptive:
+        raise ValueError("LLM_PLANNER_REQUIRES_ADAPTIVE")
+    planned = (await plan_developer_team(
+        task=task, repository=repository, mode=planner,
+        planner_factory=planner_factory) if adaptive else None)
+    decision = planned.decision if planned else None
     if decision is not None:
         sink.emit("team.selected", payload={
             "roles":list(decision.roles),"reason":decision.reason,
             "complexity":decision.complexity,
+            "planning_mode":planned.planning_mode,
             "matched_paths":list(decision.evidence_paths)})
         if decision.needs_exploration:
-            discovered = explore_repository(repository,task)
+            discovered = explore_repository(repository,planned.explorer_objective)
             sink.emit("explorer.finished", node_id="explorer-0",
                       payload={"candidate_paths":list(discovered),
                                "source":"git_index","read_only":True})
             # Advisory hints only; no changes to tool grants or runtime policy.
             task = (task + "\\n\\nRepository exploration candidates (verify before editing): "
                     + ", ".join(discovered))
+    if planned is not None:
+        task = planned.coder_objective
     sink.emit("workflow.started", payload={"max_repairs":max_repairs})
     for number in range(max_repairs + 1):
         stage = "coder" if number == 0 else "repair"
