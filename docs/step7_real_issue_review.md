@@ -51,3 +51,8 @@ baseline failure, roles, DAG topology and dispatch, model/tool event
 counts, code/test integrity and independently verified result.
 No raw provider errors, prompts, credentials, source patches or test
 output enter Actions summaries/artifacts.
+
+## Authorized upstream issue acceptance run
+
+An explicit one-time real-model execution is authorized for the fixed
+boltons #500 commit and the host-owned reproduction tests above.
