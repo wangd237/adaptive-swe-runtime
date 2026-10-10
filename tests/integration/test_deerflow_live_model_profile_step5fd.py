@@ -25,7 +25,7 @@ def test_live_profile_builds_real_frozen_chatopenai_without_api_request(monkeypa
         "sandbox": {"use": "deerflow.sandbox.local:LocalSandboxProvider",
                     "allow_host_bash": False},
     })
-    settings.apply_to_vendor_app_config(config)
+    config=settings.build_vendor_app_config(config)
     profile=config.get_model_config(settings.profile_name)
     assert profile is not None
     assert profile.model=="offline-test-model"
@@ -55,5 +55,5 @@ def test_live_profile_official_base_url_omitted(monkeypatch):
         "sandbox": {"use": "deerflow.sandbox.local:LocalSandboxProvider",
                     "allow_host_bash": False},
     })
-    settings.apply_to_vendor_app_config(config)
+    config=settings.build_vendor_app_config(config)
     assert "base_url" not in config.models[0].model_dump()
