@@ -29,8 +29,9 @@ def test_live_workflow_is_explicitly_armed_not_unconditional():
     yml=Path(".github/workflows/swe-adaptive-real-e2e.yml").read_text()
     assert "workflow_dispatch:" in yml
     assert "authorization == 'RUN'" in yml
-    assert "coding/live-adaptive-acceptance" in yml
-    assert "[run-live-adaptive]" in yml
+    assert "  push:" not in yml
+    assert "  pull_request:" not in yml
+    assert "if: ${{ github.event_name == 'workflow_dispatch' && inputs.authorization == 'RUN' }}" in yml
     assert "secrets.SWE_LLM_API_KEY" in yml
     assert "secrets.SWE_LLM_MODEL" in yml
     assert "secrets.SWE_LLM_BASE_URL" in yml
