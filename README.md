@@ -149,6 +149,30 @@ discovery rather than a separate LLM agent. It does not yet dynamically
 compile and dispatch a multi-node Scheduler DAG. This is a functional step
 toward the original Adaptive Team Formation plan, not its completion.
 
+## Step 6E — Optional LLM-guided developer team planning
+
+`aswe workflow --adaptive --planner llm` uses the configured
+`OPENAI_API_KEY`, `ASWE_MODEL` and optional `ASWE_BASE_URL` to ask an LLM
+for a **structured minimum-team proposal** (Explorer needed or direct Coder,
+plus bounded coding/exploration objectives). The user task remains in the
+Coder objective. Runtime restricts available roles and continues to own the
+actual tools, policy, Docker tests and bounded Repair decisions.
+
+Example (same repository, image and check-command flags as `aswe workflow`):
+
+```bash
+aswe workflow "Investigate regression across orders and inventory" \
+  --adaptive --planner llm \
+  --repo /path/to/repository --runtime-dir /tmp/aswe-runs \
+  --docker-image 'python@sha256:<digest>' \
+  --check-command 'python -B -m unittest discover -s tests -q'
+```
+
+This is a developer **LLM topology proposal** connected to real repository
+exploration and Coder/Tester execution, not yet a complete integration of
+the frozen SemanticPlanner/PlanValidator/TaskDAG for independently executed
+multi-agent nodes. Rules-based `--adaptive` remains the no-extra-LLM default.
+
 ## Accepted implementation
 
 - Provider-neutral frozen contracts and two-stage deterministic TaskDAG identity (Step 0).
