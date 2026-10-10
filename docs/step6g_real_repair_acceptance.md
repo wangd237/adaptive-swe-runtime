@@ -46,3 +46,25 @@ The assertions are now fixed to identify the exact canonical feedback
 source and accept a legitimate minimum-sized team. A fresh paid run
 will confirm a clean acceptance verdict. The first attempt is reported
 as *observed repair behavior*, not a passing acceptance run.
+
+## Two-tier verification refinement
+
+A later live run
+[38050590455](https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38050590455)
+fixed both defects on the first pass with a real model (no Repair needed),
+showing natural nondeterminism even for a staged task. To test real
+failure-driven Repair *reproducibly*, the developer workflow now supports
+a narrower **first-pass Coder unit check** and a separate authoritative
+**full DAG Tester check**. These are both actual Docker test executions,
+not injected synthetic failure status. On Repair, the inner Coder also runs
+the full suite.
+
+The new real-model fixture adds `tests/test_inventory.py`:
+Coder initially focuses on inventory stock restoration with the narrow
+test; the independent Tester exercises the full order-cancellation suite.
+The genuine idempotency failure, if still present, is passed as diagnostic
+feedback to the next **real LLM** Coder. Both source modules and all tests
+are checked for modifications at the end.
+
+This is controlled progressive test coverage, not proof of spontaneous
+Repair frequency on arbitrary GitHub Issues.
