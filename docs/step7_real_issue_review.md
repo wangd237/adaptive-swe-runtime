@@ -42,8 +42,7 @@ trace.
 
 The paid workflow `SWE Step 7 Real Issue E2E` reads existing GitHub
 Actions `SWE_LLM_*` Secrets, mapped to the project's user-facing
-`LLM_*` environment variables. The initial one-shot branch push gate
-is temporary; it must be removed before merging. Future runs must be
+`LLM_*` environment variables. The initial one-shot branch push gate has been removed. Future runs are
 manual-only and require authorization `RUN`.
 
 The workflow retains a redacted JSON artifact describing only:
@@ -87,3 +86,59 @@ state categories, plus a separate **diagnostic-only** Docker test of the
 failed Coder workspace. These checks can distinguish a correct but
 unaccepted patch from an actually incorrect patch without changing
 the acceptance gate. No raw patch or model output is published.
+
+## Third live trial: confirmed incomplete patch (2026-10-10)
+
+[Run #38052690155](https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38052690155)
+reproduced the actual public bug, used a real LLM, planned
+`Explorer → Coder → Tester`, and dispatched Explorer then Coder.
+Coder made changes to the real upstream implementation, but did not
+reach native `completed` status, so the DAG Tester was **not**
+dispatched. The separate **diagnostic-only** Docker run of the Coder
+workspace also **failed**; this is not a falsely rejected correct patch.
+
+| Evidence | Actual result |
+|---|---|
+| Original upstream bug reproduced | Yes |
+| Model / tool mocks | None |
+| TaskDAG | Physical DAG compiled |
+| Team chosen | Explorer, Coder, Tester |
+| Dispatched | Explorer, Coder |
+| Coder native status | **failed** |
+| Native model turns | 6 |
+| Tool events | 9 (8 completed; 1 failed) |
+| Dynamic command invocations | 4 |
+| Production implementation changed | Yes |
+| Agent-level test observation | Observed only |
+| Native canonical verifier | Not run |
+| Separate diagnostic Docker test | **failed** |
+| DAG Tester | **not dispatched** |
+| Final verdict | **FAIL / unverified** |
+
+The first and second paid runs are also documented above. This
+negative result proves the test is capable of finding actual
+execution-level limitations. It does **not** prove successful
+completion of real-world Issue #500.
+
+### Prioritized Step 7B engineering follow-up
+
+1. **P0 — Identify the real native failed tool-call category**:
+   capture a bounded allowlist of tool name, stable failure code, and
+   terminal failure category, never raw model messages or secrets.
+2. **P0 — Recoverable native tool errors**: distinguish ordinary
+   transient tool-input mistakes from fatal policy/admission errors
+   and let the model correct permitted mistakes within its budget.
+3. **P0 — Retry the *same pinned Issue* after an actual recovery fix**:
+   require passing independent tests; do not simply keep issuing paid
+   runs to hope nondeterminism solves it.
+4. **P1 — Expand to 2–4 additional diverse public Issues** once the
+   first failure mode is understood.
+
+### Security / scope
+
+The paid workflow is now **manual RUN-only**, never push/PR CI.
+The original upstream clone was unchanged and the independent test
+file was never edited by the agent. No source patches, prompts, API
+keys, raw test output or provider credentials are uploaded.
+The supported top-level Scheduler remains the developer orchestrator,
+not strict globally ACCEPTED multi-node SchedulerCore.
