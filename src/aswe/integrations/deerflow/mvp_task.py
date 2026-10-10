@@ -79,7 +79,9 @@ class MVPTaskReport:
 class _VerificationProbe:
     def __init__(self, *, delegate: Any, task_id: str, repository: RepositoryBinding,
                  verifier: CanonicalVerifier, policy: CanonicalCommandPolicy,
-                 isolated_canonical_container: Any | None = None):
+                 isolated_canonical_container: Any | None = None,
+                 trace_sink: LocalRuntimeEventSink | None = None):
+        self.trace_sink = trace_sink
         self.delegate = delegate
         self.task_id = task_id
         self.repository = repository
@@ -113,7 +115,15 @@ class _VerificationProbe:
         if invocation.task_id != self.task_id:
             raise MVPIntegrationError("MVP_TASK_IDENTITY_MISMATCH")
         self.invocation = invocation
+        if self.trace_sink:
+            self.trace_sink.emit("scheduler.execution.committed", node_id=invocation.node_id,
+                payload={"execution_id":invocation.execution_id,"attempt":invocation.attempt,
+                         "run_id":invocation.run_id})
         result = await self.delegate.execute_prepared(preparation, invocation)
+        if self.trace_sink:
+            self.trace_sink.emit("agent.execution.finished",node_id=invocation.node_id,
+                payload={"execution_id":invocation.execution_id,"attempt":invocation.attempt,
+                         "native_status":getattr(getattr(result,"terminal_status",None),"value","unknown")})
         self.result = result
 
         # All host repo observations happen while the Scheduler holds its
@@ -141,6 +151,10 @@ class _VerificationProbe:
             "dirty": self.post_state.dirty_vs_base,
             "head_matches_baseline": self.post_state.head_matches_baseline,
         })
+        if self.trace_sink:
+            self.trace_sink.emit("verification.started",node_id=invocation.node_id,
+                payload={"execution_id":invocation.execution_id,"attempt":invocation.attempt,
+                         "check_id":self.policy.check_id})
         try:
             if self.isolated_canonical_container is None:
                 ref, receipt = await asyncio.to_thread(
@@ -176,6 +190,10 @@ class _VerificationProbe:
             self.verification_status = "unverified"
             self.verification_failure = "MVP_CANONICAL_VERIFICATION_UNAVAILABLE"
             self.ref, self.receipt = None, None
+        if self.trace_sink:
+            self.trace_sink.emit("verification.finished",node_id=invocation.node_id,
+                payload={"execution_id":invocation.execution_id,"attempt":invocation.attempt,
+                         "check_id":self.policy.check_id,"status":self.verification_status})
         return result
 
 
@@ -235,11 +253,18 @@ class MVPTaskRunner:
             delegate=self.backend, task_id=self.scheduler.task_id,
             repository=self.repository, verifier=self.verifier, policy=self.policy,
             isolated_canonical_container=self.isolated_canonical_container,
+            trace_sink=self.trace_sink,
         )
         if self.trace_sink is not None:
             self.trace_sink.emit("mvp.task.started", node_id=node_id,
                                  payload={"check_id": self.policy.check_id})
+        if self.trace_sink:
+            self.trace_sink.emit("scheduler.dispatch.requested",node_id=node_id,
+                payload={"node_id":node_id})
         ticket = await self.scheduler.claim(node_id)
+        if self.trace_sink:
+            self.trace_sink.emit("scheduler.dispatch.claimed",node_id=node_id,
+                payload={"node_id":node_id,"ticket_id":ticket.ticket_id})
         invocation = await self.scheduler.run_claim(
             ticket, probe,
             # This is explicitly not an Acceptance/Handoff callback.
