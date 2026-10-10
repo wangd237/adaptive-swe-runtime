@@ -214,6 +214,10 @@ async def test_real_installed_deerflow_real_docker_scheduler_to_verified_mvp_rep
     assert "return 42" in result.git_diff
     assert Path(repo.repository_root,"calc.py").read_text().endswith("return 42\n")
     assert result.delivery_status=="tests_passed_scheduler_quarantined"
+    assert result.agent_dynamic_command_count==2
+    assert result.agent_last_dynamic_command_exit_code==0
+    assert result.agent_tool_changed_paths==("calc.py",)
+    assert result.agent_verification_level=="agent_observed_only"
     assert result.workspace_status=="quarantined"
     assert result.scheduler_failed and not result.quiescence_proven
     assert result.canonical_receipt_ref is not None
