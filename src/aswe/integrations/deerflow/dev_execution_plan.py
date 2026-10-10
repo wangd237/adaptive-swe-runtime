@@ -12,7 +12,7 @@ import subprocess
 
 from aswe.core.contracts import WorkKind
 from aswe.planning.compiler import ConstraintCompiler, RuntimePolicyConfig, RuntimePolicyRule
-from aswe.planning.contracts import make_task_request
+from aswe.planning.contracts import make_task_request, CompiledTaskContract, TaskExecutionAuthority
 from aswe.planning.planner import WorkItemProposal, WorkPlanProposal
 from aswe.planning.validator import SemanticPlanValidator, ValidatedWorkPlan
 from aswe.integrations.deerflow.adaptive_team import TeamDecision
@@ -22,6 +22,8 @@ from aswe.integrations.deerflow.adaptive_team import TeamDecision
 class DeveloperWorkPlan:
     plan: ValidatedWorkPlan
     contract_fingerprint: str
+    contract: CompiledTaskContract
+    authority: TaskExecutionAuthority
 
     @property
     def node_ids(self) -> tuple[str, ...]:
@@ -84,4 +86,5 @@ def compile_developer_workplan(*, repository: Path, ref: str, task: str,
             rationale="Minimal SWE developer team with canonical test gate"),
         contract=contract,authority=authority,
     )
-    return DeveloperWorkPlan(plan=plan,contract_fingerprint=contract.fingerprint)
+    return DeveloperWorkPlan(plan=plan,contract_fingerprint=contract.fingerprint,
+                             contract=contract, authority=authority)
