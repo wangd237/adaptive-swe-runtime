@@ -70,3 +70,20 @@ errors are still fatal. This avoids treating malformed LLM advice as a
 task execution authority while letting Coder work independently. The
 fallback is explicitly reflected in the Trace, not claimed as a
 successful LLM diagnosis.
+
+## Second live trial: native Coder terminal failure
+
+[Run 38052351881](https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38052351881)
+reproduced the upstream bug, selected Explorer/Coder/Tester, compiled and
+dispatched the real physical DAG, then reached the DeerFlow Coder. It made
+13 real tool-call events and eight native model-turn events, and changed
+production source code. However, the native Coder terminal status was
+`failed`, with canonical child checks `not_run` and no independent DAG
+Tester dispatch. Therefore the Issue remains **unverified and unsolved**
+in the acceptance report, even though a patch was attempted.
+
+Step 7B instrumentation now captures stable native delivery and Scheduler
+state categories, plus a separate **diagnostic-only** Docker test of the
+failed Coder workspace. These checks can distinguish a correct but
+unaccepted patch from an actually incorrect patch without changing
+the acceptance gate. No raw patch or model output is published.
