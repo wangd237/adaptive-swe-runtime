@@ -337,7 +337,7 @@ class ToolCallGuard:
             # independently trusted Canonical Verification verdict.
             if name == "bash" and status == "completed" and isinstance(result,str):
                 import re
-                match = re.match(r"^exit_code=(-?\\d+|None); timed_out=(True|False)\\n", result)
+                match = re.match(r"^exit_code=(-?\d+|None); timed_out=(True|False)\n", result)
                 if match is not None:
                     exit_code = None if match.group(1) == "None" else int(match.group(1))
                     passed = exit_code == 0 and match.group(2) == "False"
