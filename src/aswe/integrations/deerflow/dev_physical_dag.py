@@ -124,39 +124,76 @@ def compile_physical_developer_dag(
 
 
 class DeveloperDagScheduler:
-    """Minimal sequential scheduler for a physically compiled developer DAG.
+    """Single developer task orchestrator for Explorer, Coder and Tester.
 
-    This is not SchedulerCore's strict NodeHandoff acceptance: a tool-driven
-    Coder run owns its own real SchedulerCore, native workspace and canonical
-    verifier. This scheduler uses actual physical TaskDAG edges and verifies
-    outcomes before activating dependents; it never fabricates handoffs.
+    The physical DAG is the source of dispatch dependency and repair state;
+    callers must not maintain a second completed-node set. Native Coder
+    execution retains its internal SchedulerCore, which owns its tool/commit
+    lifecycle. This developer controller NEVER fabricates a strict Handoff.
     """
 
-    def __init__(self, physical: PhysicalDeveloperDag):
-        self.physical=physical
-        self.nodes={n.id:n for n in physical.dag.nodes}
-        self.completed: set[str]=set()
-        self.attempts: dict[str,int]={}
+    def __init__(self, physical: PhysicalDeveloperDag, *, max_repairs: int = 1):
+        if not 0 <= max_repairs <= 3:
+            raise ValueError("DEV_REPAIR_BUDGET_INVALID")
+        self.physical = physical
+        self.nodes = {n.id: n for n in physical.dag.nodes}
+        self.completed: set[str] = set()
+        self.active: set[str] = set()
+        self.attempts: dict[str, int] = {}
+        self.max_repairs = max_repairs
+        self.repairs_scheduled = 0
+        self.verification_failed = False
+        self.terminal = False
 
-    def dispatch(self,node_id:str)->int:
+    def dispatch(self, node_id: str) -> int:
+        if self.terminal:
+            raise ValueError("DEV_DAG_TERMINAL")
         if node_id not in self.nodes:
             raise ValueError("DEV_DAG_NODE_UNKNOWN")
-        node=self.nodes[node_id]
+        node = self.nodes[node_id]
         if not set(node.dependencies).issubset(self.completed):
             raise ValueError("DEV_DAG_UPSTREAM_INCOMPLETE")
-        if node_id in self.completed and node_id=="explorer":
-            raise ValueError("DEV_DAG_DISCOVERY_ALREADY_COMPLETED")
-        self.attempts[node_id]=self.attempts.get(node_id,0)+1
+        if node_id in self.active or node_id in self.completed:
+            raise ValueError("DEV_DAG_NODE_NOT_READY")
+        # A failed verification must explicitly authorize repair. No
+        # second Coder/Tester dispatch can bypass the budget or feedback.
+        if self.verification_failed:
+            raise ValueError("DEV_DAG_REPAIR_NOT_SCHEDULED")
+        self.active.add(node_id)
+        self.attempts[node_id] = self.attempts.get(node_id, 0) + 1
         return self.attempts[node_id]
 
-    def finish(self,node_id:str,*,verified:bool)->None:
-        if self.attempts.get(node_id,0)==0:
-            raise ValueError("DEV_DAG_NODE_NOT_DISPATCHED")
+    def finish(self, node_id: str, *, verified: bool) -> None:
+        if node_id not in self.active:
+            raise ValueError("DEV_DAG_NODE_NOT_ACTIVE")
+        self.active.remove(node_id)
         if verified:
             self.completed.add(node_id)
         else:
             self.completed.discard(node_id)
+        if node_id == "__aswe_verify":
+            self.verification_failed = not verified
+            if verified:
+                self.terminal = True
+        elif not verified:
+            # A failed Explorer or Coder is not a failed canonical check;
+            # there is no authorized repair target in this situation.
+            self.terminal = True
 
-    def reset_for_repair(self)->None:
-        self.completed.discard("coder")
-        self.completed.discard("__aswe_verify")
+    def schedule_repair(self) -> bool:
+        """Authorize one Coder retry solely from an actual failed Tester."""
+        if self.active:
+            raise ValueError("DEV_REPAIR_ACTIVE_NODES")
+        if self.terminal or not self.verification_failed:
+            raise ValueError("DEV_REPAIR_REQUIRES_FAILED_VERIFICATION")
+        if "coder" not in self.completed or self.repairs_scheduled >= self.max_repairs:
+            return False
+        self.repairs_scheduled += 1
+        self.verification_failed = False
+        self.completed.difference_update(("coder", "__aswe_verify"))
+        return True
+
+    def reset_for_repair(self) -> None:
+        """Compatibility wrapper; never permit unconditional status reset."""
+        if not self.schedule_repair():
+            raise ValueError("DEV_REPAIR_BUDGET_EXHAUSTED")

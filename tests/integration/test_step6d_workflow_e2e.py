@@ -47,6 +47,14 @@ async def test_actual_coder_failed_test_repair_passed_test(
     repo, *_ = prepared_mvp
     monkeypatch.setenv("LLM_API_KEY","offline-synthetic-not-sent")
     monkeypatch.setenv("LLM_MODEL","offline-model")
+    # Exercise real top-level independent Docker Tester feedback -> Repair.
+    import aswe.integrations.deerflow.dev_workflow as workflow_module
+    original_execute = workflow_module.execute_swe_task
+    observed_prompts = []
+    async def capture_real_execution(**kwargs):
+        observed_prompts.append(kwargs["task"])
+        return await original_execute(**kwargs)
+    monkeypatch.setattr(workflow_module,"execute_swe_task",capture_real_execution)
     built = []
     def model_factory(**kwargs):
         index=len(built)
@@ -66,6 +74,10 @@ async def test_actual_coder_failed_test_repair_passed_test(
     assert result.round_count==2
     assert result.verification_status=="passed"
     assert len(built)==2
+    assert len(observed_prompts)==2
+    assert "test_failure_output" in observed_prompts[1]
+    assert "AssertionError" in observed_prompts[1]
+    assert "41" in observed_prompts[1] and "42" in observed_prompts[1]
     first=json.loads(result.round_reports[0].read_text())
     second=json.loads(result.round_reports[1].read_text())
     assert first["verification_status"]=="failed"
@@ -85,4 +97,8 @@ async def test_actual_coder_failed_test_repair_passed_test(
     assert len(report["task_dag_fingerprint"])==64
     assert report["dag_dispatch_attempts"]["coder"]==2
     assert report["dag_dispatch_attempts"]["__aswe_verify"]==2
+    assert report["repair_rounds_scheduled"]==1
+    assert len(report["last_failure_output_sha256"])==64
+    assert "AssertionError" not in json.dumps(report)
+    assert any(e["event_type"]=="repair.feedback.available" for e in events)
     assert all("OPENAI_API_KEY" not in json.dumps(x) for x in events)

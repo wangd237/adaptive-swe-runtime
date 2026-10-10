@@ -304,6 +304,46 @@ model usage. The legacy single-agent real model smoke remains separate.
 The live run is not included in ordinary CI, and live success is not a
 strict-Scheduler `ACCEPTED TaskResult`.
 
+## Step 6G — Unified developer DAG scheduling and real LLM Repair
+
+The physical `DeveloperDagScheduler` is now the single top-level owner of
+node readiness, attempts, terminal state and **verification-authorized
+Repair budget** for the supported adaptive topologies. Native Coder execution
+continues to use its existing internal `SchedulerCore`: this is unified
+**developer task orchestration**, not a claim of globally strict
+`NodeHandoff` acceptance.
+
+Failed *independent Docker Tester* output is truncated, redacted and passed
+into the next Repair LLM invocation, rather than just issuing a generic
+"try again" instruction. Only a SHA-256 and output length are recorded in
+the public Trace/report; the raw test failure remains model-visible
+diagnostic data, never a tool command or acceptance authority.
+
+To use a smaller first-pass Coder unit test before the full authoritative
+Tester suite, add `--coder-check-command`:
+
+```bash
+aswe workflow "Fix an order cancellation bug" \
+  --adaptive --planner llm --explorer llm \
+  --repo ./repo --runtime-dir ./runtime-data \
+  --docker-image 'python@sha256:<local-digest>' \
+  --coder-check-command 'python -B -m unittest tests.test_inventory -q' \
+  --check-command 'python -B -m unittest discover -s tests -q'
+```
+
+The first Coder uses the fast check, the independently scheduled DAG Tester
+runs the full suite, and any authorized Repair round uses the full suite
+again. Without `--coder-check-command`, behavior remains unchanged.
+
+**Real model Repair E2E — PASS:**
+[GitHub Actions run 38050950435](https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38050950435)
+completed genuine `Coder → Tester FAILED → Repair Coder → Tester PASSED`
+with 15 native model-turn and 24 tool-call events. It changed both affected
+Python implementation modules while leaving tests unchanged. The model was
+not scripted; the scenario uses controlled progressive test coverage. See
+[the evidence report](docs/step6g_real_repair_acceptance.md).
+Future paid runs use manual Actions authorization `RUN` only.
+
 ## Accepted implementation
 
 - Provider-neutral frozen contracts and two-stage deterministic TaskDAG identity (Step 0).

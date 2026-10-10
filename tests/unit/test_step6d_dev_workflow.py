@@ -46,11 +46,15 @@ async def test_failed_canonical_round_schedules_repair_with_git_handoff(
     monkeypatch.setattr(flow,"execute_swe_task",execute_swe_task)
     result=await execute_dev_workflow(repository=repo,task="fix bug",
         runtime_dir=tmp_path/"runtime",image="python@sha256:x",
-        check_argv=("python","-m","unittest"),max_repairs=1)
+        check_argv=("python","-m","unittest"),max_repairs=1,
+        initial_coder_check_argv=("python","-m","unittest","tests.test_inventory"))
     assert result.round_count==2
     assert result.verification_status=="passed"
     assert calls[1]["repository"]==result.round_reports[0].parent/"workspace"
-    assert "previous coding pass failed" in calls[1]["task"]
+    assert calls[0]["check_argv"]==(
+        "python","-m","unittest","tests.test_inventory")
+    assert calls[1]["check_argv"]==("python","-m","unittest")
+    assert "previous code change did not pass" in calls[1]["task"]
     assert (repo/"calc.py").read_text()=="value=0\n"
     events=[json.loads(x) for x in result.trace_path.read_text().splitlines()]
     assert [e["event_type"] for e in events].count("workflow.test.finished")==2

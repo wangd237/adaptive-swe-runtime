@@ -35,7 +35,10 @@ def _parser() -> argparse.ArgumentParser:
     workflow.add_argument("task")
     workflow.add_argument("--repo", type=Path, required=True)
     workflow.add_argument("--runtime-dir", type=Path, required=True)
-    workflow.add_argument("--check-command", required=True)
+    workflow.add_argument("--check-command", required=True,
+                          help="independent full DAG Tester regression command")
+    workflow.add_argument("--coder-check-command",
+                          help="optional focused first-pass Coder unit check; Repair uses full --check-command")
     workflow.add_argument("--docker-image", required=True)
     workflow.add_argument("--ref", default="HEAD")
     workflow.add_argument("--env-file", type=Path, help="LLM settings file (default: .env in current directory)")
@@ -43,7 +46,7 @@ def _parser() -> argparse.ArgumentParser:
     workflow.add_argument("--explorer", choices=("index","llm"), default="index",
                           help="optional independent read-only LLM Explorer")
     workflow.add_argument("--planner", choices=("rules","llm"), default="rules",
-                          help="bounded developer team proposal; llm uses ASWE_MODEL")
+                          help="bounded developer team proposal; llm uses LLM_MODEL")
     workflow.add_argument("--adaptive", action="store_true",
                           help="select minimum developer team and explore code when needed")
     report = sub.add_parser("report", help="inspect an existing MVPTaskReport JSON artifact")
@@ -61,6 +64,10 @@ def main(argv: list[str] | None = None) -> int:
             from aswe.planning.acceptance import _validate_argv
             commands = tuple(shlex.split(options.check_command))
             _validate_argv(commands)
+            focused = (tuple(shlex.split(options.coder_check_command))
+                       if options.coder_check_command else None)
+            if focused is not None:
+                _validate_argv(focused)
             result = asyncio.run(execute_dev_workflow(
                 repository=options.repo, task=options.task,
                 runtime_dir=options.runtime_dir, check_argv=commands,
@@ -68,7 +75,8 @@ def main(argv: list[str] | None = None) -> int:
                 max_repairs=options.max_repairs, adaptive=options.adaptive,
                 planner=options.planner, env_file=options.env_file,
                 explorer_mode=options.explorer,
-                physical_dag=options.adaptive))
+                physical_dag=options.adaptive,
+                initial_coder_check_argv=focused))
             print(f"Workflow: {result.workflow_id}")
             print(f"Rounds: {result.round_count}")
             print(f"Canonical: {result.verification_status}")
