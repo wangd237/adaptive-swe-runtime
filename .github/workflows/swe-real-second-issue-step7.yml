@@ -72,6 +72,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: aswe-step7-second-issue-result
-          path: ${{ runner.temp }}/step7-real-issue-result.json
+          path: ${{ runner.temp }}/step7-second-issue-result.json
           retention-days: 7
           if-no-files-found: ignore
