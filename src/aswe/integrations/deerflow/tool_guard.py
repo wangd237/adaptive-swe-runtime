@@ -85,8 +85,8 @@ def _static_surface(resources: PinnedNodeResources) -> tuple[str, ...]:
         _deny("DUPLICATE_CONFIG_TOOL")
     for contract_id, tool in zip(resources.allowed_tool_ids, resources.tools):
         if contract_id == "bash" and isinstance(tool, RuntimeDockerBashSource):
-            if (resources.docker_bash_grant is None
-                    or tool.grant != resources.docker_bash_grant):
+            if (getattr(resources, "docker_bash_grant", None) is None
+                    or tool.grant != getattr(resources, "docker_bash_grant", None)):
                 _deny("DOCKER_BASH_GRANT_MISMATCH")
             continue
         if (tool.name != contract_id or contract_id not in tool_config
@@ -618,11 +618,11 @@ class NodeExecutionBindingStore:
                     _deny("MODEL_AUTHORIZATION_DENIED")
             source_tools = tuple(t for t in resources.tools if t.name in visible)
             if any(isinstance(t, RuntimeDockerBashSource) for t in source_tools):
-                if (swe_factory is None or resources.docker_bash_grant is None
+                if (swe_factory is None or getattr(resources, "docker_bash_grant", None) is None
                         or self.preparation_backend.docker_bash_backend is None):
                     _deny("DOCKER_BASH_EXECUTION_NOT_PROVISIONED")
                 try:
-                    resources.docker_bash_grant.assert_matches(
+                    getattr(resources, "docker_bash_grant", None).assert_matches(
                         self.preparation_backend.docker_bash_backend)
                 except Exception:
                     _deny("DOCKER_BASH_GRANT_DRIFT")
@@ -634,12 +634,12 @@ class NodeExecutionBindingStore:
                         or swe_runtime.policy is not self.preparation_backend.policy
                         or swe_runtime.root != self.expected_swe_workspace_root):
                     _deny("SWE_RUNTIME_AUTHORITY_MISMATCH")
-                if resources.docker_bash_grant is not None:
+                if getattr(resources, "docker_bash_grant", None) is not None:
                     if (swe_runtime.command_backend is not
                             self.preparation_backend.docker_bash_backend):
                         _deny("DOCKER_BASH_BACKEND_REBOUND")
                     try:
-                        resources.docker_bash_grant.assert_matches(swe_runtime.command_backend)
+                        getattr(resources, "docker_bash_grant", None).assert_matches(swe_runtime.command_backend)
                     except Exception:
                         _deny("DOCKER_BASH_GRANT_DRIFT")
                 view_tools = swe_runtime.make_tools(tuple(t.name for t in source_tools))
