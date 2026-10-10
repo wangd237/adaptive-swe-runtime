@@ -106,7 +106,7 @@ async def test_live_model_autonomously_fixes_python_bug(prepared_mvp):
         compiled_policy=compiled_policy,
     )
     resources = binding_store.preparation_backend.resources
-    settings.apply_to_vendor_app_config(resources.app_config)
+    resources.app_config = settings.build_vendor_app_config(resources.app_config)
     resources.model_name = settings.profile_name
     resources.subagent_config.system_prompt = (
         "You are a software-engineering repair agent in an isolated worktree. "
