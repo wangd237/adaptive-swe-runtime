@@ -30,6 +30,7 @@ TASK = (
     "existing unittest regression tests pass. Do not modify tests or configs."
 )
 FILES = {
+    ".gitignore": "__pycache__/\\n*.pyc\\n",
     "shop/__init__.py": "",
     "shop/orders.py": '''"""Order lifecycle operations."""
 from dataclasses import dataclass
