@@ -191,3 +191,24 @@ def test_mvp_rejects_foreign_task_verifier(prepared_mvp,tmp_path):
             scheduler=core,backend=NativeShapedWriter(repo),
             repository=repo,verifier=foreign,policy=policy,
         )
+
+
+@pytest.mark.asyncio
+async def test_step6_actual_mvp_runner_persists_bounded_trace(prepared_mvp,tmp_path):
+    from aswe.trace.minimal_events import LocalRuntimeEventSink
+    from aswe.cli import main
+    repo,core,store,verifier,policy=prepared_mvp
+    sink=LocalRuntimeEventSink(tmp_path/"traces",core.task_id,
+                               workspace_root=repo.repository_root)
+    report=await MVPTaskRunner(
+        scheduler=core,backend=NativeShapedWriter(repo),
+        repository=repo,verifier=verifier,policy=policy,trace_sink=sink
+    ).run_node("writer")
+    events=sink.read_all()
+    assert [event.event_type for event in events]==[
+        "mvp.task.started","mvp.task.finished"]
+    assert events[-1].payload["delivery_status"]==report.delivery_status
+    assert events[-1].payload["quiescence_proven"] is False
+    assert "return 42" not in str(events)
+    assert main(["trace",core.task_id,"--runtime-dir",str(tmp_path/"traces"),
+                 "--json"])==0
