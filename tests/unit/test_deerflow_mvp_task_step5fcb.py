@@ -110,6 +110,12 @@ async def test_mvp_scheduler_commit_git_diff_and_runtime_canonical_green(prepare
     assert "return 42" in report.git_diff
     assert report.tests_passed
     assert report.canonical_receipt_ref is not None
+    import json
+    exported=json.loads(report.to_json())
+    assert exported["execution_id"]==report.execution_id
+    assert exported["tests_passed"] is True
+    assert exported["delivery_status"]=="tests_passed_scheduler_quarantined"
+    assert exported["canonical_receipt_ref"]["source_execution_id"]==report.execution_id
     receipt=store.get(report.canonical_receipt_ref)
     assert receipt["status"]=="holds"
     assert receipt["source_execution_id"] if "source_execution_id" in receipt else True
