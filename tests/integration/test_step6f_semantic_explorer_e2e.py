@@ -83,6 +83,10 @@ async def test_semantic_explorer_coder_verifier_real_docker(
     dispatch=[x["node_id"] for x in events
               if x["event_type"]=="dag.scheduler.dispatch"]
     assert dispatch==["explorer","coder","__aswe_verify"]
+    dag_test=[e for e in events if e["event_type"]=="dag.verification.executed"]
+    assert len(dag_test)==1
+    assert dag_test[0]["payload"]["exit_code"]==0
+    assert dag_test[0]["payload"]["status"]=="passed"
     report=json.loads(result.report_path.read_text())
     assert len(report["task_dag_fingerprint"])==64
     assert report["dag_dispatch_attempts"]=={
