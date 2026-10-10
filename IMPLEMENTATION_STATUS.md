@@ -1,3 +1,11 @@
+## Step 5 Global Design Freeze Audit (2026-10-10)
+
+**Verdict: NO-GO for global Step 5 closure or PR #7 merge as completed baseline.** This does not overturn 5F-D's evidence-backed real-model `Scoped GO`; nor does it reopen the user's deliberate deferral of native Sandbox Quiescence.
+
+Independent source/CI review on `067c114d3baeadc8f44752b5d2cde351630d793c` found **three P0 closure blockers**: (1) no real 5C physical composition of selected Docker Bash tool because frozen DeerFlow filters native host Bash when `LocalSandboxProvider.allow_host_bash=False`; (2) `runtime/canonical_verifier.py` reverses Core → integration dependency direction; (3) `ExecutionEvidenceCollector` still hardcodes `mutating_tool_admitted=False` despite SWE WRITE allowance. P1 items cover test-file/Bash mutation authority, host canonical execution with live secrets, compiled Acceptance binding, full production entrypoint and reproducibility.
+
+**Full audit and test closure criteria:** [`audits/step5-global-closure-review.md`](audits/step5-global-closure-review.md). Resolve P0s with offline installed-native negatives; no additional paid LLM call needed. Keep PR #7 Draft/Open until review.
+
 ## Step 5F-D — Real Model SWE Smoke (Real API Run Scoped GO) — 2026-10-10
 
 - User reports adding GitHub Actions Secrets `SWE_LLM_API_KEY`, `SWE_LLM_BASE_URL`, `SWE_LLM_MODEL`. The actual values cannot be inspected through the GitHub connector and no external model HTTP request has yet been made.
