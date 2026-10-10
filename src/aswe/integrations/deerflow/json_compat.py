@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from typing import Any, TypeVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 
 T = TypeVar("T",bound=BaseModel)
@@ -19,6 +19,7 @@ _SCHEMA_REJECTION = frozenset({
     "BadRequestError",
     "UnsupportedFeatureError",
     "NotImplementedError",
+    "OutputParserException",
 })
 
 
@@ -61,15 +62,19 @@ async def invoke_structured_compat(
     try:
         structured = model.with_structured_output(schema)
         raw = await structured.ainvoke(messages)
+        return _parse_json_text(raw,schema)
     except Exception as exc:
-        if type(exc).__name__ not in _SCHEMA_REJECTION:
+        # A provider may reject JSON/function-call requests outright *or*
+        # return a partial/invalid structured payload. Both are recoverable
+        # with exactly one ordinary-chat JSON request, then strict validation.
+        if (type(exc).__name__ not in _SCHEMA_REJECTION
+                and not isinstance(exc, ValidationError)):
             raise
-        # Runtime dictates the schema; the model gets no new capabilities.
         fields = schema.model_json_schema()
         json_request = messages + [(
-            "human", "The provider does not support structured tool output. "
-            "Return EXACTLY one JSON object with no Markdown and no commentary. "
-            "Required JSON schema: " + json.dumps(fields,sort_keys=True)
+            "human", "Return ONLY a single JSON object. Do NOT call tools, "
+            "write prose, or use Markdown. Use all required keys exactly, "
+            "with these types and constraints: " + json.dumps(fields,sort_keys=True)
         )]
         raw = await model.ainvoke(json_request)
-    return _parse_json_text(raw,schema)
+        return _parse_json_text(raw,schema)
