@@ -28,6 +28,8 @@ def test_reproducible_real_upstream_issue_contract():
 def test_paid_upstream_issue_is_not_normal_ci():
     workflow=Path(".github/workflows/swe-real-issue-step7.yml").read_text()
     assert "workflow_dispatch:" in workflow
+    assert "  push:" not in workflow
+    assert "  pull_request:" not in workflow
     assert "inputs.authorization == 'RUN'" in workflow
     assert "secrets.SWE_LLM_API_KEY" in workflow
     assert "secrets.SWE_LLM_MODEL" in workflow
