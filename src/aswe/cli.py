@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import asyncio
+import shlex
 from pathlib import Path
 import sys
 
@@ -20,6 +22,14 @@ def _parser() -> argparse.ArgumentParser:
     trace.add_argument("--runtime-dir", type=Path, required=True)
     trace.add_argument("--json", action="store_true", help="emit one JSON object per line")
     trace.add_argument("--tail", type=int, default=0, help="last N events (0 = all)")
+    run = sub.add_parser("run", help="execute a real coding task with pinned DeerFlow and Docker")
+    run.add_argument("task", help="natural-language SWE task")
+    run.add_argument("--repo", type=Path, required=True, help="local Git repository")
+    run.add_argument("--runtime-dir", type=Path, required=True, help="private run artifacts outside repo")
+    run.add_argument("--check-command", required=True,
+                     help="independent Python test command, e.g. 'python -B -m unittest discover -s tests -q'")
+    run.add_argument("--docker-image", required=True, help="existing Docker image pinned by @sha256 digest")
+    run.add_argument("--ref", default="HEAD", help="Git reference to clone")
     report = sub.add_parser("report", help="inspect an existing MVPTaskReport JSON artifact")
     report.add_argument("path", type=Path)
     report.add_argument("--json", action="store_true")
@@ -30,6 +40,23 @@ def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     options = parser.parse_args(argv)
     try:
+        if options.command == "run":
+            from aswe.integrations.deerflow.developer_entry import execute_swe_task
+            commands = tuple(shlex.split(options.check_command))
+            # Admission occurs before external model invocations; user supplied
+            # check command never comes from the model itself.
+            from aswe.planning.acceptance import _validate_argv
+            _validate_argv(commands)
+            report_path, report, trace_path = asyncio.run(execute_swe_task(
+                repository=options.repo,task=options.task,
+                runtime_dir=options.runtime_dir,check_argv=commands,
+                image=options.docker_image,ref=options.ref))
+            print(f"Task: {report.task_id}")
+            print(f"Report: {report_path}")
+            print(f"Trace: {trace_path}")
+            print(f"Native: {report.native_status} | Canonical: {report.verification_status}")
+            print(f"Delivery: {report.delivery_status}")
+            return 0 if report.verification_status == "passed" else 1
         if options.command == "trace":
             if options.tail < 0:
                 raise ValueError("--tail cannot be negative")
