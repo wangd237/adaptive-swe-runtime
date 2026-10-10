@@ -4,17 +4,17 @@ Implementation repository for **Adaptive Agent Runtime for Software Engineering 
 
 > **A-SWE is the control plane. DeerFlow is an execution plane.**
 
-## Current phase
+## Current status — Developer MVP (2026-10-10)
 
-P0 Design: FROZEN (DeerFlow integration Go/No-Go pending)
-Coding Step 0: CLOSED / ACCEPTED
-Coding Step 1: CLOSED / ACCEPTED
-Coding Step 2: **CLOSED / ACCEPTED** — [PR #4](https://github.com/wangd237/adaptive-swe-runtime/pull/4) merged as `3d19541b`
-Coding Step 3: **SCOPED BASELINE ACCEPTED** — [PR #5](https://github.com/wangd237/adaptive-swe-runtime/pull/5) merged; frozen physical P3 integration tested on Step-4 branch
-DeerFlow / LLM integration: NOT STARTED (Step 5)
+**Coding Steps 0–5 have been merged to `main`.** Step 5 DeerFlow integration was merged via [PR #7](https://github.com/wangd237/adaptive-swe-runtime/pull/7) (merge `1fa6e5858cdb3f06253cd5c2e40370a308440e3c`).
 
-Step 2 frozen PoC inventory: **65 PASS / 0 PARTIAL / 0 GAP**.
-Merged PR #4 head: **202 passed on Python 3.11 and 202 passed on Python 3.13**.
+A-SWE is a **developer-oriented, task-adaptive Software Engineering Agent Runtime**, not a production hosted-agent platform. Core owns task planning, capability/provider policy, compiled Task DAG, Scheduler/Workspace/Evidence, repair and canonical verification. The DeerFlow adapter executes a controlled SWE coding loop through an exact pinned [DeerFlow](https://github.com/bytedance/deer-flow/tree/c0895d295bba34f6e95188fca380f555dabed891) implementation. Runtime-owned Docker Bash is distinct from the upstream host Bash tool.
+
+**Demonstrated:** an offline scripted model with the actual pinned DeerFlow/LangGraph runtime, real Scheduler commit and 5C/5D admission, actual isolated Docker coding commands, Git changes and independent canonical Python tests ([native CI](https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38032079301)); also one separately triggered real-model smoke with a successful code change and independent test ([run](https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38018937188)). These are engineering smoke tests, not a benchmark or broad task-success claim.
+
+**Known limitation:** native Sandbox Quiescence is not formally attested. The strict Scheduler may quarantine a coding attempt even when separate canonical tests pass. The MVP report states this distinction; it must not be represented as a strictly `ACCEPTED TaskResult`.
+
+**Next: Step 6 — SWE Agent Usability & Observability.** Focus on a usable CLI/task entrypoint, execution trace, multi-file coding tasks, and richer task/DAG/repair demonstrations. Full formal sandbox quiescence, production RBAC, distributed scheduling/Workspace and enterprise platform features are **out of scope**, not deferred release blockers. Keep existing correctness checks; do not weaken Scheduler evidence or silently claim production guarantees.
 
 ## Accepted implementation
 
@@ -45,18 +45,18 @@ Install dev requirements and run:
 No DeerFlow dependency or LLM integration has been added.
 
 
-## Step 4 physical integration (work in progress)
+## Step 4 physical integration (historical milestone)
 
 - Canonical provider-neutral Capability registry, FakeBackend Inventory, ToolEffect and WorkspaceAccess resolution, materialized phase TaskDAG / exclusive WRITEs, real Git Tester post-node guard.
 - Frozen Stage-3 P3 physical scenarios 01/02/03/04/11 PASS on Step-4 branch, but the complete Step-4 adapter / live preflight / policy descriptor is **not yet accepted**.
 - Review: [Step-4 physical PoCs](audits/step4-physical-poc-audit.md).
 
 
-## Coding Step 5 — DeerFlow Adapter (in progress)
+## Coding Step 5 — DeerFlow Adapter (historical implementation notes)
 
 - Isolated adapter namespace: `src/aswe/integrations/deerflow/`. First slice captures source-attested candidate BackendInventory from pinned DeerFlow `AppConfig`, actual eager tools, Subagent registry and observed Sandbox features.
 - Exact pinned upstream: `bytedance/deer-flow@c0895d295bba34f6e95188fca380f555dabed891`. The DeerFlow harness requires Python >=3.12. A-SWE Core unit CI remains Python 3.11/3.13.
-- Execution/cancellation/authorization/Bash receipt Go/No-Go is **not** yet passed. [Stage 5 entry](plan/step5-implementation-entry.md) · [source audit](audits/step5-gate-audit.md).
+- Historical pre-release status; Step 5 Developer MVP merged with its documented non-production limitations. [Stage 5 entry](plan/step5-implementation-entry.md) · [source audit](audits/step5-gate-audit.md).
 
 
 ### Step 5B — Model-only reasoning adapter
