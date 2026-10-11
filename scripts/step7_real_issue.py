@@ -240,6 +240,21 @@ async def execute_case(summary: dict) -> None:
             child_native_stop_reasons=[r.get("native_stop_reason") for r in child_reports],
             child_canonical_statuses=[r.get("verification_status") for r in child_reports],
         )
+        summary["child_accepted_handoffs"]=[
+            r.get("accepted_handoff_fingerprint") for r in child_reports]
+        summary["dag_coder_handoff_acceptance"]=[
+            e["payload"].get("accepted") for e in events
+            if e["event_type"] == "dag.coder.handoff"]
+        require(child_reports and all(
+            r.get("acceptance_profile") == "practical"
+            and r.get("scheduler_node_status") == "succeeded"
+            and isinstance(r.get("accepted_handoff_fingerprint"), str)
+            and len(r["accepted_handoff_fingerprint"]) == 64
+            for r in child_reports
+        ), "ISSUE500_PRACTICAL_HANDOFF_NOT_ACCEPTED")
+        require(summary["dag_coder_handoff_acceptance"] and all(
+            summary["dag_coder_handoff_acceptance"]
+        ), "ISSUE500_DAG_HANDOFF_NOT_ACCEPTED")
         require(dag.get("task_dag_fingerprint"),"NO_PHYSICAL_DAG")
         require(dispatched.count("coder")>=1 and
                 dispatched.count("__aswe_verify")>=1,
