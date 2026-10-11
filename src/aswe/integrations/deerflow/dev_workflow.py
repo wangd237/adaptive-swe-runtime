@@ -3,7 +3,7 @@
 Each coding round uses the real Step 6B app entry and independent Docker
 canonical verifier. Repair starts from the previous round's actual Git diff,
 committed only in a disposable runtime clone; never from the original repo.
-This is explicitly NOT strict cross-node Scheduler acceptance.
+Physical DAG uses the bounded practical Scheduler Handoff, never a strict assurance claim.
 """
 from __future__ import annotations
 
@@ -32,8 +32,10 @@ from aswe.integrations.deerflow.repair_context import (
 
 def _accepted_coder_handoff(report: Any) -> bool:
     """Only host-committed practical Scheduler results unlock DAG Tester."""
+    digest = getattr(report, "accepted_handoff_fingerprint", None)
     return (
-        getattr(report, "accepted_handoff_fingerprint", None) is not None
+        type(digest) is str and len(digest) == 64
+        and all(char in "0123456789abcdef" for char in digest)
         and getattr(report, "scheduler_node_status", None) == "succeeded"
         and getattr(report, "acceptance_profile", None) == "practical"
         and getattr(report, "native_status", None) == "completed"
