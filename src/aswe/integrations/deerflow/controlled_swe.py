@@ -74,6 +74,14 @@ class DockerCommandBackend(IsolatedPythonCommandBackend):
         self.image=image
         self.memory_mb=memory_mb
         self.pids_limit=pids_limit
+        # Host-side command accounting: a returned tool call alone cannot
+        # certify an unjoined Docker CLI or previously uncertain cleanup.
+        self._active_commands = 0
+        self._cleanup_uncertain = False
+
+    @property
+    def practical_resources_drained(self) -> bool:
+        return self._active_commands == 0 and not self._cleanup_uncertain
 
     @staticmethod
     async def _container_absent_after_rm_failure(container_name: str) -> bool:
@@ -110,6 +118,17 @@ class DockerCommandBackend(IsolatedPythonCommandBackend):
         return True
 
     async def run(self, command: str, *, timeout: float, max_output: int) -> ShellOutcome:
+        self._active_commands += 1
+        try:
+            return await self._run_command(command, timeout=timeout, max_output=max_output)
+        except SWEExecutionDenied as exc:
+            if exc.code == "SWE_DOCKER_CLEANUP_UNVERIFIED":
+                self._cleanup_uncertain = True
+            raise
+        finally:
+            self._active_commands -= 1
+
+    async def _run_command(self, command: str, *, timeout: float, max_output: int) -> ShellOutcome:
         if not isinstance(command,str) or not command.strip() or len(command)>10000:
             raise SWEExecutionDenied("SWE_COMMAND_INVALID")
         if timeout <= 0 or timeout > 120 or max_output < 1 or max_output > 64000:
