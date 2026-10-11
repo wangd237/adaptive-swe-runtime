@@ -51,3 +51,10 @@ The next real model run checks whether the planner/explorer/coder can resume aft
 - This is specific to **injected assistant history**, not evidence of an ordinary LLM call issue: previous genuine Issue #553 E2E ran successfully.
 - Last controlled trial will keep the real ToolNode/guard denial and record it faithfully, but adapt ONLY the synthetic first assistant/tool pair into a trusted error observation before passing history to the genuine provider. Subsequent actual tool calls are not transformed.
 - Interpret this as real-model behavioral recovery from a trusted refusal notice plus separate full-native ToolMessage coverage, not as proof that the provider natively replayed a synthetic tool-call exchange.
+
+## Repeat genuine upstream Issue #553 after budget repair
+
+Re-run the non-mocked upstream Issue #553 under the exact same pinned
+boltons SHA and frozen DeerFlow baseline, now requiring both canonical
+passing tests and a **normal (non-turn-capped)** native terminal status.
+This run is separate from the synthetic recovery-fault benchmark.
