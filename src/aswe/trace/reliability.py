@@ -13,11 +13,26 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterable, Mapping
 from datetime import datetime
-import re
 from typing import Any
 
 SCHEMA_VERSION = "aswe.reliability.v1"
-_SAFE_CODE = re.compile(r"^[A-Z][A-Z0-9_]{2,79}$")
+# Explicit host-recognized codes only. Arbitrary strings (even uppercase
+# strings) must never be reflected from a purported trace as failure details.
+_KNOWN_TOOL_FAILURES = frozenset((
+    "SWE_READ_BEFORE_WRITE_REQUIRED", "SWE_PATH_FORBIDDEN",
+    "SWE_PATH_NOT_ALLOWED", "SWE_PATH_OUTSIDE_WORKSPACE",
+    "SWE_PATH_INVALID", "SWE_SYMLINK_PATH_FORBIDDEN",
+    "SWE_CHANGED_FILE_LIMIT_EXCEEDED", "SWE_FILE_TOO_LARGE",
+    "SWE_FILE_MISSING", "SWE_FILE_UNREADABLE", "SWE_WRITE_FAILED",
+    "SWE_REPLACE_TARGET_NOT_FOUND", "SWE_REPLACE_AMBIGUOUS",
+    "SWE_WRITE_POLICY_REQUIRED", "SWE_WORKSPACE_ROOT_DRIFT",
+    "SWE_DOCKER_UNAVAILABLE", "SWE_DOCKER_CLEANUP_UNVERIFIED",
+    "SWE_TOOL_NOT_IN_PROFILE", "SWE_COMMAND_INVALID",
+    "AUTHORIZATION_CALL_DENIED", "AUTHORIZATION_CALL_FAILED",
+    "TOOL_CANCELLED", "NATIVE_TOOL_FAILED", "EXECUTION_BINDING_CLOSED",
+    "EXECUTION_BINDING_NOT_ACTIVE", "TOOL_CALL_REPLAY",
+    "RUN_AUTHORITY_MUTATED", "TOOL_CALL_RUNTIME_CONTEXT_MISMATCH",
+))
 _TOOL_STATUSES = frozenset(("completed", "denied", "failed", "cancelled"))
 _VERIFICATION = frozenset(("passed", "failed", "unverified", "not_run"))
 _NATIVE_STATUS = frozenset(("completed", "failed", "cancelled", "timed_out"))
@@ -35,7 +50,7 @@ def _status(value: Any, allowed: frozenset[str], fallback: str) -> str:
 
 
 def _code(value: Any) -> str:
-    return value if type(value) is str and _SAFE_CODE.fullmatch(value) else "UNCLASSIFIED_FAILURE"
+    return value if type(value) is str and value in _KNOWN_TOOL_FAILURES else "UNCLASSIFIED_FAILURE"
 
 
 def _nonnegative(value: Any) -> int | None:
@@ -91,6 +106,8 @@ def summarize_execution_trace(
     tokens: Counter[str] = Counter()
     token_reported_turns = 0
     verifier_results: list[str] = []
+    dag_tester_results: list[str] = []
+    canonical_verifier_results: list[str] = []
     repair_rounds = 0
     verification = "unverified"
     native = "unknown"
@@ -149,6 +166,10 @@ def summarize_execution_trace(
         elif event in ("dag.verification.executed", "verification.finished"):
             result = _status(payload.get("status"), _VERIFICATION, "unverified")
             verifier_results.append(result)
+            if event == "dag.verification.executed":
+                dag_tester_results.append(result)
+            else:
+                canonical_verifier_results.append(result)
         elif event == "workflow.stage.finished":
             native = _status(payload.get("native_status"), _NATIVE_STATUS, "unknown")
             value = payload.get("native_stop_reason")
@@ -227,5 +248,7 @@ def summarize_execution_trace(
         "repair_budget_exhaustions": counts["workflow.repair.budget_exhausted"],
         "native_stop_reason_counts": dict(sorted(native_stops.items())),
         "independent_verifier_results": verifier_results,
+        "dag_tester_results": dag_tester_results,
+        "child_canonical_verifier_results": canonical_verifier_results,
         "scheduler_dispatches": counts["dag.scheduler.dispatch"],
     }
