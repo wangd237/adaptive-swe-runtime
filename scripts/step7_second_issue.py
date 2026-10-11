@@ -20,6 +20,8 @@ import tempfile
 
 from aswe.integrations.deerflow.controlled_swe import DockerCommandBackend
 from aswe.integrations.deerflow.dev_workflow import execute_dev_workflow
+from aswe.integrations.deerflow.practical_acceptance import PracticalAcceptanceDenied
+from aswe.trace.reliability import summarize_execution_trace
 from aswe.integrations.deerflow.live_smoke_config import LiveModelSettings
 from scripts.live_adaptive_acceptance import (
     AcceptanceFailed, python_image_digest, require,
@@ -145,6 +147,15 @@ async def execute(summary: dict) -> None:
                 for file in (home/"tasks").glob("workflow-*/events.jsonl")
                 for line in file.read_text(encoding="utf-8").splitlines() if line
             ][-16:]
+            # Child diagnostic is collected before TemporaryDirectory is
+            # destroyed; only safe normalized counters are serialized.
+            child_traces=sorted((home/"tasks").glob("task-*/events.jsonl"))
+            if child_traces:
+                latest=[
+                    json.loads(line) for line in child_traces[-1].read_text(
+                        encoding="utf-8").splitlines() if line
+                ]
+                summary["child_failure_reliability"]=summarize_execution_trace(latest)
             raise
 
         events=[json.loads(line) for line in run.trace_path.read_text(
@@ -241,7 +252,8 @@ def main() -> int:
         code=0
     except Exception as exc:
         data["outcome"]="failed"
-        data["failure_code"]=(exc.args[0] if isinstance(exc,AcceptanceFailed)
+        data["failure_code"]=(exc.args[0] if isinstance(
+                                  exc,(AcceptanceFailed,PracticalAcceptanceDenied))
                               else type(exc).__name__)
         code=1
     persist(data)
