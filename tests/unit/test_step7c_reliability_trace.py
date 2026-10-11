@@ -148,3 +148,53 @@ def test_cancel_and_repair_exhaustion_remain_distinct():
         event(4, "workflow.finished", {"verification_status": "failed"}),
     ])
     assert exhausted["outcome_category"] == "REPAIR_BUDGET_EXHAUSTED"
+
+
+def test_single_node_mvp_finished_is_not_mistaken_for_broken_workflow():
+    result = summarize_execution_trace([
+        event(1, "mvp.task.started"),
+        event(2, "model.turn.finished"),
+        event(3, "mvp.task.finished", {
+            "native_status": "completed",
+            "native_stop_reason": None,
+            "verification_status": "passed",
+            "delivery_status": "tests_passed_scheduler_quarantined",
+        }),
+    ])
+    assert result["execution_kind"] == "single_node_mvp"
+    assert result["outcome_category"] == "CODE_VERIFIED"
+    assert result["workflow_finished_observed"]
+    assert "scheduler_accepted" not in result
+
+
+def test_dag_tester_is_separate_from_child_canonical_proof():
+    result = summarize_execution_trace([
+        event(1, "workflow.started"),
+        event(2, "verification.finished", {"status": "passed"}),
+        event(3, "dag.verification.executed", {"status": "failed"}),
+        event(4, "workflow.stage.finished", {"native_status": "completed"}),
+        event(5, "workflow.finished", {"verification_status": "failed"}),
+    ])
+    assert result["child_canonical_verifier_results"] == ["passed"]
+    assert result["dag_tester_results"] == ["failed"]
+    assert result["outcome_category"] == "CANONICAL_TESTS_FAILED"
+
+
+def test_summary_cli_projections_are_redacted(tmp_path, capsys):
+    from aswe.cli import main
+    from aswe.trace.minimal_events import LocalRuntimeEventSink
+    sink = LocalRuntimeEventSink(tmp_path, task_id="task-step7c")
+    sink.emit("mvp.task.started", payload={"secret_prompt": "private-credential-XYZ"})
+    sink.emit("model.turn.finished", payload={"usage": {
+        "input_tokens": 10, "output_tokens": 1, "total_tokens": 11}})
+    sink.emit("mvp.task.finished", payload={
+        "native_status": "completed", "verification_status": "passed"})
+    args = ["trace", "task-step7c", "--runtime-dir", str(tmp_path),
+            "--summary"]
+    assert main(args) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["model_turns"] == 1
+    assert payload["token_usage_reported"]["total_tokens"] == 11
+    assert "private-credential-XYZ" not in json.dumps(payload)
+    assert main(args + ["--tail", "1"]) == 2
+    assert "full trace" in capsys.readouterr().err
