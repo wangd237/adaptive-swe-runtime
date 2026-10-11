@@ -32,6 +32,9 @@ def _parser() -> argparse.ArgumentParser:
                      help="independent Python test command, e.g. 'python -B -m unittest discover -s tests -q'")
     run.add_argument("--docker-image", required=True, help="existing Docker image pinned by @sha256 digest")
     run.add_argument("--ref", default="HEAD", help="Git reference to clone")
+    run.add_argument("--acceptance-mode", choices=("practical", "strict"),
+                     default="practical",
+                     help="bounded local handoff (default) or historical fail-closed strict mode")
     run.add_argument("--env-file", type=Path, help="LLM settings file (default: .env in current directory)")
     workflow = sub.add_parser("workflow", help="Coder -> Tester -> Repair developer workflow")
     workflow.add_argument("task")
@@ -96,7 +99,8 @@ def main(argv: list[str] | None = None) -> int:
                 repository=options.repo,task=options.task,
                 runtime_dir=options.runtime_dir,check_argv=commands,
                 image=options.docker_image,ref=options.ref,
-                env_file=options.env_file))
+                env_file=options.env_file,
+                acceptance_profile=options.acceptance_mode))
             print(f"Task: {report.task_id}")
             print(f"Report: {report_path}")
             print(f"Trace: {trace_path}")
