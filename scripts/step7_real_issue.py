@@ -19,6 +19,7 @@ import tempfile
 
 from aswe.integrations.deerflow.controlled_swe import DockerCommandBackend
 from aswe.integrations.deerflow.dev_workflow import execute_dev_workflow
+from aswe.trace.reliability import summarize_execution_trace
 from aswe.integrations.deerflow.live_smoke_config import LiveModelSettings
 from scripts.live_adaptive_acceptance import (
     AcceptanceFailed, python_image_digest, require,
@@ -152,11 +153,25 @@ async def execute_case(summary: dict) -> None:
                 physical_dag=True,max_repairs=1,
             ),timeout=1100)
         except Exception:
-            summary["stages_before_failure"]=[
-                json.loads(line)["event_type"]
-                for file in (home/"tasks").glob("workflow-*/events.jsonl")
+            # Preserve host-observed failure telemetry, not model prose or
+            # a claimed terminal verdict if the workflow never finished.
+            traces=sorted((home/"tasks").glob("workflow-*/events.jsonl"))
+            events_before_failure=[
+                json.loads(line)
+                for file in traces
                 for line in file.read_text(encoding="utf-8").splitlines() if line
+            ]
+            summary["stages_before_failure"]=[
+                event["event_type"] for event in events_before_failure
             ][-20:]
+            # Independent task instances have separate seq spaces; summarize
+            # only the most recent workflow rather than concatenating them.
+            if traces:
+                last=[
+                    json.loads(line) for line in traces[-1].read_text(
+                        encoding="utf-8").splitlines() if line
+                ]
+                summary["reliability"]=summarize_execution_trace(last)
             raise
         events=[json.loads(line) for line in result.trace_path.read_text(
             encoding="utf-8").splitlines() if line]
@@ -188,6 +203,8 @@ async def execute_case(summary: dict) -> None:
             else "failed" if diagnostic.exit_code is not None
             else "unverified")
         tool_events=[e for e in events if e["event_type"]=="tool.call.finished"]
+        summary["reliability"]=summarize_execution_trace(
+            events, round_reports=child_reports)
         summary["tool_status_counts"]=dict(Counter(
             str(e["payload"].get("status","unspecified"))
             if str(e["payload"].get("status","unspecified")) in (
@@ -219,6 +236,7 @@ async def execute_case(summary: dict) -> None:
             independent_tests_unchanged=test_unchanged,
             implementation_changed=source_changed,
             child_native_statuses=[r.get("native_status") for r in child_reports],
+            child_native_stop_reasons=[r.get("native_stop_reason") for r in child_reports],
             child_canonical_statuses=[r.get("verification_status") for r in child_reports],
         )
         require(dag.get("task_dag_fingerprint"),"NO_PHYSICAL_DAG")
@@ -227,6 +245,8 @@ async def execute_case(summary: dict) -> None:
                 "NO_CODER_TESTER_DAG_EXECUTION")
         require(result.verification_status=="passed" and checks[-1]=="passed",
                 "UPSTREAM_BUG_NOT_FIXED")
+        require(all(r.get("native_stop_reason") is None for r in child_reports),
+                "UPSTREAM_500_NATIVE_BUDGET_CAPPED")
         require(source_changed,"NO_PRODUCTION_CODE_FIX")
         require(test_unchanged,"INDEPENDENT_TEST_CHANGED")
         require(upstream_unchanged,"UPSTREAM_SOURCE_MUTATED")
