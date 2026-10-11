@@ -19,3 +19,29 @@ closure. If repeated Repair attempts fail, preserve the error evidence.
 
 The paid workflow uses an exact-branch exact-commit-marker trigger and must
 be deleted after the run. Never merge that trigger to main.
+
+## Natural first attempt — no Repair witness
+
+Run: https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38128598465
+
+The first fully specified genuine Issue #565 attempt reached the 24-turn
+native budget and returned `turn_capped`. The source code was changed and a
+post-Coder diagnostic test passed, but that diagnostic is NOT a Scheduler
+handoff or a DAG Tester verdict. The Coder Scheduler status was `failed`,
+no Handoff was emitted, no DAG Tester ran, and `repair_scheduled=0`.
+Thus no real Repair cycle was demonstrated. This remains a genuine observed
+failure, not a result to be overridden by post-run test success.
+
+## Controlled staged-spec test — separate classification
+
+The second run preserves the same actual upstream issue and all ten
+host-owned regression tests, with no injected patches or mocked tool calls.
+It deliberately **narrows only the first Coder instruction** to precompiled
+IGNORECASE, and authorizes later full generalization only upon receipt of
+genuine independent Tester failure feedback. The model independently chooses
+all code/tools. Label outcomes `staged_specification=true`; do not count
+this as a natural first-pass Issue success rate.
+
+Hard acceptance still requires: first Coder normal Handoff, independent
+Tester failed, actual Repair scheduled, second genuine model Coder patch
+and new accepted Handoff, and independent Tester passed.
