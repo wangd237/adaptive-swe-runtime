@@ -160,5 +160,6 @@ def verify_practical_handoff(
             and payload.get("acceptance_profile") == "practical"
             and payload.get("mutation_evidence") == "observed"
         )
-    except (ValueError, TypeError, OSError, KeyError, AttributeError):
+    except Exception:
+        # An unavailable/tampered evidence store can never grant a Handoff.
         return False
