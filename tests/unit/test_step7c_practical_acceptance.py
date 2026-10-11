@@ -208,3 +208,34 @@ async def test_tampered_handoff_and_evidence_reference_cannot_unlock_dependency(
         "fingerprint":fingerprint(forged_body),
     })
     assert not verify_practical_handoff(forged,evidence_store=store)
+
+
+@pytest.mark.asyncio
+async def test_git_visible_patch_accepted_despite_unrelated_ignored_cache(
+    prepared_mvp,
+):
+    repo, core, evidence, verifier, policy = prepared_mvp
+    cached=Path(repo.repository_root)/"__pycache__"
+    cached.mkdir()
+    (cached/"ignored.pyc").write_bytes(b"untrusted-cache")
+    report, core, _ = await run_practical(prepared_mvp)
+    assert report.verification_status == "passed"
+    assert report.scheduler_node_status == "succeeded"
+    handoff=core.states["writer"].accepted_handoff
+    assert handoff is not None
+    assert "calc.py" in handoff.evidence.changed_paths
+    assert handoff.evidence.changed_paths_complete is False
+    assert "filesystem_history_incomplete" in handoff.warnings
+    payload=evidence.get(handoff.evidence.workspace_changeset)
+    assert payload["mutation_evidence"] == "observed"
+    assert payload["delta"]["attribution_truncated"] is True
+    assert verify_practical_handoff(handoff, evidence_store=evidence)
+
+
+@pytest.mark.asyncio
+async def test_mutation_reverted_to_original_cannot_be_claimed_as_patch(
+    prepared_mvp,
+):
+    from aswe.integrations.deerflow.practical_acceptance import PracticalAcceptanceDenied
+    with pytest.raises(PracticalAcceptanceDenied,match="PRACTICAL_MUTATION_UNATTESTED"):
+        await run_practical(prepared_mvp,replacement="1")
