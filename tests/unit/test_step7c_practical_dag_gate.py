@@ -24,6 +24,9 @@ def test_practical_coder_handoff_unblocks_independent_tester():
 
 @pytest.mark.parametrize("overrides", [
     {"accepted_handoff_fingerprint": None},
+    {"accepted_handoff_fingerprint": ""},
+    {"accepted_handoff_fingerprint": "not-a-proof"},
+    {"accepted_handoff_fingerprint": "g"*64},
     {"scheduler_node_status": "failed"},
     {"scheduler_node_status": "cancelled"},
     {"acceptance_profile": "strict"},
