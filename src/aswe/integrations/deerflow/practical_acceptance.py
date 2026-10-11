@@ -106,10 +106,18 @@ def build_practical_handoff(
         "PRACTICAL_CHECK_RECEIPT_PROVENANCE_INVALID",
     )
     evidence_store.get(ref)
-    delta = evidence_store.get(refs[0][0]).get("delta", {})
+    workspace_evidence = evidence_store.get(refs[0][0])
+    delta = workspace_evidence.get("delta", {})
     _require(
         isinstance(delta, dict)
-        and delta.get("mutation_evidence") == "observed"
+        # A truncated full-FS snapshot may yield delta UNKNOWN although the
+        # persisted host collector separately attests OBSERVED Git changes.
+        # Check the collector's final status, and explicitly retain the
+        # incomplete whole-filesystem attribution on the Handoff.
+        and workspace_evidence.get("mutation_evidence") == "observed"
+        and workspace_evidence.get("quiescence_proven") is True
+        and workspace_evidence.get("post_repository_fingerprint")
+            == post.repository_state_fingerprint
         and delta.get("repository_changed_paths_complete") is True
         and bool(delta.get("repository_changed_paths"))
         and delta.get("execution_id") == invocation.execution_id,
