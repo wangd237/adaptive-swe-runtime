@@ -290,3 +290,45 @@ async def test_native_executor_constructor_impostor_tool_rejected(tmp_path):
     with pytest.raises(NativeExecutionError,match="NATIVE_EXECUTOR_BINDING_DRIFT"):
         await core.run_claim(await core.claim(node.id),Probe())
     assert trace["models"]==[] and store.active_count==0
+
+
+@pytest.mark.asyncio
+async def test_vendor_turn_budget_converter_and_stop_reason_are_preserved(tmp_path):
+    """Native normal status must retain an independent capped stop reason."""
+    from dataclasses import replace
+    backend, store, prep, core, node, env, tool, trace = context(tmp_path)
+    trace["resolved_turns"] = []
+
+    class BudgetedNative(NativeFake):
+        def _resolve_recursion_limit(self, middlewares):
+            trace["resolved_turns"].append((self.config.max_turns, len(middlewares)))
+            return self.config.max_turns * 2 + len(middlewares)
+
+        async def _aexecute(self, task):
+            result = await super()._aexecute(task)
+            result.stop_reason = "turn_capped"
+            trace["actual_recursion_limit"] = self._recursion_limit
+            return result
+
+    backend.assembler.seams = replace(
+        backend.assembler.seams, subagent_executor_cls=BudgetedNative)
+    captured = []
+
+    class Probe:
+        async def prepare_node(self, n):
+            return await backend.prepare_node(n)
+        async def execute_prepared(self, p, i):
+            result = await backend.execute_prepared(p, i)
+            captured.append(result)
+            return result
+        async def cancel_node(self, x):
+            await backend.cancel_node(x)
+
+    await core.run_claim(await core.claim(node.id), Probe())
+    assert trace["resolved_turns"] and trace["resolved_turns"][0][1] == 1
+    assert trace["actual_recursion_limit"] == (
+        trace["resolved_turns"][0][0] * 2 + 1)
+    assert len(captured) == 1
+    assert captured[0].terminal_status.value == "completed"
+    assert captured[0].native_stop_reason == "turn_capped"
+    assert store.active_count == 0
