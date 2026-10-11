@@ -113,6 +113,7 @@ def summarize_execution_trace(
     native = "unknown"
     stopped = None
     finished = False
+    last_mvp_payload: Mapping[str, Any] | None = None
     first_time = last_time = None
     trace_integrity = "verified"
     seen_ids: set[tuple[str, str]] = set()
@@ -176,12 +177,26 @@ def summarize_execution_trace(
             stopped = _status(value, _NATIVE_STOPS, "") or None
             if stopped is not None:
                 native_stops[stopped] += 1
+        elif event == "mvp.task.finished":
+            # Single-node developer CLI produces an MVP completion, not a
+            # top-level multi-stage workflow.finished.
+            last_mvp_payload = payload
         elif event == "workflow.finished":
             finished = True
             verification = _status(payload.get("verification_status"), _VERIFICATION, "unverified")
             value = payload.get("final_native_stop_reason")
             stopped = _status(value, _NATIVE_STOPS, "") or stopped
 
+    if not counts["workflow.started"] and last_mvp_payload is not None:
+        # A single-node MVP has a useful terminal diagnostic but STILL does
+        # not mean strict Scheduler acceptance or proven quiescence.
+        finished = True
+        verification = _status(last_mvp_payload.get("verification_status"),
+                               _VERIFICATION, "unverified")
+        native = _status(last_mvp_payload.get("native_status"),
+                         _NATIVE_STATUS, "unknown")
+        stopped = _status(last_mvp_payload.get("native_stop_reason"),
+                          _NATIVE_STOPS, "") or None
     if reports:
         last = reports[-1]
         native = _status(_get(last, "native_status"), _NATIVE_STATUS, "unknown")
@@ -230,6 +245,9 @@ def summarize_execution_trace(
     return {
         "schema_version": SCHEMA_VERSION,
         "source": "host_runtime_trace",
+        "execution_kind": ("developer_workflow" if counts["workflow.started"]
+                           else "single_node_mvp" if last_mvp_payload is not None
+                           else "unknown"),
         "trace_integrity": trace_integrity,
         "event_count": len(records),
         "workflow_finished_observed": finished,
