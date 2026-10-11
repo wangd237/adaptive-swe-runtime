@@ -184,6 +184,7 @@ async def execute(summary: dict) -> None:
                                               for e in failed_calls)),
             independent_tester_statuses=checker,
             child_native_statuses=[x.get("native_status") for x in child_reports],
+            child_native_stop_reasons=[x.get("native_stop_reason") for x in child_reports],
             repair_scheduled=ev["workflow.repair.scheduled"],
             production_changed=altered,
             external_test_unchanged=unchanged,
@@ -193,6 +194,8 @@ async def execute(summary: dict) -> None:
         require("coder" in dispatch,"CODER_NOT_SCHEDULED")
         require(run.verification_status=="passed" and checker[-1:] == ["passed"],
                 "ISSUE_553_NOT_SOLVED")
+        require(all(x.get("native_stop_reason") is None for x in child_reports),
+                "ISSUE_553_NATIVE_STOP_REASON_NOT_NORMAL")
         require(altered and unchanged,"SOLUTION_INTEGRITY_NOT_PROVEN")
         require(ev["tool.call.finished"]>=2,"NO_REAL_NATIVE_TOOL_EXECUTION")
 
