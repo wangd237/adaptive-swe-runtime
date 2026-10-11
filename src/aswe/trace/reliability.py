@@ -37,6 +37,14 @@ _TOOL_STATUSES = frozenset(("completed", "denied", "failed", "cancelled"))
 _VERIFICATION = frozenset(("passed", "failed", "unverified", "not_run"))
 _NATIVE_STATUS = frozenset(("completed", "failed", "cancelled", "timed_out"))
 _NATIVE_STOPS = frozenset(("turn_capped", "token_capped", "loop_capped"))
+_DELIVERY_STATUS = frozenset((
+    "tests_passed_scheduler_quarantined", "tests_passed_unaccepted",
+    "tests_failed", "unverified",
+))
+_SCHEDULER_STATUS = frozenset((
+    "pending", "running", "completed", "failed", "blocked",
+    "cancelled", "quarantined",
+))
 
 
 def _get(value: Any, name: str, default: Any = None) -> Any:
@@ -112,6 +120,9 @@ def summarize_execution_trace(
     verification = "unverified"
     native = "unknown"
     stopped = None
+    delivery = "unknown"
+    scheduler_status = "unknown"
+    quiescence_proven: bool | None = None
     finished = False
     last_mvp_payload: Mapping[str, Any] | None = None
     first_time = last_time = None
@@ -208,6 +219,9 @@ def summarize_execution_trace(
             # Single-node developer CLI produces an MVP completion, not a
             # top-level multi-stage workflow.finished.
             last_mvp_payload = payload
+            delivery = _status(payload.get("delivery_status"), _DELIVERY_STATUS, "unknown")
+            if type(payload.get("quiescence_proven")) is bool:
+                quiescence_proven = payload["quiescence_proven"]
         elif event == "workflow.finished":
             finished = True
             verification = _status(payload.get("verification_status"), _VERIFICATION, "unverified")
@@ -227,6 +241,12 @@ def summarize_execution_trace(
     if reports:
         last = reports[-1]
         native = _status(_get(last, "native_status"), _NATIVE_STATUS, "unknown")
+        delivery = _status(_get(last, "delivery_status"), _DELIVERY_STATUS, delivery)
+        scheduler_status = _status(
+            _get(last, "scheduler_node_status"), _SCHEDULER_STATUS, "unknown")
+        trust_quiescence = _get(last, "quiescence_proven")
+        if type(trust_quiescence) is bool:
+            quiescence_proven = trust_quiescence
         if not finished:
             # With a terminal top-level Docker Tester, the WORKFLOW verdict
             # outranks a child Coder's narrower canonical check.
@@ -279,6 +299,14 @@ def summarize_execution_trace(
         "event_count": len(records),
         "workflow_finished_observed": finished,
         "outcome_category": outcome,
+        "result_scope": ("code_verification_only" if verification == "passed"
+                         else "not_code_verified"),
+        # This adapter produces MVP reports, not a strict Scheduler-ACCEPTED
+        # handoff. Quarantined verification must never be presented as such.
+        "strict_scheduler_acceptance": "not_attested_by_mvp",
+        "mvp_delivery_status": delivery,
+        "scheduler_node_status": scheduler_status,
+        "quiescence_proven": quiescence_proven,
         "verification_status": verification,
         "native_status": native,
         "native_stop_reason": stopped,
