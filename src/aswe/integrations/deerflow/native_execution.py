@@ -29,6 +29,7 @@ from aswe.integrations.deerflow.tool_guard import (
     ToolPolicyMiddleware, make_langchain_tool_policy_middleware,
 )
 from aswe.integrations.deerflow.preparation import DeerFlowPreparationError
+from aswe.trace.reliability import safe_model_usage
 
 
 class NativeExecutionError(RuntimeError):
@@ -165,7 +166,11 @@ class _ReservedContextGraph:
                                 payload={"execution_id":inv.execution_id,
                                          "attempt":inv.attempt,"run_id":inv.run_id,
                                          "round":model_round,
-                                         "tool_call_count":len(calls)})
+                                         "tool_call_count":len(calls),
+                                         # Provider-reported usage only. Never
+                                         # emit message text/response metadata.
+                                         "usage":safe_model_usage(
+                                             getattr(msg,"usage_metadata",None))})
                 yield part
         finally:
             close = getattr(native_stream, "aclose", None)

@@ -22,6 +22,8 @@ def _parser() -> argparse.ArgumentParser:
     trace.add_argument("--runtime-dir", type=Path, required=True)
     trace.add_argument("--json", action="store_true", help="emit one JSON object per line")
     trace.add_argument("--tail", type=int, default=0, help="last N events (0 = all)")
+    trace.add_argument("--summary", action="store_true",
+                       help="safe aggregate of full host trace; omits prompts and tool data")
     run = sub.add_parser("run", help="execute a real coding task with pinned DeerFlow and Docker")
     run.add_argument("task", help="natural-language SWE task")
     run.add_argument("--repo", type=Path, required=True, help="local Git repository")
@@ -104,7 +106,14 @@ def main(argv: list[str] | None = None) -> int:
         if options.command == "trace":
             if options.tail < 0:
                 raise ValueError("--tail cannot be negative")
+            if options.summary and options.tail:
+                raise ValueError("--summary requires the full trace; omit --tail")
             events = LocalRuntimeEventSink(options.runtime_dir, options.task_id).read_all()
+            if options.summary:
+                from aswe.trace.reliability import summarize_execution_trace
+                summary = summarize_execution_trace(events)
+                print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
+                return 0 if summary["trace_integrity"] == "verified" else 2
             selected = events[-options.tail:] if options.tail else events
             for event in selected:
                 if options.json:
