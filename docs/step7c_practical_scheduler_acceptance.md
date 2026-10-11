@@ -113,3 +113,21 @@ tests passed; no claims of end-to-end practical acceptance are made.
 The second run preserves the stable trusted rejection code and an additional
 redacted child execution summary so that follow-up work can address the
 observed predicate rather than blindly loosening the gate.
+
+## Git-visible attribution correction and third real task acceptance
+
+Real LLM boltons #553 on run #38125118901 executed 23 model turns,
+24 successful guarded tool calls and passed the child canonical test,
+but the new handoff rejected PRACTICAL_MUTATION_UNATTESTED. The filesystem
+scanner marks ignored generated caches as incomplete, correctly preventing
+a claim of *total* historical side-effect coverage, but this also masked
+the independent Git-observed source patch.
+
+Practical now attests only actual non-empty Git-visible source changes using
+the complete repository delta and host-persisted post-repository fingerprint.
+The handoff includes the changed repository paths and explicitly flags
+filesystem-history incompleteness where relevant. A reverted/no-delta write
+cannot be passed as a source patch. Strict mode remains unchanged.
+
+Next genuine model run MUST demonstrate acceptance in the Scheduler and
+the downstream independent Tester, or it remains a failed end-to-end case.
