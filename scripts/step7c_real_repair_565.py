@@ -33,14 +33,22 @@ CASE_ID="boltons-565-multireplace-compiled-regex-flags"
 CHECK=("python","-B","-m","unittest","tests.test_aswe_issue565","-q")
 TEST_PATH="tests/test_aswe_issue565.py"
 TASK=(
-    "Fix genuine public boltons issue #565 in this pinned unfamiliar repository. "
-    "MultiReplace accepts precompiled regular expressions but silently loses "
-    "the compiled per-pattern flags (IGNORECASE, MULTILINE, DOTALL, VERBOSE, "
-    "ASCII). Compiled pattern flags must apply to their own replacement "
-    "branch without leaking into other branches; constructor flags, literal "
-    "strings and leading inline flags must keep working. Explore the code, "
-    "make a general production fix, test the host-owned behavioral suite and "
-    "preserve old string-only behavior. Do not edit tests or project metadata."
+    "This is a CONTROLLED STAGED-SPEC Repair acceptance on the genuine public "
+    "boltons issue #565 (MultiReplace loses flags on precompiled regex). "
+    "On the FIRST Coder attempt only, implement a minimal production patch "
+    "for preserving IGNORECASE on re.compile('cat',re.I), including isolation "
+    "from adjacent plain-string branches. Then STOP the native Agent normally: "
+    "do not attempt other regex flags or extended refactoring during the "
+    "initial Coder attempt. The independent host-owned Tester (not the model) "
+    "will run the complete unchanged upstream issue #565 behavioral suite. "
+    "If a later attempt includes actual 'test_failure_output' / RepairFeedback, "
+    "then address ALL independently failing behaviors, including MULTILINE, "
+    "DOTALL, VERBOSE, ASCII, leading inline flags and constructor flags, "
+    "and finish with a correct general fix. The agent selects its own tools "
+    "and production patch on both rounds; do not modify any test or metadata. "
+    "This staged initial specification is intentionally controlled to "
+    "test the real Tester -> Repair -> Coder closed loop, not a natural "
+    "first-attempt Issue success-rate measurement."
 )
 TEST_CODE=r'''"""Host-owned independent regression for upstream boltons issue #565."""
 import re
@@ -248,7 +256,9 @@ def persist(summary: dict) -> None:
 
 def main() -> int:
     data={"case_id":CASE_ID,"upstream_issue":ISSUE,
-          "model_mocked":False,"outcome":"not_started"}
+          "model_mocked":False,"staged_specification":True,
+          "first_round_guidance":"IGNORECASE_only_then_wait_for_tester",
+          "outcome":"not_started"}
     try:
         asyncio.run(execute(data))
         data["outcome"]="passed"
