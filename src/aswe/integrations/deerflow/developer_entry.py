@@ -41,12 +41,15 @@ async def execute_swe_task(*, repository: Path, task: str, runtime_dir: Path,
                            check_argv: tuple[str, ...], image: str,
                            ref: str = "HEAD",
                            model_factory: Callable[..., Any] | None = None,
-                           env_file: Path | None = None):
+                           env_file: Path | None = None,
+                           acceptance_profile: str = "strict"):
     """Clone an immutable base, then execute the real frozen DeerFlow graph.
 
     Requires installed pinned vendor, Docker and LLM_* from .env or environment.
     Does not permit secret-bearing workspace files to become provider env.
     """
+    if acceptance_profile not in ("strict", "practical"):
+        raise RunConfigurationError("SWE_ACCEPTANCE_PROFILE_INVALID")
     if not task.strip() or not check_argv or len(task) > 12000:
         raise RunConfigurationError("TASK_OR_CHECK_INVALID")
     llm = load_llm_settings(env_file=env_file)
@@ -68,6 +71,8 @@ async def execute_swe_task(*, repository: Path, task: str, runtime_dir: Path,
     from aswe.integrations.deerflow.native_execution import (
         NativeSubagentAssembler, NativeDeerFlowExecutionBackend)
     from aswe.integrations.deerflow.mvp_task import MVPTaskRunner
+    from aswe.integrations.deerflow.execution_evidence import ExecutionEvidenceCollector
+    from aswe.integrations.deerflow.practical_acceptance import verify_practical_handoff
 
     assert_pinned_deerflow_source(vendor_tools.__file__)
     task_id = new_safe_id("task")
@@ -145,8 +150,16 @@ async def execute_swe_task(*, repository: Path, task: str, runtime_dir: Path,
         workspace_root=str(root),status=WorkspaceSessionStatus.BOOTSTRAPPING))
     life.mark_ready(repo)
     life.transition(WorkspaceSessionStatus.ACTIVE)
+    evidence=LocalEvidenceStore(home/"evidence",workspace_root=root)
+    verifier=CanonicalVerifier(task_id=task_id,runtime_data_dir=home,
+        evidence_store=evidence,binding=repo)
+    check=make_command_policy("cli-regression",check_argv,timeout_seconds=90)
+    def _check_handoff(handoff):
+        return (acceptance_profile == "practical"
+                and verify_practical_handoff(handoff, evidence_store=evidence))
     core=SchedulerCore(task_id=task_id,dag=dag,workspace=WorkspaceAccessManager(life),
-        initial_revision=revision,evidence_checker=lambda _handoff:False)
+        initial_revision=revision,evidence_checker=_check_handoff,
+        canonical_verifier=(verifier if acceptance_profile == "practical" else None))
     policy=policies[0]
     def subagent(name,*,app_config):
         return SubagentConfig(name=name,description="SWE developer CLI",
@@ -196,16 +209,17 @@ async def execute_swe_task(*, repository: Path, task: str, runtime_dir: Path,
                 return vendor_factory(**kwargs)
         assembler = NativeSubagentAssembler(replace(
             assembler.seams, create_chat_model=configured_vendor_factory))
+    collector = (ExecutionEvidenceCollector(
+        repository=repo, evidence_store=evidence, acceptance_profile="practical"
+    ) if acceptance_profile == "practical" else None)
     backend=NativeDeerFlowExecutionBackend(
         binding_store=binding,assembler=assembler,
         task_renderer=lambda _node:task,enable_native_execution=True,
-        evidence_collector=None)
-    evidence=LocalEvidenceStore(home/"evidence",workspace_root=root)
-    verifier=CanonicalVerifier(task_id=task_id,runtime_data_dir=home,
-        evidence_store=evidence,binding=repo)
-    check=make_command_policy("cli-regression",check_argv,timeout_seconds=90)
+        evidence_collector=collector)
     runner=MVPTaskRunner(scheduler=core,backend=backend,repository=repo,
         verifier=verifier,policy=check,trace_sink=trace,
+        execution_evidence_store=(evidence if collector is not None else None),
+        acceptance_profile=acceptance_profile,
         isolated_canonical_container=docker)
     report=await asyncio.wait_for(runner.run_node("writer"),timeout=360)
     report_path=runtime_root/"report.json"
