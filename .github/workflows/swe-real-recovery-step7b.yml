@@ -1,5 +1,5 @@
 # PAID controlled first-write fault -> genuine external LLM recovery.
-# One-shot branch marker exists ONLY until Step 7B merges; disable on main.
+# Manual authorization RUN is required. Never launch paid model jobs on push/PR.
 name: SWE Step 7B Real LLM Recovery E2E
 
 on:
@@ -9,9 +9,6 @@ on:
         description: "Type RUN to authorize a paid live recovery benchmark"
         required: true
         type: string
-  push:
-    branches: ['coding/step7-second-issue-comparison']
-
 permissions:
   contents: read
 
@@ -21,11 +18,7 @@ concurrency:
 
 jobs:
   real-recovery:
-    if: >-
-      (github.event_name == 'workflow_dispatch' && inputs.authorization == 'RUN') ||
-      (github.event_name == 'push' &&
-       github.ref == 'refs/heads/coding/step7-second-issue-comparison' &&
-       contains(github.event.head_commit.message, '[run-live-step7b-recovery]'))
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.authorization == 'RUN' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
