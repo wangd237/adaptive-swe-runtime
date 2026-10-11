@@ -121,9 +121,10 @@ class DockerCommandBackend(IsolatedPythonCommandBackend):
         self._active_commands += 1
         try:
             return await self._run_command(command, timeout=timeout, max_output=max_output)
-        except SWEExecutionDenied as exc:
-            if exc.code == "SWE_DOCKER_CLEANUP_UNVERIFIED":
-                self._cleanup_uncertain = True
+        except BaseException:
+            # Cancellation/daemon failures cannot be used to claim an
+            # independently drained isolated command. Sticky for this run.
+            self._cleanup_uncertain = True
             raise
         finally:
             self._active_commands -= 1
