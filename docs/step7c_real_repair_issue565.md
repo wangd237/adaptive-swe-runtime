@@ -45,3 +45,5 @@ this as a natural first-pass Issue success rate.
 Hard acceptance still requires: first Coder normal Handoff, independent
 Tester failed, actual Repair scheduled, second genuine model Coder patch
 and new accepted Handoff, and independent Tester passed.
+
+Staged trial launched with frozen upstream SHA, frozen vendor and genuine provider.
