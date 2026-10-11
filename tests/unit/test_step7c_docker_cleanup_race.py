@@ -96,3 +96,35 @@ async def test_cleanup_probe_daemon_os_error_is_not_assumed_clean(monkeypatch):
     monkeypatch.setattr(asyncio, "sleep", fast_sleep)
     assert not await DockerCommandBackend._container_absent_after_rm_failure(
         "aswe-123abc")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code,drained", [
+    ("SWE_COMMAND_INVALID", True),
+    ("SWE_DOCKER_CLEANUP_UNVERIFIED", False),
+])
+async def test_practical_resource_signal_distinguishes_preflight_from_cleanup(
+    tmp_path, monkeypatch, code, drained,
+):
+    from aswe.integrations.deerflow.controlled_swe import SWEExecutionDenied
+    backend=DockerCommandBackend(
+        workspace_root=tmp_path, image="python@sha256:" + "0"*64)
+    async def fail(command, *, timeout, max_output):
+        raise SWEExecutionDenied(code)
+    monkeypatch.setattr(backend, "_run_command", fail)
+    with pytest.raises(SWEExecutionDenied, match=code):
+        await backend.run("echo ok",timeout=1,max_output=100)
+    assert backend._active_commands == 0
+    assert backend.practical_resources_drained is drained
+
+
+@pytest.mark.asyncio
+async def test_cancelled_docker_command_never_proves_drained(tmp_path, monkeypatch):
+    backend=DockerCommandBackend(
+        workspace_root=tmp_path, image="python@sha256:"+"0"*64)
+    async def cancel(command, *, timeout, max_output):
+        raise asyncio.CancelledError
+    monkeypatch.setattr(backend, "_run_command", cancel)
+    with pytest.raises(asyncio.CancelledError):
+        await backend.run("sleep 1",timeout=1,max_output=100)
+    assert not backend.practical_resources_drained

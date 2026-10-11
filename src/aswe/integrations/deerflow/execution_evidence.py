@@ -81,11 +81,15 @@ class ExecutionEvidenceCollector:
     def __init__(self, *, repository: RepositoryBinding,
                  evidence_store: LocalEvidenceStore,
                  supervisor: ResourceSupervisor | None = None,
-                 max_paths: int = 10000):
+                 max_paths: int = 10000,
+                 acceptance_profile: str = "strict"):
         self.repository = repository
         self.evidence_store = evidence_store
         self.supervisor = supervisor
         self.max_paths = max_paths
+        if acceptance_profile not in ("strict", "practical"):
+            raise ValueError("EVIDENCE_ACCEPTANCE_PROFILE_INVALID")
+        self.acceptance_profile = acceptance_profile
         self.root = Path(repository.repository_root).resolve()
         if max_paths < 1 or not self.root.is_dir():
             raise ValueError("invalid physical workspace scan boundary")
@@ -140,7 +144,42 @@ class ExecutionEvidenceCollector:
             pending, closed = -1, False
         if not closed or pending:
             reasons.append("INFLIGHT_TOOL_CALLS_UNQUIESCED")
-        if self.supervisor is None:
+        if self.acceptance_profile == "practical":
+            # Narrow one-owner developer SWE profile only. The native task has
+            # joined, all admitted ToolCallGuard invocations have drained, and
+            # isolated Bash can launch only through the tracked Docker adapter.
+            # Never infer safety from the model's message or a clean Git diff.
+            from aswe.integrations.deerflow.controlled_swe import (
+                ControlledSWEWorkspace, DockerCommandBackend,
+            )
+            from aswe.integrations.deerflow.tool_guard import ToolCallGuard
+            runtime = getattr(guard, "swe_runtime", None)
+            backend = getattr(runtime, "command_backend", None)
+            view = getattr(guard, "view", None)
+            names = getattr(view, "names", ())
+            supported = (
+                type(guard) is ToolCallGuard
+                and type(runtime) is ControlledSWEWorkspace
+                and runtime.invocation is inv
+                and runtime.root == self.root
+                and type(backend) is DockerCommandBackend
+                and backend.workspace_root == self.root
+                and type(names) is tuple
+                and bool(names)
+                and set(names).issubset(
+                    {"read_file", "write_file", "str_replace", "bash"})
+                and getattr(guard, "invocation", None) is inv
+                and getattr(guard, "_swe_runtime_anchor", None) is runtime
+                and getattr(guard, "closed", None) is True
+                and pending == 0 and native_task_done
+                and backend.practical_resources_drained is True
+            )
+            if not supported:
+                reasons.append("PRACTICAL_RESOURCE_SCOPE_UNPROVEN")
+            if self.supervisor is not None:
+                # Never skip a configured external supervisor's negative proof.
+                reasons.append("PRACTICAL_EXTERNAL_SUPERVISOR_UNSUPPORTED")
+        elif self.supervisor is None:
             reasons.append("EXTERNAL_RESOURCE_SUPERVISOR_MISSING")
         else:
             try:
@@ -180,7 +219,7 @@ class ExecutionEvidenceCollector:
         # Guard is host-created after Scheduler Commit; do not infer effects
         # from model-visible tool names or from the observed Git diff.
         mutable_profile = getattr(guard, "swe_runtime", None) is not None
-        if mutable_profile:
+        if mutable_profile and self.acceptance_profile == "strict":
             reasons.append("EVIDENCE_MUTABLE_SWE_PROFILE_UNATTESTED")
         quiescent = not reasons
         try:
@@ -213,9 +252,21 @@ class ExecutionEvidenceCollector:
             # subset of changed paths was positively observed. The partial
             # observations remain in the persisted delta, never promoted
             # into complete attempt attribution.
-            mutation = (delta.mutation_evidence
-                        if quiescent and not delta.attribution_truncated
-                        else MutationEvidence.UNKNOWN)
+            if (self.acceptance_profile == "practical"
+                    and quiescent
+                    and post_repo.fingerprint != baseline.repository.fingerprint
+                    and delta.repository_changed_paths_complete
+                    and bool(delta.repository_changed_paths)):
+                # A Git-visible source change is OBSERVED even when a
+                # pre-existing/excluded cache directory prevents *whole-FS*
+                # PROVEN_NONE. This does NOT prove full historical effects:
+                # persist the incomplete scanner warning, and hand off only
+                # the attributable Git-visible paths. Strict retains UNKNOWN.
+                mutation = MutationEvidence.OBSERVED
+            else:
+                mutation = (delta.mutation_evidence
+                            if quiescent and not delta.attribution_truncated
+                            else MutationEvidence.UNKNOWN)
             receipt_ref = self.evidence_store.put_attempt(
                 task_id=inv.task_id, node_id=inv.node_id,
                 execution_id=inv.execution_id, attempt=inv.attempt,
@@ -245,6 +296,7 @@ class ExecutionEvidenceCollector:
                     "post_filesystem_fingerprint": post_fs.fingerprint,
                     "delta": delta.model_dump(mode="json"),
                     "quiescence_proven": quiescent,
+                    "acceptance_profile": self.acceptance_profile,
                     "mutation_evidence": mutation.value,
                     "unknown_reasons": tuple(reasons),
                 },

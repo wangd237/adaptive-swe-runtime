@@ -20,6 +20,8 @@ import tempfile
 
 from aswe.integrations.deerflow.controlled_swe import DockerCommandBackend
 from aswe.integrations.deerflow.dev_workflow import execute_dev_workflow
+from aswe.integrations.deerflow.practical_acceptance import PracticalAcceptanceDenied
+from aswe.trace.reliability import summarize_execution_trace
 from aswe.integrations.deerflow.live_smoke_config import LiveModelSettings
 from scripts.live_adaptive_acceptance import (
     AcceptanceFailed, python_image_digest, require,
@@ -145,6 +147,15 @@ async def execute(summary: dict) -> None:
                 for file in (home/"tasks").glob("workflow-*/events.jsonl")
                 for line in file.read_text(encoding="utf-8").splitlines() if line
             ][-16:]
+            # Child diagnostic is collected before TemporaryDirectory is
+            # destroyed; only safe normalized counters are serialized.
+            child_traces=sorted((home/"tasks").glob("task-*/events.jsonl"))
+            if child_traces:
+                latest=[
+                    json.loads(line) for line in child_traces[-1].read_text(
+                        encoding="utf-8").splitlines() if line
+                ]
+                summary["child_failure_reliability"]=summarize_execution_trace(latest)
             raise
 
         events=[json.loads(line) for line in run.trace_path.read_text(
@@ -185,6 +196,13 @@ async def execute(summary: dict) -> None:
             independent_tester_statuses=checker,
             child_native_statuses=[x.get("native_status") for x in child_reports],
             child_native_stop_reasons=[x.get("native_stop_reason") for x in child_reports],
+            child_delivery_statuses=[x.get("delivery_status") for x in child_reports],
+            child_scheduler_statuses=[x.get("scheduler_node_status") for x in child_reports],
+            child_handoff_fingerprints=[x.get("accepted_handoff_fingerprint") for x in child_reports],
+            practical_handoff_events=[
+                e["payload"].get("accepted") for e in events
+                if e["event_type"] == "dag.coder.handoff"
+            ],
             repair_scheduled=ev["workflow.repair.scheduled"],
             production_changed=altered,
             external_test_unchanged=unchanged,
@@ -192,6 +210,18 @@ async def execute(summary: dict) -> None:
             final_workflow_verdict=run.verification_status,
         )
         require("coder" in dispatch,"CODER_NOT_SCHEDULED")
+        require(all(
+            x.get("acceptance_profile") == "practical"
+            and x.get("scheduler_node_status") == "succeeded"
+            and isinstance(x.get("accepted_handoff_fingerprint"), str)
+            and len(x["accepted_handoff_fingerprint"]) == 64
+            for x in child_reports
+        ), "PRACTICAL_CODER_HANDOFF_NOT_ACCEPTED")
+        require(
+            summary["practical_handoff_events"]
+            and all(summary["practical_handoff_events"]),
+            "PHYSICAL_DAG_HANDOFF_NOT_ACCEPTED",
+        )
         require(run.verification_status=="passed" and checker[-1:] == ["passed"],
                 "ISSUE_553_NOT_SOLVED")
         require(all(x.get("native_stop_reason") is None for x in child_reports),
@@ -222,7 +252,8 @@ def main() -> int:
         code=0
     except Exception as exc:
         data["outcome"]="failed"
-        data["failure_code"]=(exc.args[0] if isinstance(exc,AcceptanceFailed)
+        data["failure_code"]=(exc.args[0] if isinstance(
+                                  exc,(AcceptanceFailed,PracticalAcceptanceDenied))
                               else type(exc).__name__)
         code=1
     persist(data)

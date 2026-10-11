@@ -3,7 +3,7 @@
 Each coding round uses the real Step 6B app entry and independent Docker
 canonical verifier. Repair starts from the previous round's actual Git diff,
 committed only in a disposable runtime clone; never from the original repo.
-This is explicitly NOT strict cross-node Scheduler acceptance.
+Physical DAG uses the bounded practical Scheduler Handoff, never a strict assurance claim.
 """
 from __future__ import annotations
 
@@ -28,6 +28,19 @@ from aswe.integrations.deerflow.dev_physical_dag import (
 from aswe.llm_config import load_llm_settings
 from aswe.integrations.deerflow.repair_context import (
     feedback_from_test_output, repair_prompt, RepairTestFeedback)
+
+
+def _accepted_coder_handoff(report: Any) -> bool:
+    """Only host-committed practical Scheduler results unlock DAG Tester."""
+    digest = getattr(report, "accepted_handoff_fingerprint", None)
+    return (
+        type(digest) is str and len(digest) == 64
+        and all(char in "0123456789abcdef" for char in digest)
+        and getattr(report, "scheduler_node_status", None) == "succeeded"
+        and getattr(report, "acceptance_profile", None) == "practical"
+        and getattr(report, "native_status", None) == "completed"
+        and getattr(report, "native_stop_reason", None) is None
+    )
 
 
 @dataclass(frozen=True)
@@ -194,7 +207,8 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
         path, report, trace = await execute_swe_task(
             repository=source, task=prompt, runtime_dir=home,
             check_argv=child_check, image=image, ref=source_ref,
-            model_factory=model_factory, env_file=env_file)
+            model_factory=model_factory, env_file=env_file,
+            acceptance_profile=("practical" if dag_scheduler is not None else "strict"))
         reports.append(path)
         # Host-observed node outcomes for ALL rounds, including repairs.
         # Keep only bounded statuses; the summary normalizer rejects unknowns.
@@ -205,6 +219,9 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
             "delivery_status": getattr(report, "delivery_status", None),
             "scheduler_node_status": getattr(report, "scheduler_node_status", None),
             "quiescence_proven": getattr(report, "quiescence_proven", None),
+            "acceptance_profile": getattr(report, "acceptance_profile", None),
+            "accepted_handoff_fingerprint": getattr(
+                report, "accepted_handoff_fingerprint", None),
         })
         verification_status = report.verification_status
         # Preserve both the per-run provenance and the overall task timeline.
@@ -217,12 +234,26 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
         if semantic_plan is not None:
             if dag_scheduler is None and report.native_status == "completed":
                 completed_nodes.add("coder")
+            coder_accepted = _accepted_coder_handoff(report)
             if dag_scheduler is not None:
-                dag_scheduler.finish("coder",verified=report.native_status=="completed")
+                dag_scheduler.finish("coder",verified=coder_accepted)
+                sink.emit(
+                    "dag.coder.handoff",
+                    node_id="coder",
+                    payload={
+                        "accepted": coder_accepted,
+                        "handoff_fingerprint": (
+                            report.accepted_handoff_fingerprint if coder_accepted else None
+                        ),
+                        "scheduler_node_status": getattr(
+                            report, "scheduler_node_status", "unknown"),
+                    },
+                )
             sink.emit("semantic_node.finished",node_id="coder",payload={
                 "round":number+1, "status":report.native_status,
                 "native_stop_reason":getattr(report, "native_stop_reason", None)})
-            if report.native_status == "completed":
+            if report.native_status == "completed" and (
+                    dag_scheduler is None or coder_accepted):
                 if dag_scheduler is None:
                     semantic_plan.require_ready("__aswe_verify",completed_nodes)
                 if dag_scheduler is not None:
@@ -263,7 +294,8 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
                 if dag_scheduler is not None:
                     dag_scheduler.finish("__aswe_verify",
                                          verified=verification_status=="passed")
-        if report.native_status != "completed":
+        if (report.native_status != "completed"
+                or (dag_scheduler is not None and not coder_accepted)):
             verification_status = "unverified"
         last_verification_status = verification_status
         sink.emit("workflow.test.finished", node_id=f"tester-{number}",
@@ -276,9 +308,11 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
                            "verification_status":verification_status,
                            "changed_files":list(report.changed_files)})
         final_report = report
-        if verification_status == "passed" and report.native_status == "completed":
+        if (verification_status == "passed" and report.native_status == "completed"
+                and (dag_scheduler is None or coder_accepted)):
             break
-        if number == max_repairs or report.native_status != "completed":
+        if (number == max_repairs or report.native_status != "completed"
+                or (dag_scheduler is not None and not coder_accepted)):
             break
         # A failed canonical check is the only trigger for a new repair round.
         if verification_status != "failed":

@@ -59,6 +59,8 @@ class MVPTaskReport:
     agent_last_dynamic_command_exit_code: int | None = None
     agent_verification_level: str = "not_observed"
     native_stop_reason: str | None = None
+    acceptance_profile: str = "strict"
+    accepted_handoff_fingerprint: str | None = None
 
     @property
     def tests_passed(self) -> bool:
@@ -213,7 +215,8 @@ class MVPTaskRunner:
                  execution_evidence_store: LocalEvidenceStore | None = None,
                  max_diff_chars: int = 32_000,
                  isolated_canonical_container: Any | None = None,
-                 trace_sink: LocalRuntimeEventSink | None = None):
+                 trace_sink: LocalRuntimeEventSink | None = None,
+                 acceptance_profile: str = "strict"):
         if (not isinstance(scheduler, SchedulerCore)
                 or not isinstance(repository, RepositoryBinding)
                 or not isinstance(verifier, CanonicalVerifier)
@@ -225,6 +228,17 @@ class MVPTaskRunner:
                    Path(scheduler.workspace.lifecycle.current.workspace_root).resolve()
                 or max_diff_chars < 1000 or max_diff_chars > 1_000_000):
             raise MVPIntegrationError("MVP_RUNTIME_AUTHORITY_MISMATCH")
+        if acceptance_profile not in ("strict", "practical"):
+            raise MVPIntegrationError("MVP_ACCEPTANCE_PROFILE_INVALID")
+        if acceptance_profile == "practical" and (
+            execution_evidence_store is None
+            or scheduler._canonical_verifier is not verifier
+            or getattr(backend, "evidence_collector", None) is None
+            or backend.evidence_collector.evidence_store is not execution_evidence_store
+            or backend.evidence_collector.acceptance_profile != "practical"
+        ):
+            raise MVPIntegrationError("MVP_PRACTICAL_PROOF_NOT_CONFIGURED")
+        self.acceptance_profile = acceptance_profile
         self.scheduler = scheduler
         self.backend = backend
         self.repository = repository
@@ -267,10 +281,23 @@ class MVPTaskRunner:
         if self.trace_sink:
             self.trace_sink.emit("scheduler.dispatch.claimed",node_id=node_id,
                 payload={"node_id":node_id,"ticket_id":ticket.ticket_id})
+        accept = None
+        if self.acceptance_profile == "practical":
+            from aswe.integrations.deerflow.practical_acceptance import (
+                build_practical_handoff,
+            )
+
+            async def accept(result, invocation, post):
+                return await asyncio.to_thread(
+                    build_practical_handoff,
+                    result=result, invocation=invocation, post=post,
+                    provider_id=self.scheduler.nodes[node_id].provider_id,
+                    evidence_store=self.evidence_store,
+                    repository=self.repository, probe=probe,
+                )
         invocation = await self.scheduler.run_claim(
-            ticket, probe,
-            # This is explicitly not an Acceptance/Handoff callback.
-            accept=None, execution_evidence_store=self.evidence_store,
+            ticket, probe, accept=accept,
+            execution_evidence_store=self.evidence_store,
         )
         if invocation is None or probe.invocation is not invocation:
             raise MVPIntegrationError("MVP_COMMITTED_EXECUTION_MISSING")
@@ -288,7 +315,14 @@ class MVPTaskRunner:
         diff = changes.tracked_diff
         complete_diff = len(diff) <= self.max_diff_chars
         quiescent = bool(getattr(execution, "quiescent", False))
-        level = (
+        accepted = node_state.accepted_handoff
+        if accepted is not None and self.acceptance_profile == "practical":
+            level = ("tests_passed_practical_handoff" if probe.verification_status == "passed"
+                     else "coder_practical_handoff_test_failed"
+                     if probe.verification_status == "failed"
+                     else "coder_practical_handoff_unverified")
+        else:
+            level = (
             "tests_passed_scheduler_quarantined"
             if probe.verification_status == "passed" and not quiescent
             else "tests_passed_unaccepted"
@@ -296,12 +330,14 @@ class MVPTaskRunner:
             else "tests_failed"
             if probe.verification_status == "failed"
             else "unverified"
-        )
+            )
         report = MVPTaskReport(
             task_id=self.scheduler.task_id, node_id=node_id,
             execution_id=invocation.execution_id, attempt=invocation.attempt,
             native_status=terminal,
             native_stop_reason=getattr(execution,"native_stop_reason",None),
+            acceptance_profile=self.acceptance_profile,
+            accepted_handoff_fingerprint=accepted.fingerprint if accepted is not None else None,
             verification_status=probe.verification_status,
             verification_check_id=self.policy.check_id,
             canonical_receipt_ref=probe.ref,
@@ -360,6 +396,8 @@ class MVPTaskRunner:
                     "attempt": report.attempt,
                     "native_status": report.native_status,
                     "native_stop_reason": report.native_stop_reason,
+                    "acceptance_profile": report.acceptance_profile,
+                    "accepted_handoff_fingerprint": report.accepted_handoff_fingerprint,
                     "verification_status": report.verification_status,
                     "delivery_status": report.delivery_status,
                     "changed_files": list(report.changed_files),
