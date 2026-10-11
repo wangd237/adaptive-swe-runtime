@@ -17,7 +17,7 @@ def test_recovery_script_and_paid_workflow_have_guarded_real_model_contract():
     assert "workflow_dispatch:" in workflow
     assert "inputs.authorization == 'RUN'" in workflow
     assert "pull_request:" not in workflow
-    assert "[run-live-step7b-recovery]" in workflow
-    assert "coding/step7-second-issue-comparison" in workflow
+    assert "  push:" not in workflow
+    assert "github.event_name == 'workflow_dispatch'" in workflow
     assert "secrets.SWE_LLM_API_KEY" in workflow
     assert "ASWE_STEP7B_RECOVERY_ONCE: '1'" in workflow
