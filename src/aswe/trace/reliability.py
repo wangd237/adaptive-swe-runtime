@@ -164,9 +164,16 @@ def summarize_execution_trace(
     if reports:
         last = reports[-1]
         native = _status(_get(last, "native_status"), _NATIVE_STATUS, "unknown")
-        verification = _status(_get(last, "verification_status"), _VERIFICATION, "unverified")
+        if not finished:
+            # With a terminal top-level Docker Tester, the WORKFLOW verdict
+            # outranks a child Coder's narrower canonical check.
+            verification = _status(
+                _get(last, "verification_status"), _VERIFICATION, "unverified")
         value = _get(last, "native_stop_reason")
         stopped = _status(value, _NATIVE_STOPS, "") or None
+        # Stage events may already carry these reasons. Do not count twice:
+        # prefer the complete report list when supplied by the host.
+        native_stops.clear()
         for report in reports:
             reason = _status(_get(report, "native_stop_reason"), _NATIVE_STOPS, "")
             if reason:
