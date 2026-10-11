@@ -276,6 +276,8 @@ def summarize_execution_trace(
         outcome = "VERIFIED_WITH_NATIVE_CAP" if verification == "passed" else "NATIVE_BUDGET_EXHAUSTED"
     elif native in ("failed", "cancelled", "timed_out"):
         outcome = "NATIVE_EXECUTION_INCOMPLETE"
+    elif native != "completed":
+        outcome = "NATIVE_TERMINAL_UNKNOWN"
     elif verification == "passed":
         outcome = "CODE_VERIFIED"
     elif counts["workflow.repair.budget_exhausted"]:
