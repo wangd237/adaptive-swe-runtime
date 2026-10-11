@@ -101,3 +101,15 @@ A one-time, branch-only paid E2E validates that the *unmodified genuine*
 Boltons #553 regression can complete through actual Scheduler-accepted Coder
 Handoff and independent DAG Tester. The result is never substituted with
 synthetic test output. Remove the temporary paid push workflow before PR merge.
+
+## Initial genuine Issue #553 failure
+
+The first controlled live run
+https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38124840713
+finished with a specific PracticalAcceptanceDenied that the old acceptance
+harness flattened into its exception class. Unit CI and physical pinned native
+tests passed; no claims of end-to-end practical acceptance are made.
+
+The second run preserves the stable trusted rejection code and an additional
+redacted child execution summary so that follow-up work can address the
+observed predicate rather than blindly loosening the gate.
