@@ -252,9 +252,21 @@ class ExecutionEvidenceCollector:
             # subset of changed paths was positively observed. The partial
             # observations remain in the persisted delta, never promoted
             # into complete attempt attribution.
-            mutation = (delta.mutation_evidence
-                        if quiescent and not delta.attribution_truncated
-                        else MutationEvidence.UNKNOWN)
+            if (self.acceptance_profile == "practical"
+                    and quiescent
+                    and post_repo.fingerprint != baseline.repository.fingerprint
+                    and delta.repository_changed_paths_complete
+                    and bool(delta.repository_changed_paths)):
+                # A Git-visible source change is OBSERVED even when a
+                # pre-existing/excluded cache directory prevents *whole-FS*
+                # PROVEN_NONE. This does NOT prove full historical effects:
+                # persist the incomplete scanner warning, and hand off only
+                # the attributable Git-visible paths. Strict retains UNKNOWN.
+                mutation = MutationEvidence.OBSERVED
+            else:
+                mutation = (delta.mutation_evidence
+                            if quiescent and not delta.attribution_truncated
+                            else MutationEvidence.UNKNOWN)
             receipt_ref = self.evidence_store.put_attempt(
                 task_id=inv.task_id, node_id=inv.node_id,
                 execution_id=inv.execution_id, attempt=inv.attempt,
