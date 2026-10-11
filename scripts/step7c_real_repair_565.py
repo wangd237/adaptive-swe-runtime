@@ -69,7 +69,7 @@ class Issue565(unittest.TestCase):
         self.assertEqual(repl.sub("cat"),"dog")
 
     def test_ascii_precompiled_does_not_leak(self):
-        repl=MultiReplace([(re.compile(r"\\w+",re.A),"ascii"),
+        repl=MultiReplace([(re.compile(r"\w+",re.A),"ascii"),
                            (re.compile("é"),"unicode")])
         self.assertEqual(repl.sub("é"),"unicode")
 
