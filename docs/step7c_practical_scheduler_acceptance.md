@@ -94,3 +94,10 @@ Remaining acceptance before declaring the full Step 7C-C closed:
   Repair, with a new accepted Handoff on the follow-up round.
 - Keep the physical native and Python 3.11/3.13 tests green; do not infer
   general reliability from two distinct upstream Issues.
+
+## Controlled live issue regression
+
+A one-time, branch-only paid E2E validates that the *unmodified genuine*
+Boltons #553 regression can complete through actual Scheduler-accepted Coder
+Handoff and independent DAG Tester. The result is never substituted with
+synthetic test output. Remove the temporary paid push workflow before PR merge.
