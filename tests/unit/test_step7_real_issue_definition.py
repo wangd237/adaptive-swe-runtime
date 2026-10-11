@@ -28,7 +28,10 @@ def test_reproducible_real_upstream_issue_contract():
 def test_paid_upstream_issue_is_not_normal_ci():
     workflow=Path(".github/workflows/swe-real-issue-step7.yml").read_text()
     assert "workflow_dispatch:" in workflow
-    assert "  push:" not in workflow
+    # Step 7C temporary marker is narrowly branch-scoped; remove before merge.
+    assert "  push:" in workflow
+    assert "coding/step7c-reliability-observability" in workflow
+    assert "[run-live-step7c-500]" in workflow
     assert "  pull_request:" not in workflow
     assert "inputs.authorization == 'RUN'" in workflow
     assert "secrets.SWE_LLM_API_KEY" in workflow
