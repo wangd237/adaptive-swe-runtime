@@ -184,3 +184,27 @@ def test_practical_configuration_without_evidence_is_refused(prepared_mvp):
             verifier=verifier, policy=policy,
             acceptance_profile="practical",
         )
+
+
+@pytest.mark.asyncio
+async def test_tampered_handoff_and_evidence_reference_cannot_unlock_dependency(prepared_mvp):
+    from aswe.core.fingerprint import fingerprint
+    report, core, _ = await run_practical(prepared_mvp)
+    store=prepared_mvp[2]
+    handoff=core.states["writer"].accepted_handoff
+    assert verify_practical_handoff(handoff,evidence_store=store)
+    wrong_identity=handoff.model_copy(update={"source_execution_id": "forged-exec"})
+    assert not verify_practical_handoff(wrong_identity,evidence_store=store)
+    ref=handoff.evidence.workspace_changeset
+    forged_ref=ref.model_copy(update={"content_sha256": "0" * 64})
+    forged_evidence=handoff.evidence.model_copy(
+        update={"workspace_changeset": forged_ref})
+    forged_body=handoff.model_dump(mode="python",exclude={"fingerprint"})
+    forged_body["evidence"]=forged_evidence
+    # Even if a caller recomputes the public content fingerprint, the host
+    # EvidenceStore must reject altered reference bytes.
+    forged=handoff.model_copy(update={
+        "evidence":forged_evidence,
+        "fingerprint":fingerprint(forged_body),
+    })
+    assert not verify_practical_handoff(forged,evidence_store=store)
