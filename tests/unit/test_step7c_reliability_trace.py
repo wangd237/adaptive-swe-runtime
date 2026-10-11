@@ -109,6 +109,7 @@ def test_absent_token_receipts_are_not_assumed_and_invalid_values_rejected():
     assert result["model_turns"] == 1
     assert result["token_reported_turns"] == 0
     assert result["token_usage_reported"] == {}
+    assert result["outcome_category"] == "NATIVE_TERMINAL_UNKNOWN"
 
 
 def test_fail_closed_on_corrupt_trace_and_untrusted_failure_codes():
