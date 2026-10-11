@@ -58,3 +58,50 @@ Re-run the non-mocked upstream Issue #553 under the exact same pinned
 boltons SHA and frozen DeerFlow baseline, now requiring both canonical
 passing tests and a **normal (non-turn-capped)** native terminal status.
 This run is separate from the synthetic recovery-fault benchmark.
+
+## Final Step 7B live acceptance evidence (October 11, 2026)
+
+**1. Physical ToolNode read-before-write recovery**:
+`tests/integration/test_step7b_real_native_tool_recovery.py` passes using the
+actual frozen DeerFlow/LangGraph ToolNode, trusted SWE workspace file guard,
+and an offline deterministic model. The first `str_replace` is rejected
+without mutation; the model receives `ToolMessage(status="error")`, then
+calls `read_file`, retries `str_replace`, and changes only the permitted
+source file. The guard writes a denied receipt with the stable error code.
+
+**2. Controlled real LLM recovery**:
+https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38111975541
+- outcome passed; genuine provider calls 5; injected rejection count 1;
+  successful `read_file` count 3; successful `str_replace` count 1.
+- canonical independent verdict passed; only calc.py changed;
+  test unchanged; native completed without a stop reason.
+- The first unauthorized assistant tool call is harness-injected. Since the
+  provider's thinking mode cannot replay an artificially generated assistant
+  tool call with genuine hidden reasoning, the harness translates **only this
+  injected first tool error exchange** into an equivalent trusted human error
+  notification for the external model. Later real provider turns are
+  unmodified. This tests real-model recovery behavior and is NOT a claim
+  that the provider received the raw ToolMessage. The raw ToolMessage path
+  is covered separately by the physical integration above.
+
+**3. Original upstream Issue #553**:
+https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38111990982
+- non-mocked LLM, same frozen DeerFlow and pinned real boltons SHA
+  `4e5faa3d7e4008d89e0d8bf1ea87b6d9a061a16d`.
+- baseline regression failed, independent regression passed after Agent fix;
+  production changed, host-owned tests unchanged.
+- roles explorer/coder/tester, DAG dispatch explorer -> coder -> __aswe_verify,
+  12 model turns, 16 tool receipts; no tool denials this time.
+- native terminal completed, **native_stop_reason = null**:
+  the prior `GraphRecursionError/turn_capped` artifact did not recur after
+  proper policy-turn to graph-superstep conversion.
+
+**Security/semantics**: Existing-file writes still require a current
+`read_file` hash snapshot. All other authority/path denial codes remain
+fail-closed. Capped native outcomes are recorded separately from canonical
+code correctness. Strict Scheduler quiescence is not inferred from an MVP
+verification pass.
+
+**Release hygiene**: Both paid model workflows are manual
+`workflow_dispatch` / explicit `RUN` only; their temporary push triggers
+were removed before PR and merge.
