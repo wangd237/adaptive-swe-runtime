@@ -22,3 +22,11 @@
 ## Acceptance
 
 The next real model run checks whether the planner/explorer/coder can resume after a rejected write and independently fix the unmodified upstream bug; model feedback is not an accepted result on its own. If another error occurs, preserve the failure and report it rather than weakening the test.
+
+## 2026-10-11 Step 7B test gate
+
+- CI, Python 3.11/3.13, with explicit cap and report tests: passed.
+- Frozen DeerFlow physical ToolNode scenario: real denial -> model-visible error -> read -> retry -> production mutation, deterministic offline model. The tool and graph are physical, not mocked.
+- New live recovery benchmark intentionally injects exactly ONE initial str_replace tool call without a prior read. From the second turn onward the external model autonomously decides what to do. This is controlled fault injection, not independent Issue pass rate.
+- Native turn budget now uses the frozen vendor's middleware-aware super-step converter; bounded vendor stop_reason is preserved in reports.
+- A paid live acceptance is started by a one-shot branch marker and must be disabled before merge to main.
