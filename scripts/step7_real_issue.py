@@ -208,7 +208,8 @@ async def execute_case(summary: dict) -> None:
         summary["tool_status_counts"]=dict(Counter(
             str(e["payload"].get("status","unspecified"))
             if str(e["payload"].get("status","unspecified")) in (
-                "passed","failed","completed","success","error","rejected")
+                "passed","failed","completed","success","error","rejected",
+                "denied","cancelled")
             else "other"
             for e in tool_events))
         summary["tail_event_types"]=[
