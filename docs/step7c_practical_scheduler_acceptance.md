@@ -131,3 +131,25 @@ cannot be passed as a source patch. Strict mode remains unchanged.
 
 Next genuine model run MUST demonstrate acceptance in the Scheduler and
 the downstream independent Tester, or it remains a failed end-to-end case.
+
+## Successful genuine Issue #553 acceptance
+
+- Real non-mocked LLM run: https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38125554066
+- Case: boltons #553 on unchanged pinned upstream commit
+  `4e5faa3d7e4008d89e0d8bf1ea87b6d9a061a16d`
+- Baseline tests failed. Model changed production; independent host test
+  remained unchanged and passed. Original upstream checkout unchanged.
+- Real physical dispatch order: `explorer -> coder -> __aswe_verify`
+- Native Coder: `completed`, uncapped. Internal child Scheduler:
+  `succeeded`, `accepted_handoff_fingerprint` exists and matches the
+  emitted `dag.coder.handoff` accepted event. Delivery:
+  `tests_passed_practical_handoff`.
+- True model turns 18, guarded tool calls 23, zero failed tool calls,
+  zero Repair rounds in this Issue run.
+- Independent DAG Tester passed; workflow final verdict passed.
+- **This is Practical acceptance**, not Strict formal quiescence, nor a
+  multi-Issue benchmark score. A separate physical frozen-vendor fixture
+  validates Tester failure -> Repair -> accepted Coder Handoff -> Tester pass.
+
+The branch-only, one-shot paid push-trigger was deleted before PR merge.
+Both permanent real-model workflows remain manually authorized.
