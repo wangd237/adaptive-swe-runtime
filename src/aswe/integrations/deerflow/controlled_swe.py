@@ -75,6 +75,40 @@ class DockerCommandBackend(IsolatedPythonCommandBackend):
         self.memory_mb=memory_mb
         self.pids_limit=pids_limit
 
+    @staticmethod
+    async def _container_absent_after_rm_failure(container_name: str) -> bool:
+        """Bounded Docker-daemon observation after an unsuccessful 'rm -f'.
+
+        'docker run --rm' may auto-remove the container before 'rm -f',
+        making that removal command exit nonzero despite real quiescence.
+        A nonzero rm is NOT proof of cleanup. Ask the live Docker daemon
+        twice for the exact Runtime-minted name; any error/positive match
+        remains fail-closed. Never parse untrusted stderr or use host shell.
+        """
+        for _ in range(2):
+            await asyncio.sleep(0.15)
+            try:
+                probe = await asyncio.create_subprocess_exec(
+                    "docker", "container", "ls", "--all",
+                    "--filter", f"name=^/{container_name}$",
+                    "--format", "{{.Names}}",
+                    stdin=asyncio.subprocess.DEVNULL,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+            except OSError:
+                return False
+            try:
+                names, _ = await asyncio.wait_for(
+                    probe.communicate(), timeout=3)
+            except asyncio.TimeoutError:
+                probe.kill()
+                await probe.wait()
+                return False
+            if probe.returncode != 0 or names.strip():
+                return False
+        return True
+
     async def run(self, command: str, *, timeout: float, max_output: int) -> ShellOutcome:
         if not isinstance(command,str) or not command.strip() or len(command)>10000:
             raise SWEExecutionDenied("SWE_COMMAND_INVALID")
@@ -134,7 +168,11 @@ class DockerCommandBackend(IsolatedPythonCommandBackend):
                         )
                         cleanup_status=await asyncio.wait_for(cleaner.wait(),timeout=5)
                         if cleanup_status!=0:
-                            raise SWEExecutionDenied("SWE_DOCKER_CLEANUP_UNVERIFIED")
+                            # --rm makes a normal Docker auto-removal race
+                            # possible. Only independently observed *absent*
+                            # state at the daemon may resolve the ambiguity.
+                            if not await self._container_absent_after_rm_failure(container_name):
+                                raise SWEExecutionDenied("SWE_DOCKER_CLEANUP_UNVERIFIED")
                     except (OSError,asyncio.TimeoutError):
                         raise SWEExecutionDenied("SWE_DOCKER_CLEANUP_UNVERIFIED") from None
             # The model sees bounded text, but the Runtime verification
