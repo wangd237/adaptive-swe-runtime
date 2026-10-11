@@ -71,10 +71,11 @@ class NativeShapedWriter:
     in tests/integration/test_deerflow_pinned_native_step5eb.py.
     """
     def __init__(self, repo, *, content="def answer():\n    return 42\n",
-                 terminal=BackendTerminalStatus.COMPLETED):
+                 terminal=BackendTerminalStatus.COMPLETED, stop_reason=None):
         self.repo=repo
         self.content=content
         self.terminal=terminal
+        self.stop_reason=stop_reason
         self.committed=None
 
     async def prepare_node(self,node):
@@ -89,6 +90,7 @@ class NativeShapedWriter:
             execution_phase=BackendExecutionPhase.STARTED,
             quiescent=False,mutation_evidence="unknown",
             result="synthetic native output",error=None,failure_kind=None,
+            native_stop_reason=self.stop_reason,
         )
     async def cancel_node(self,execution_id):pass
     def release_preparation(self,p):pass
@@ -248,3 +250,20 @@ async def test_step6d_real_two_node_dag_quarantine_blocks_dependent_with_trace(
     assert blocked[0].node_id=="tester"
     assert blocked[0].payload["trigger_execution_id"]==report.execution_id
     assert len(core.states["tester"].attempts)==0
+
+
+@pytest.mark.asyncio
+async def test_mvp_capped_native_terminal_keeps_independent_verdict(prepared_mvp):
+    repo,core,store,verifier,policy=prepared_mvp
+    backend=NativeShapedWriter(repo,stop_reason="turn_capped")
+    runner=MVPTaskRunner(scheduler=core,backend=backend,repository=repo,
+                         verifier=verifier,policy=policy)
+    report=await runner.run_node("writer")
+    # Vendor returned COMPLETED with partial result, but budget exhaustion
+    # survives alongside the independently proven passing code.
+    assert report.native_status=="completed"
+    assert report.native_stop_reason=="turn_capped"
+    assert report.verification_status=="passed"
+    assert report.tests_passed
+    assert report.to_dict()["native_stop_reason"]=="turn_capped"
+    assert report.delivery_status=="tests_passed_scheduler_quarantined"
