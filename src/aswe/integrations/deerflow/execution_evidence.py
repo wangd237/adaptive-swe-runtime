@@ -152,12 +152,14 @@ class ExecutionEvidenceCollector:
             from aswe.integrations.deerflow.controlled_swe import (
                 ControlledSWEWorkspace, DockerCommandBackend,
             )
+            from aswe.integrations.deerflow.tool_guard import ToolCallGuard
             runtime = getattr(guard, "swe_runtime", None)
             backend = getattr(runtime, "command_backend", None)
             view = getattr(guard, "view", None)
             names = getattr(view, "names", ())
             supported = (
-                type(runtime) is ControlledSWEWorkspace
+                type(guard) is ToolCallGuard
+                and type(runtime) is ControlledSWEWorkspace
                 and runtime.invocation is inv
                 and runtime.root == self.root
                 and type(backend) is DockerCommandBackend
