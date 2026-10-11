@@ -8,6 +8,7 @@ on:
         description: "Type RUN to authorize a paid real GitHub Issue task"
         required: true
         type: string
+
 permissions:
   contents: read
 
