@@ -54,6 +54,8 @@ def test_complete_trace_preserves_native_failure_and_host_denied_receipts():
     assert result["schema_version"] == SCHEMA_VERSION
     assert result["trace_integrity"] == "verified"
     assert result["outcome_category"] == "VERIFIED_WITH_NATIVE_CAP"
+    assert result["result_scope"] == "code_verification_only"
+    assert result["strict_scheduler_acceptance"] == "not_attested_by_mvp"
     assert result["native_status"] == "completed"
     assert result["native_stop_reason"] == "turn_capped"
     assert result["native_stop_reason_counts"] == {"turn_capped": 1}
@@ -86,6 +88,7 @@ def test_top_level_failed_tester_outranks_child_success():
         "native_status": "completed", "verification_status": "passed",
     }])
     assert result["verification_status"] == "failed"
+    assert result["result_scope"] == "not_code_verified"
     assert result["outcome_category"] == "CANONICAL_TESTS_FAILED"
 
 
@@ -198,3 +201,24 @@ def test_summary_cli_projections_are_redacted(tmp_path, capsys):
     assert "private-credential-XYZ" not in json.dumps(payload)
     assert main(args + ["--tail", "1"]) == 2
     assert "full trace" in capsys.readouterr().err
+
+
+def test_quarantined_scheduler_status_never_becomes_accepted():
+    events = [
+        event(1, "workflow.started"),
+        event(2, "workflow.stage.finished", {"native_status": "completed"}),
+        event(3, "dag.verification.executed", {"status": "passed"}),
+        event(4, "workflow.finished", {"verification_status": "passed"}),
+    ]
+    result = summarize_execution_trace(events, round_reports=[{
+        "native_status": "completed", "verification_status": "passed",
+        "native_stop_reason": None, "quiescence_proven": False,
+        "scheduler_node_status": "failed",
+        "delivery_status": "tests_passed_scheduler_quarantined",
+    }])
+    assert result["outcome_category"] == "CODE_VERIFIED"
+    assert result["result_scope"] == "code_verification_only"
+    assert result["quiescence_proven"] is False
+    assert result["scheduler_node_status"] == "failed"
+    assert result["mvp_delivery_status"] == "tests_passed_scheduler_quarantined"
+    assert result["strict_scheduler_acceptance"] == "not_attested_by_mvp"
