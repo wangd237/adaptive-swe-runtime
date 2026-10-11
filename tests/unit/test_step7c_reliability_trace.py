@@ -225,3 +225,21 @@ def test_quarantined_scheduler_status_never_becomes_accepted():
     assert result["scheduler_node_status"] == "failed"
     assert result["mvp_delivery_status"] == "tests_passed_scheduler_quarantined"
     assert result["strict_scheduler_acceptance"] == "not_attested_by_mvp"
+
+
+def test_practical_handoff_kept_separate_from_strict_acceptance():
+    result = summarize_execution_trace([
+        event(1, "mvp.task.started"),
+        event(2, "mvp.task.finished", {
+            "native_status": "completed",
+            "verification_status": "passed",
+            "acceptance_profile": "practical",
+            "accepted_handoff_fingerprint": "a" * 64,
+            "delivery_status": "tests_passed_practical_handoff",
+            "quiescence_proven": True,
+        }),
+    ])
+    assert result["outcome_category"] == "CODE_VERIFIED"
+    assert result["mvp_delivery_status"] == "tests_passed_practical_handoff"
+    assert result["practical_scheduler_handoff"] is True
+    assert result["strict_scheduler_acceptance"] == "not_attested_by_mvp"
