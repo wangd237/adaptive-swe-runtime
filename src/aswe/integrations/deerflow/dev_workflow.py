@@ -208,7 +208,8 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
             if dag_scheduler is not None:
                 dag_scheduler.finish("coder",verified=report.native_status=="completed")
             sink.emit("semantic_node.finished",node_id="coder",payload={
-                "round":number+1, "status":report.native_status})
+                "round":number+1, "status":report.native_status,
+                "native_stop_reason":report.native_stop_reason})
             if report.native_status == "completed":
                 if dag_scheduler is None:
                     semantic_plan.require_ready("__aswe_verify",completed_nodes)
@@ -259,6 +260,7 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
                            "execution_id":report.execution_id})
         sink.emit("workflow.stage.finished", node_id=node_id,
                   payload={"round":number+1,"native_status":report.native_status,
+                           "native_stop_reason":report.native_stop_reason,
                            "verification_status":verification_status,
                            "changed_files":list(report.changed_files)})
         final_report = report
@@ -284,11 +286,13 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
     status = last_verification_status or final_report.verification_status
     sink.emit("workflow.finished",payload={
         "verification_status":status,"round_count":len(reports),
+        "final_native_stop_reason":final_report.native_stop_reason,
         "final_child_task_id":final_report.task_id})
     destination = home / "tasks" / workflow_id / "workflow-report.json"
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(json.dumps({
         "workflow_id":workflow_id,"verification_status":status,
+        "final_native_stop_reason":final_report.native_stop_reason,
         "round_count":len(reports),"round_reports":[str(p) for p in reports],
         "trace_path":str(sink.path),
         "selected_roles":list(decision.roles) if decision else ["coder","tester"],
