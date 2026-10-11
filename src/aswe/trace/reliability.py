@@ -45,7 +45,7 @@ _DELIVERY_STATUS = frozenset((
     "coder_practical_handoff_unverified",
 ))
 _SCHEDULER_STATUS = frozenset((
-    "pending", "running", "completed", "failed", "blocked",
+    "pending", "running", "completed", "succeeded", "failed", "blocked",
     "cancelled", "quarantined",
 ))
 
