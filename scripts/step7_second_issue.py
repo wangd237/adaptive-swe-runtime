@@ -185,6 +185,13 @@ async def execute(summary: dict) -> None:
             independent_tester_statuses=checker,
             child_native_statuses=[x.get("native_status") for x in child_reports],
             child_native_stop_reasons=[x.get("native_stop_reason") for x in child_reports],
+            child_delivery_statuses=[x.get("delivery_status") for x in child_reports],
+            child_scheduler_statuses=[x.get("scheduler_node_status") for x in child_reports],
+            child_handoff_fingerprints=[x.get("accepted_handoff_fingerprint") for x in child_reports],
+            practical_handoff_events=[
+                e["payload"].get("accepted") for e in events
+                if e["event_type"] == "dag.coder.handoff"
+            ],
             repair_scheduled=ev["workflow.repair.scheduled"],
             production_changed=altered,
             external_test_unchanged=unchanged,
@@ -192,6 +199,18 @@ async def execute(summary: dict) -> None:
             final_workflow_verdict=run.verification_status,
         )
         require("coder" in dispatch,"CODER_NOT_SCHEDULED")
+        require(all(
+            x.get("acceptance_profile") == "practical"
+            and x.get("scheduler_node_status") == "succeeded"
+            and isinstance(x.get("accepted_handoff_fingerprint"), str)
+            and len(x["accepted_handoff_fingerprint"]) == 64
+            for x in child_reports
+        ), "PRACTICAL_CODER_HANDOFF_NOT_ACCEPTED")
+        require(
+            summary["practical_handoff_events"]
+            and all(summary["practical_handoff_events"]),
+            "PHYSICAL_DAG_HANDOFF_NOT_ACCEPTED",
+        )
         require(run.verification_status=="passed" and checker[-1:] == ["passed"],
                 "ISSUE_553_NOT_SOLVED")
         require(all(x.get("native_stop_reason") is None for x in child_reports),
