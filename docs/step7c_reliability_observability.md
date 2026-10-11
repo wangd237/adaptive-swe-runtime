@@ -89,3 +89,24 @@ regressions, without staged application patches.
 Both real issues (#553 and #500) now have successful independent verification
 on the frozen benchmark environment. This sample is **2 distinct tasks**,
 not a measured SWE-bench score or reliable success-rate estimate.
+
+## 7C-D — Real pinned-native Docker cleanup race
+
+Physical pinned-native PR check
+https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38120286902
+failed in `test_actual_docker_dynamic_command_is_networkless_and_workspace_bounded`
+when a container command intentionally timed out after 0.1 seconds. The
+Runtime terminated its Docker CLI process and requested `docker rm -f`,
+but a nonzero cleanup exit was interpreted as `SWE_DOCKER_CLEANUP_UNVERIFIED`.
+Docker's `run --rm` can auto-remove a container before the explicit rm;
+the CLI's failure is not itself proof that the container is running.
+
+The correction retains fail-closed cleanup. Only after `rm -f` reports
+failure, Runtime queries the live daemon twice using `docker container ls`,
+an exact name filter and bounded subprocess timeouts. If the container is
+still listed, Docker is unavailable, output is unexpected, a probe times
+out or any uncertainty persists, it still rejects
+`SWE_DOCKER_CLEANUP_UNVERIFIED`. No subprocess runs a host shell.
+Deterministic tests cover daemon error, late reappearance, present container
+and legitimately auto-removed container. The full physical pinned-native
+job remains a required release gate.
