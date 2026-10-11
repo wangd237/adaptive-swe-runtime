@@ -110,8 +110,8 @@ def build_practical_handoff(
     _require(
         isinstance(delta, dict)
         and delta.get("mutation_evidence") == "observed"
-        and delta.get("attribution_truncated") is False
-        and delta.get("changed_paths_complete") is True
+        and delta.get("repository_changed_paths_complete") is True
+        and bool(delta.get("repository_changed_paths"))
         and delta.get("execution_id") == invocation.execution_id,
         "PRACTICAL_WORKSPACE_DELTA_INCOMPLETE",
     )
@@ -123,13 +123,19 @@ def build_practical_handoff(
         observed_workspace_revision=post,
         self_report="Host-observed completed Coder; independent Tester owns code correctness.",
         evidence=HandoffEvidence(
-            changed_paths=tuple(delta.get("changed_paths", ())),
-            changed_paths_complete=True,
+            # Scope is explicit: Git-visible paths, not a purported history
+            # of excluded cache/build directory mutations.
+            changed_paths=tuple(delta["repository_changed_paths"]),
+            changed_paths_complete=not delta.get("attribution_truncated", True),
             workspace_changeset=refs[0][0],
         ),
         backend_stop_reason=None,
         execution_completeness=ExecutionCompleteness.UNCAPPED,
-        warnings=("practical_single_owner_profile",),
+        warnings=(
+            ("practical_single_owner_profile", "filesystem_history_incomplete")
+            if delta.get("attribution_truncated", False)
+            else ("practical_single_owner_profile",)
+        ),
     )
     return NodeHandoff(**fields, fingerprint=fingerprint(fields))
 
