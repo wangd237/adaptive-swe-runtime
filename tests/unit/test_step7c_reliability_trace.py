@@ -72,7 +72,9 @@ def test_complete_trace_preserves_native_failure_and_host_denied_receipts():
     assert result["elapsed_observed_ms"] == 8000
     serialized = json.dumps(result)
     assert secret not in serialized
-    assert "str_replace" not in serialized
+    # A fixed, host-owned tool category is safe; path/arguments remain private.
+    assert result["anomaly_timeline"][0]["tool"] == "str_replace"
+    assert "source.py" not in serialized
     assert "execution-a" not in serialized
     assert "cost" not in serialized
 
