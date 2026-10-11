@@ -37,3 +37,9 @@ The next real model run checks whether the planner/explorer/coder can resume aft
 - Failed honestly: the LLM provider rejected a synthetic first assistant tool-call turn without its required thinking-mode `reasoning_content`; this is a **harness protocol failure**, not a clean Agent recovery result.
 - Updated the harness to run a genuine provider turn first and preserve its native reasoning metadata while replacing only the selected tool call with the injected write.
 - No production Runtime policy change was made for this protocol issue.
+
+## Live fault injection trial 2
+
+- Run: https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38111804359
+- The synthetic first turn now returned genuine provider thinking metadata but the compiled LangGraph ToolNode reported `No AIMessage found in input`. This is still a harness message-construction failure, not accepted recovery evidence.
+- The third trial constructs a fresh `AIMessage` with only the genuine provider's protocol reasoning metadata and the injected tool request (without its original response ID or unrelated message fields).
