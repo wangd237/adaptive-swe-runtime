@@ -56,6 +56,9 @@ class NativeExecutionRecord:
     tool_receipt_ref: EvidenceRef | None = None
     workspace_delta_fingerprint: str | None = None
     development_summary: SWEDevelopmentSummary | None = None
+    # Native completed + turn_capped is not a normal agent final answer.
+    # Preserve the bounded vendor stop reason separately from terminal status.
+    native_stop_reason: str | None = None
 
 
 def _assert_owner(binding: NodeExecutionBinding) -> None:
@@ -319,7 +322,19 @@ class NativeSubagentAssembler:
                 }
                 # No native budget inflation. Recursion cap is conservative,
                 # never above the compiled maximum turn ceiling.
-                self._recursion_limit = resources.effective_max_turns
+                # DeerFlow's policy max_turns counts agent cycles, whereas
+                # LangGraph recursion_limit counts compiled graph super-steps.
+                # Use the pinned vendor's middleware-aware converter rather
+                # than granting only max_turns super-steps (roughly half the
+                # requested model turns even with no lifecycle hooks).
+                resolver = getattr(self, "_resolve_recursion_limit", None)
+                if callable(resolver):
+                    self._recursion_limit = resolver([middleware])
+                elif seams.native_result_cls is None:
+                    # API-shaped native fake in deterministic unit tests.
+                    self._recursion_limit = resources.effective_max_turns
+                else:
+                    raise NativeExecutionError("NATIVE_TURN_BUDGET_RESOLVER_MISSING")
                 return _ReservedContextGraph(agent, binding)
 
         principal = binding.guard.principal
@@ -459,6 +474,13 @@ class NativeDeerFlowExecutionBackend:
                         "timed_out": BackendTerminalStatus.TIMED_OUT,
                     }.get(status, BackendTerminalStatus.FAILED)
                     raw_result = getattr(native_result, "result", None)
+                    raw_stop_reason = getattr(native_result, "stop_reason", None)
+                    # Only serialize known host-recognized terminal reasons.
+                    # Avoid carrying arbitrary vendor/model error text into
+                    # trusted workflow or trace payloads.
+                    stop_reason = (raw_stop_reason if raw_stop_reason in
+                                   ("turn_capped", "token_capped", "loop_capped")
+                                   else None)
                     record = NativeExecutionRecord(
                         execution_id=invocation.execution_id, node_id=invocation.node_id,
                         attempt=invocation.attempt, terminal_status=mapped,
@@ -467,6 +489,7 @@ class NativeDeerFlowExecutionBackend:
                         result=raw_result if isinstance(raw_result, str) else None,
                         error=None, failure_kind=(None if mapped is BackendTerminalStatus.COMPLETED
                                                   else "NATIVE_EXECUTION_FAILED"),
+                        native_stop_reason=stop_reason,
                     )
             finally:
                 # A joined Python task is NOT enough to prove external process,
