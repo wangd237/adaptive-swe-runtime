@@ -79,16 +79,25 @@ class InjectFirstWriteThenRealLLM(BaseChatModel):
             # assistant turn that does not return required reasoning_content.
             self.live_model_calls += 1
             genuine_first = await self._bound_provider.ainvoke(messages)
-            injected = genuine_first.model_copy(update={
-                "content": "",
-                "tool_calls": [{
+            # Fresh AIMessage follows the same LangGraph contract as the
+            # tested deterministic first-turn injection. Only carry the
+            # upstream protocol reasoning field, not the real call's ID or
+            # any incompatible original tool_calls arguments.
+            protocol_metadata = {
+                k: v for k, v in
+                dict(getattr(genuine_first, "additional_kwargs", {}) or {}).items()
+                if k == "reasoning_content"
+            }
+            injected = AIMessage(
+                content="",
+                additional_kwargs=protocol_metadata,
+                tool_calls=[{
                     "name": "str_replace",
                     "args": {"path": "calc.py", "old_str": "return 0",
                              "new_str": "return 42"},
                     "id": "aswe-step7b-injected-write-001",
                 }],
-                "invalid_tool_calls": [],
-            })
+            )
             return ChatResult(generations=[ChatGeneration(message=injected)])
         self.observed_denial = self.observed_denial or any(
             getattr(msg, "status", None) == "error"
