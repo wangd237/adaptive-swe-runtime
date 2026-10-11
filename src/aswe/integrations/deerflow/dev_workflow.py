@@ -30,6 +30,17 @@ from aswe.integrations.deerflow.repair_context import (
     feedback_from_test_output, repair_prompt, RepairTestFeedback)
 
 
+def _accepted_coder_handoff(report: Any) -> bool:
+    """Only host-committed practical Scheduler results unlock DAG Tester."""
+    return (
+        getattr(report, "accepted_handoff_fingerprint", None) is not None
+        and getattr(report, "scheduler_node_status", None) == "succeeded"
+        and getattr(report, "acceptance_profile", None) == "practical"
+        and getattr(report, "native_status", None) == "completed"
+        and getattr(report, "native_stop_reason", None) is None
+    )
+
+
 @dataclass(frozen=True)
 class WorkflowResult:
     workflow_id: str
@@ -221,11 +232,7 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
         if semantic_plan is not None:
             if dag_scheduler is None and report.native_status == "completed":
                 completed_nodes.add("coder")
-            coder_accepted = (
-                getattr(report, "accepted_handoff_fingerprint", None) is not None
-                and getattr(report, "scheduler_node_status", None) == "succeeded"
-                and getattr(report, "acceptance_profile", None) == "practical"
-            )
+            coder_accepted = _accepted_coder_handoff(report)
             if dag_scheduler is not None:
                 dag_scheduler.finish("coder",verified=coder_accepted)
                 sink.emit(
