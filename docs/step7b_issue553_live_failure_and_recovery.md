@@ -43,3 +43,11 @@ The next real model run checks whether the planner/explorer/coder can resume aft
 - Run: https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38111804359
 - The synthetic first turn now returned genuine provider thinking metadata but the compiled LangGraph ToolNode reported `No AIMessage found in input`. This is still a harness message-construction failure, not accepted recovery evidence.
 - The third trial constructs a fresh `AIMessage` with only the genuine provider's protocol reasoning metadata and the injected tool request (without its original response ID or unrelated message fields).
+
+## Live fault injection trial 3 and protocol-seam decision
+
+- Run: https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38111882682
+- A thinking-mode provider again refused the synthetic assistant tool-call history because its required hidden reasoning protocol could not be reconstructed in the ChatOpenAI abstraction.
+- This is specific to **injected assistant history**, not evidence of an ordinary LLM call issue: previous genuine Issue #553 E2E ran successfully.
+- Last controlled trial will keep the real ToolNode/guard denial and record it faithfully, but adapt ONLY the synthetic first assistant/tool pair into a trusted error observation before passing history to the genuine provider. Subsequent actual tool calls are not transformed.
+- Interpret this as real-model behavioral recovery from a trusted refusal notice plus separate full-native ToolMessage coverage, not as proof that the provider natively replayed a synthetic tool-call exchange.
