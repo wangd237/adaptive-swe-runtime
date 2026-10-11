@@ -73,14 +73,23 @@ class InjectFirstWriteThenRealLLM(BaseChatModel):
     async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):
         if not self.fault_issued:
             self.fault_issued = True
-            return ChatResult(generations=[ChatGeneration(message=AIMessage(
-                content="", tool_calls=[{
+            # First ask the *real* provider for its initial assistant turn.
+            # Preserve its reasoning metadata when replacing only the first
+            # tool request. Thinking-mode providers reject a fabricated
+            # assistant turn that does not return required reasoning_content.
+            self.live_model_calls += 1
+            genuine_first = await self._bound_provider.ainvoke(messages)
+            injected = genuine_first.model_copy(update={
+                "content": "",
+                "tool_calls": [{
                     "name": "str_replace",
                     "args": {"path": "calc.py", "old_str": "return 0",
                              "new_str": "return 42"},
                     "id": "aswe-step7b-injected-write-001",
                 }],
-            ))])
+                "invalid_tool_calls": [],
+            })
+            return ChatResult(generations=[ChatGeneration(message=injected)])
         self.observed_denial = self.observed_denial or any(
             getattr(msg, "status", None) == "error"
             and "SWE_READ_BEFORE_WRITE_REQUIRED" in str(getattr(msg, "content", ""))
