@@ -106,8 +106,32 @@ class InjectFirstWriteThenRealLLM(BaseChatModel):
         )
         if not self.observed_denial:
             raise RuntimeError("ASWE_LIVE_RECOVERY_DENIAL_NOT_DELIVERED")
+        # The injected assistant turn was NOT emitted by the provider.
+        # Some thinking-mode APIs require a private reasoning_content field
+        # for every assistant tool call and reject reconstructed synthetic
+        # tool-call history, even if LangGraph executed the tools correctly.
+        # Translate only the *one host-injected* exchange into a
+        # provider-compatible trusted observation. Never modify subsequent
+        # genuine provider turns or actual LangGraph/ToolNode messages.
+        from langchain_core.messages import HumanMessage, ToolMessage
+        injection_id = "aswe-step7b-injected-write-001"
+        provider_messages = []
+        for m in messages:
+            if (isinstance(m, AIMessage)
+                    and any(call.get("id") == injection_id
+                            for call in (m.tool_calls or []))):
+                continue
+            if (isinstance(m, ToolMessage)
+                    and m.tool_call_id == injection_id):
+                provider_messages.append(HumanMessage(content=(
+                    "Trusted host-observed tool result for the previous "
+                    "controlled first-write fault: "
+                    + str(m.content)
+                )))
+                continue
+            provider_messages.append(m)
         self.live_model_calls += 1
-        message = await self._bound_provider.ainvoke(messages)
+        message = await self._bound_provider.ainvoke(provider_messages)
         return ChatResult(generations=[ChatGeneration(message=message)])
 
 
@@ -184,6 +208,7 @@ async def execute(summary: dict) -> None:
             injected_first_tool_call=True,
             genuine_llm_calls=sum(m.live_model_calls for m in models),
             model_observed_denial=any(m.observed_denial for m in models),
+            synthetic_error_provider_translation=True,
             denial_count=len(denied),
             successful_read_count=len(reads),
             successful_edit_count=len(successful_edits),
