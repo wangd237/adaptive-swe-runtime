@@ -121,6 +121,16 @@ class DockerCommandBackend(IsolatedPythonCommandBackend):
         self._active_commands += 1
         try:
             return await self._run_command(command, timeout=timeout, max_output=max_output)
+        except SWEExecutionDenied as exc:
+            # Failures before process creation are safe to retry. Any
+            # potentially-started process with an uncertain exit is NOT.
+            if exc.code not in (
+                "SWE_COMMAND_INVALID", "SWE_COMMAND_BUDGET_INVALID",
+                "SWE_WORKSPACE_ROOT_DRIFT", "SWE_DOCKER_PLATFORM_UNSUPPORTED",
+                "SWE_DOCKER_WORKSPACE_PATH_INVALID", "SWE_DOCKER_UNAVAILABLE",
+            ):
+                self._cleanup_uncertain = True
+            raise
         except BaseException:
             # Cancellation/daemon failures cannot be used to claim an
             # independently drained isolated command. Sticky for this run.
