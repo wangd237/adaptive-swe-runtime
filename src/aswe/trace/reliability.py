@@ -40,6 +40,9 @@ _NATIVE_STOPS = frozenset(("turn_capped", "token_capped", "loop_capped"))
 _DELIVERY_STATUS = frozenset((
     "tests_passed_scheduler_quarantined", "tests_passed_unaccepted",
     "tests_failed", "unverified",
+    "tests_passed_practical_handoff",
+    "coder_practical_handoff_test_failed",
+    "coder_practical_handoff_unverified",
 ))
 _SCHEDULER_STATUS = frozenset((
     "pending", "running", "completed", "failed", "blocked",
@@ -122,6 +125,7 @@ def summarize_execution_trace(
     stopped = None
     delivery = "unknown"
     scheduler_status = "unknown"
+    practical_handoff_accepted = False
     quiescence_proven: bool | None = None
     finished = False
     last_mvp_payload: Mapping[str, Any] | None = None
@@ -220,6 +224,11 @@ def summarize_execution_trace(
             # top-level multi-stage workflow.finished.
             last_mvp_payload = payload
             delivery = _status(payload.get("delivery_status"), _DELIVERY_STATUS, "unknown")
+            practical_handoff_accepted = bool(
+                payload.get("acceptance_profile") == "practical"
+                and type(payload.get("accepted_handoff_fingerprint")) is str
+                and len(payload["accepted_handoff_fingerprint"]) == 64
+            )
             if type(payload.get("quiescence_proven")) is bool:
                 quiescence_proven = payload["quiescence_proven"]
         elif event == "workflow.finished":
@@ -244,6 +253,12 @@ def summarize_execution_trace(
         delivery = _status(_get(last, "delivery_status"), _DELIVERY_STATUS, delivery)
         scheduler_status = _status(
             _get(last, "scheduler_node_status"), _SCHEDULER_STATUS, "unknown")
+        practical_handoff_accepted = bool(
+            _get(last, "acceptance_profile") == "practical"
+            and scheduler_status == "succeeded"
+            and type(_get(last, "accepted_handoff_fingerprint")) is str
+            and len(_get(last, "accepted_handoff_fingerprint")) == 64
+        )
         trust_quiescence = _get(last, "quiescence_proven")
         if type(trust_quiescence) is bool:
             quiescence_proven = trust_quiescence
@@ -306,6 +321,7 @@ def summarize_execution_trace(
         # This adapter produces MVP reports, not a strict Scheduler-ACCEPTED
         # handoff. Quarantined verification must never be presented as such.
         "strict_scheduler_acceptance": "not_attested_by_mvp",
+        "practical_scheduler_handoff": practical_handoff_accepted,
         "mvp_delivery_status": delivery,
         "scheduler_node_status": scheduler_status,
         "quiescence_proven": quiescence_proven,
