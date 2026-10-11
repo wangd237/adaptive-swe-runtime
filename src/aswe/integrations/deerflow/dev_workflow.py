@@ -17,6 +17,7 @@ from typing import Any, Callable
 
 from aswe.core.ids import new_safe_id
 from aswe.trace.minimal_events import LocalRuntimeEventSink
+from aswe.trace.reliability import summarize_execution_trace
 from aswe.integrations.deerflow.developer_entry import execute_swe_task
 from aswe.integrations.deerflow.adaptive_team import explore_repository
 from aswe.integrations.deerflow.dev_team_planner import plan_developer_team
@@ -288,9 +289,15 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
         "verification_status":status,"round_count":len(reports),
         "final_native_stop_reason":getattr(final_report, "native_stop_reason", None),
         "final_child_task_id":final_report.task_id})
+    # Host-only redacted observability; this is NOT acceptance authority.
+    # Read after the final event to include terminal status in the summary.
+    reliability = summarize_execution_trace(sink.read_all(), round_reports=(
+        report for report in (final_report,) if report is not None
+    ))
     destination = home / "tasks" / workflow_id / "workflow-report.json"
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(json.dumps({
+        "reliability":reliability,
         "workflow_id":workflow_id,"verification_status":status,
         "final_native_stop_reason":getattr(final_report, "native_stop_reason", None),
         "round_count":len(reports),"round_reports":[str(p) for p in reports],
