@@ -82,6 +82,15 @@ async def test_actual_coder_failed_test_repair_passed_test(
     second=json.loads(result.round_reports[1].read_text())
     assert first["verification_status"]=="failed"
     assert second["verification_status"]=="passed"
+    # Both Coder runs have actually been accepted by their Scheduler,
+    # even though the first independent Tester correctly failed.
+    for child in (first, second):
+        assert child["acceptance_profile"] == "practical"
+        assert child["scheduler_node_status"] == "succeeded"
+        assert child["quiescence_proven"] is True
+        assert len(child["accepted_handoff_fingerprint"]) == 64
+    assert first["delivery_status"] == "coder_practical_handoff_test_failed"
+    assert second["delivery_status"] == "tests_passed_practical_handoff"
     assert "return 41" in first["git_diff"]
     assert "return 42" in second["git_diff"]
     assert (Path(repo.repository_root)/"calc.py").read_text()=="def answer():\n    return 1\n"
@@ -90,6 +99,10 @@ async def test_actual_coder_failed_test_repair_passed_test(
     assert kinds.count("workflow.stage.started")==2
     assert kinds.count("workflow.test.finished")==2
     assert kinds.count("workflow.repair.scheduled")==1
+    handoffs=[
+        x["payload"] for x in events if x["event_type"] == "dag.coder.handoff"
+    ]
+    assert len(handoffs)==2 and all(x["accepted"] for x in handoffs)
     assert kinds.count("model.turn.finished")>=4
     assert kinds.count("tool.call.finished")==4
     assert events[-1]["payload"]["verification_status"]=="passed"
