@@ -117,6 +117,7 @@ def summarize_execution_trace(
     first_time = last_time = None
     trace_integrity = "verified"
     seen_ids: set[tuple[str, str]] = set()
+    anomaly_timeline: list[dict[str, Any]] = []
     expected_seq = 1
     task_identity = None
 
@@ -153,7 +154,19 @@ def summarize_execution_trace(
             status = _status(payload.get("status"), _TOOL_STATUSES, "unknown")
             statuses[status] += 1
             if status in ("failed", "denied", "cancelled"):
-                denied[_code(payload.get("failure_code"))] += 1
+                code = _code(payload.get("failure_code"))
+                denied[code] += 1
+                # Safe causal index only: not even the tool call ID, filepath
+                # hash, argument/result content, or arbitrary provider text.
+                tool_name = payload.get("tool_name")
+                tool_name = tool_name if tool_name in (
+                    "read_file", "write_file", "str_replace", "bash"
+                ) else "other"
+                anomaly_timeline.append({
+                    "seq": expected_seq - 1,
+                    "event": "tool_failure", "tool": tool_name,
+                    "status": status, "code": code,
+                })
             # Do not assert these retries were safe, only count repeat calls.
             tool_call_id = payload.get("tool_call_id")
             execution_id = payload.get("execution_id")
@@ -164,6 +177,9 @@ def summarize_execution_trace(
                 seen_ids.add(key)
         elif event == "workflow.repair.scheduled":
             repair_rounds += 1
+            anomaly_timeline.append({
+                "seq": expected_seq - 1, "event": "repair_scheduled",
+            })
         elif event in ("dag.verification.executed", "verification.finished"):
             result = _status(payload.get("status"), _VERIFICATION, "unverified")
             verifier_results.append(result)
@@ -171,12 +187,23 @@ def summarize_execution_trace(
                 dag_tester_results.append(result)
             else:
                 canonical_verifier_results.append(result)
+            if result in ("failed", "unverified"):
+                anomaly_timeline.append({
+                    "seq": expected_seq - 1,
+                    "event": ("dag_tester" if event == "dag.verification.executed"
+                              else "canonical_verifier"),
+                    "status": result,
+                })
         elif event == "workflow.stage.finished":
             native = _status(payload.get("native_status"), _NATIVE_STATUS, "unknown")
             value = payload.get("native_stop_reason")
             stopped = _status(value, _NATIVE_STOPS, "") or None
             if stopped is not None:
                 native_stops[stopped] += 1
+                anomaly_timeline.append({
+                    "seq": expected_seq - 1, "event": "native_cap",
+                    "reason": stopped,
+                })
         elif event == "mvp.task.finished":
             # Single-node developer CLI produces an MVP completion, not a
             # top-level multi-stage workflow.finished.
@@ -262,6 +289,7 @@ def summarize_execution_trace(
         "tool_calls": counts["tool.call.finished"],
         "tool_status_counts": dict(sorted(statuses.items())),
         "tool_failure_code_counts": dict(sorted(denied.items())),
+        "anomaly_timeline": anomaly_timeline[-32:],
         "repair_rounds_scheduled": repair_rounds,
         "repair_budget_exhaustions": counts["workflow.repair.budget_exhausted"],
         "native_stop_reason_counts": dict(sorted(native_stops.items())),
