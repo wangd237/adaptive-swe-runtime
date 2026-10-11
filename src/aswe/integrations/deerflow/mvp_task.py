@@ -58,6 +58,7 @@ class MVPTaskReport:
     agent_dynamic_command_count: int = 0
     agent_last_dynamic_command_exit_code: int | None = None
     agent_verification_level: str = "not_observed"
+    native_stop_reason: str | None = None
 
     @property
     def tests_passed(self) -> bool:
@@ -123,7 +124,8 @@ class _VerificationProbe:
         if self.trace_sink:
             self.trace_sink.emit("agent.execution.finished",node_id=invocation.node_id,
                 payload={"execution_id":invocation.execution_id,"attempt":invocation.attempt,
-                         "native_status":getattr(getattr(result,"terminal_status",None),"value","unknown")})
+                         "native_status":getattr(getattr(result,"terminal_status",None),"value","unknown"),
+                         "native_stop_reason":getattr(result,"native_stop_reason",None)})
         self.result = result
 
         # All host repo observations happen while the Scheduler holds its
@@ -299,6 +301,7 @@ class MVPTaskRunner:
             task_id=self.scheduler.task_id, node_id=node_id,
             execution_id=invocation.execution_id, attempt=invocation.attempt,
             native_status=terminal,
+            native_stop_reason=getattr(execution,"native_stop_reason",None),
             verification_status=probe.verification_status,
             verification_check_id=self.policy.check_id,
             canonical_receipt_ref=probe.ref,
@@ -356,6 +359,7 @@ class MVPTaskRunner:
                     "execution_id": report.execution_id,
                     "attempt": report.attempt,
                     "native_status": report.native_status,
+                    "native_stop_reason": report.native_stop_reason,
                     "verification_status": report.verification_status,
                     "delivery_status": report.delivery_status,
                     "changed_files": list(report.changed_files),

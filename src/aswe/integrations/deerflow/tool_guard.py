@@ -15,7 +15,7 @@ from typing import Any, Awaitable, Callable, Mapping
 
 from aswe.core.contracts.backend import NodeExecutionInvocation, NodeExecutionPreparation
 from aswe.capabilities.effects import DEERFLOW_USE_BY_CONTRACT, STANDARD_EFFECTS, ToolEffect
-from aswe.integrations.deerflow.controlled_swe import ControlledSWEWorkspace
+from aswe.integrations.deerflow.controlled_swe import ControlledSWEWorkspace, SWEExecutionDenied
 from aswe.integrations.deerflow.docker_bash_capability import RuntimeDockerBashSource
 from aswe.trace.minimal_events import LocalRuntimeEventSink
 from aswe.integrations.deerflow.preparation import (
@@ -404,9 +404,9 @@ class ToolCallGuard:
         except BaseException as exc:
             self._record(name=name, call_id=tool_call_id, argument=tool_input,
                          status="cancelled" if isinstance(exc, asyncio.CancelledError)
-                                else "denied" if isinstance(exc, ToolBindingError)
+                                else "denied" if isinstance(exc, (ToolBindingError, SWEExecutionDenied))
                                 else "failed",
-                         failure=(exc.code if isinstance(exc, ToolBindingError)
+                         failure=(exc.code if isinstance(exc, (ToolBindingError, SWEExecutionDenied))
                                   else "TOOL_CANCELLED" if isinstance(exc, asyncio.CancelledError)
                                   else "NATIVE_TOOL_FAILED"))
             raise
@@ -443,8 +443,8 @@ class ToolCallGuard:
             result = handler()
         except BaseException as exc:
             self._record(name=name, call_id=tool_call_id, argument=tool_input,
-                         status="denied" if isinstance(exc, ToolBindingError) else "failed",
-                         failure=exc.code if isinstance(exc, ToolBindingError)
+                         status="denied" if isinstance(exc, (ToolBindingError, SWEExecutionDenied)) else "failed",
+                         failure=exc.code if isinstance(exc, (ToolBindingError, SWEExecutionDenied))
                                  else "NATIVE_TOOL_FAILED")
             raise
         else:
@@ -489,19 +489,45 @@ def make_langchain_tool_policy_middleware(binding: "NodeExecutionBinding") -> An
                 _deny("TOOL_CALL_RUNTIME_CONTEXT_MISMATCH")
             return tool, call.get("id"), call.get("args")
 
+        def _recoverable_write_denial(self, *, name: str, call_id: str):
+            # The write was denied and recorded by ToolCallGuard. Never
+            # convert authorization, path, identity or cancellation failures.
+            from langchain_core.messages import ToolMessage
+            return ToolMessage(
+                content=(
+                    "SWE_READ_BEFORE_WRITE_REQUIRED: no file was changed. "
+                    "Call read_file on the same existing path to register "
+                    "its current source snapshot, then retry write_file or "
+                    "str_replace. Reading via bash does not satisfy this guard."
+                ),
+                name=name, tool_call_id=call_id, status="error",
+            )
+
         def wrap_tool_call(self, request, handler):
             tool, call_id, args = self._incoming(request)
-            return binding.guard.invoke(
-                tool=tool, tool_call_id=call_id,
-                tool_input=args, handler=lambda: handler(request),
-            )
+            try:
+                return binding.guard.invoke(
+                    tool=tool, tool_call_id=call_id,
+                    tool_input=args, handler=lambda: handler(request),
+                )
+            except SWEExecutionDenied as exc:
+                if exc.code != "SWE_READ_BEFORE_WRITE_REQUIRED":
+                    raise
+                return self._recoverable_write_denial(
+                    name=tool.name, call_id=call_id)
 
         async def awrap_tool_call(self, request, handler):
             tool, call_id, args = self._incoming(request)
-            return await binding.guard.ainvoke(
-                tool=tool, tool_call_id=call_id,
-                tool_input=args, handler=lambda: handler(request),
-            )
+            try:
+                return await binding.guard.ainvoke(
+                    tool=tool, tool_call_id=call_id,
+                    tool_input=args, handler=lambda: handler(request),
+                )
+            except SWEExecutionDenied as exc:
+                if exc.code != "SWE_READ_BEFORE_WRITE_REQUIRED":
+                    raise
+                return self._recoverable_write_denial(
+                    name=tool.name, call_id=call_id)
 
     return PinnedToolPolicyMiddleware()
 
