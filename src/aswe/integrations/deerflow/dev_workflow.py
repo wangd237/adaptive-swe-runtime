@@ -86,6 +86,7 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
     source = repository
     source_ref = ref
     reports: list[Path] = []
+    child_outcomes: list[dict[str, Any]] = []
     final_report = None
     last_verification_status: str | None = None
     failure_feedback: RepairTestFeedback | None = None
@@ -195,6 +196,16 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
             check_argv=child_check, image=image, ref=source_ref,
             model_factory=model_factory, env_file=env_file)
         reports.append(path)
+        # Host-observed node outcomes for ALL rounds, including repairs.
+        # Keep only bounded statuses; the summary normalizer rejects unknowns.
+        child_outcomes.append({
+            "native_status": getattr(report, "native_status", None),
+            "native_stop_reason": getattr(report, "native_stop_reason", None),
+            "verification_status": getattr(report, "verification_status", None),
+            "delivery_status": getattr(report, "delivery_status", None),
+            "scheduler_node_status": getattr(report, "scheduler_node_status", None),
+            "quiescence_proven": getattr(report, "quiescence_proven", None),
+        })
         verification_status = report.verification_status
         # Preserve both the per-run provenance and the overall task timeline.
         for event in LocalRuntimeEventSink(home, report.task_id).read_all():
@@ -291,9 +302,8 @@ async def execute_dev_workflow(*, repository: Path, task: str, runtime_dir: Path
         "final_child_task_id":final_report.task_id})
     # Host-only redacted observability; this is NOT acceptance authority.
     # Read after the final event to include terminal status in the summary.
-    reliability = summarize_execution_trace(sink.read_all(), round_reports=(
-        report for report in (final_report,) if report is not None
-    ))
+    reliability = summarize_execution_trace(
+        sink.read_all(), round_reports=child_outcomes)
     destination = home / "tasks" / workflow_id / "workflow-report.json"
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(json.dumps({
