@@ -30,8 +30,6 @@ def test_paid_workflow_is_not_triggered_by_normal_push_or_pr():
     assert "workflow_dispatch:" in yml
     assert "inputs.authorization == 'RUN'" in yml
     assert "pull_request:" not in yml
-    # Temporary one-off branch trigger requires *both* exact branch and
-    # the unique commit marker. It must be removed before merge to main.
-    assert "coding/step7-second-issue-comparison" in yml
-    assert "[run-live-step7-second]" in yml
+    assert "  push:" not in yml
+    assert "github.event_name == 'workflow_dispatch'" in yml
     assert "secrets.SWE_LLM_API_KEY" in yml
