@@ -30,3 +30,10 @@ The next real model run checks whether the planner/explorer/coder can resume aft
 - New live recovery benchmark intentionally injects exactly ONE initial str_replace tool call without a prior read. From the second turn onward the external model autonomously decides what to do. This is controlled fault injection, not independent Issue pass rate.
 - Native turn budget now uses the frozen vendor's middleware-aware super-step converter; bounded vendor stop_reason is preserved in reports.
 - A paid live acceptance is started by a one-shot branch marker and must be disabled before merge to main.
+
+## Live fault injection trial 1
+
+- Run: https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38111716097
+- Failed honestly: the LLM provider rejected a synthetic first assistant tool-call turn without its required thinking-mode `reasoning_content`; this is a **harness protocol failure**, not a clean Agent recovery result.
+- Updated the harness to run a genuine provider turn first and preserve its native reasoning metadata while replacing only the selected tool call with the injected write.
+- No production Runtime policy change was made for this protocol issue.
