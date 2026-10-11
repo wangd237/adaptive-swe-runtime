@@ -11,7 +11,7 @@ def test_genuine_issue_and_behavioral_suite():
     assert ISSUE=="https://github.com/mahmoud/boltons/issues/565"
     assert TEST_PATH=="tests/test_aswe_issue565.py"
     assert "tests.test_aswe_issue565" in CHECK
-    assert "do not edit tests" in TASK.lower()
+    assert "do not modify any test" in TASK.lower()
     ast.parse(TEST_CODE)
     for name in (
         "test_ignorecase_precompiled", "test_flags_are_scoped_per_branch",
