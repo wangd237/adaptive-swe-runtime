@@ -59,3 +59,33 @@ independent tasks. No task-specific hard-coded reference patch is allowed.
 - Remove any temporary branch-scoped paid push marker before merging. The
   release workflow remains typed `workflow_dispatch RUN` only.
 - PR review of safety invariants and clean base comparison.
+
+## Evidence update — original Boltons Issue #500 passed after 7B
+
+Action: https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38119859381
+Private artifact: `aswe-step7-real-issue-result` (redacted).
+This is a genuine non-mocked LLM run on the pinned upstream code and host-owned
+regressions, without staged application patches.
+
+- Original independent baseline failed; modified `boltons/timeutils.py`
+  independently passed; acceptance tests and original checkout unchanged.
+- 17 native model turns, 18 native guarded tool calls.
+- **One actual `SWE_READ_BEFORE_WRITE_REQUIRED` tool denial**,
+  followed by 17 successfully completed tool calls; no unhandled native crash.
+  This materially strengthens the recovery evidence from Step 7B's controlled
+  benchmark. The uploaded summary has counts, not the original full per-file
+  causal trace; do not assert same-path retry solely from those counters.
+- Reported usage: input 132649, output 5316, total 137965 tokens.
+  These are provider-reported token counts, not dollar costs.
+- Native completed without turn cap; only one Coder round;
+  the independently dispatched `__aswe_verify` passed.
+- **Important limitation:** child Scheduler node status was `failed`
+  and the MVP delivery classification was
+  `tests_passed_scheduler_quarantined`. This reflects *unproven strict
+  Scheduler acceptance/quiescence*, not failure of the independent code
+  regression. Step 7C telemetry now retains both dimensions explicitly.
+  The strict Scheduler closure remains a distinct engineering milestone.
+
+Both real issues (#553 and #500) now have successful independent verification
+on the frozen benchmark environment. This sample is **2 distinct tasks**,
+not a measured SWE-bench score or reliable success-rate estimate.
