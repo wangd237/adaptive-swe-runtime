@@ -8,6 +8,7 @@ No reference patch, mocked provider, scripted repair or test modification.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from collections import Counter
 import json
 import os
@@ -172,6 +173,33 @@ def seed(root: Path, case: dict) -> Path:
     return repository
 
 
+def _redacted_failure_observations(home: Path) -> dict:
+    """Best-effort safe post-failure metrics, never raw LLM/tool text."""
+    tasks=home / "tasks"
+    summaries=[]
+    for trace in sorted(tasks.glob("task-*/events.jsonl")):
+        try:
+            records=[json.loads(line) for line in trace.read_text(
+                encoding="utf-8").splitlines() if line.strip()]
+            summaries.append(summarize_execution_trace(records))
+        except (OSError, ValueError, TypeError, KeyError):
+            continue
+    result={"failed_child_count":len(summaries)}
+    if summaries:
+        last=summaries[-1]
+        for key in (
+            "model_turns", "tool_calls", "tool_name_counts",
+            "bash_category_counts", "repeated_exact_argument_calls",
+            "repeated_bash_argument_calls", "tool_duration_total_ms",
+            "tool_duration_observed_calls", "tool_duration_max_ms",
+            "token_usage_reported", "native_stop_reason",
+            "mvp_delivery_status", "peak_input_tokens_per_turn",
+        ):
+            if key in last:
+                result[key]=last[key]
+    return result
+
+
 async def execute(summary: dict) -> None:
     require(
         os.environ.get("GITHUB_ACTIONS")=="true"
@@ -181,7 +209,18 @@ async def execute(summary: dict) -> None:
     )
     case=CASES[os.environ["ASWE_EVAL_CASE"]]
     LiveModelSettings.from_environment()
+    # Commit/model/test fingerprints support reproducibility without logging
+    # secret-bearing provider arguments or model request/response bodies.
+    summary["runtime_sha"]=subprocess.check_output(
+        ["git","rev-parse","HEAD"],text=True,timeout=5).strip()
+    summary["model_config_sha256"]=hashlib.sha256(
+        os.environ.get("LLM_MODEL", "").encode("utf-8")
+    ).hexdigest()
+    summary["host_test_sha256"]=hashlib.sha256(
+        case["tests"].encode("utf-8")
+    ).hexdigest()
     image=python_image_digest()
+    summary["pinned_docker_image"]=image
     cmd=("python","-B","-m","unittest",case["module"],"-q")
     with tempfile.TemporaryDirectory(prefix="aswe-step7d-eval-") as td:
         root=Path(td)
@@ -204,6 +243,7 @@ async def execute(summary: dict) -> None:
             ),timeout=1100)
         except Exception:
             summary["failure_before_workflow_return"]=True
+            summary["partial_child_observation"]=_redacted_failure_observations(home)
             summary["tail_host_event_types"]=[
                 json.loads(line)["event_type"]
                 for f in (home/"tasks").glob("workflow-*/events.jsonl")
@@ -240,6 +280,9 @@ async def execute(summary: dict) -> None:
             upstream_clean=not bool(run_git(repository,"status","--porcelain")),
             reliability=summarize_execution_trace(events,round_reports=reports),
         )
+        if reports:
+            summary["last_coder_state"]=reports[-1].get("scheduler_node_status")
+            summary["last_native_status"]=reports[-1].get("native_status")
         require(
             summary["source_changed"]
             and summary["host_tests_unchanged"] and summary["upstream_clean"],
