@@ -1,4 +1,5 @@
-# One-shot paid E3 run: exact eval branch only. DELETE after evidence is collected.
+# Corrected one-shot E3 run: read_file wrapper preserves keyword-only tool schema.
+# Exact eval branch only; remove this workflow after observing evidence.
 name: Step 7D-E3 Temporary Paired Real LLM Validation
 on:
   push:
