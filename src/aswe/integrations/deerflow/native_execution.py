@@ -11,6 +11,8 @@ called quiescent until Step 5F supplies an independently trusted proof.
 from __future__ import annotations
 
 import asyncio
+import time
+from langchain_core.callbacks import AsyncCallbackHandler
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Mapping
@@ -92,6 +94,43 @@ def _real_tool_registry(graph: Any, *, tool_node_type: type | None) -> Mapping[s
         raise NativeExecutionError("COMPILED_TOOL_REGISTRY_UNREADABLE") from None
 
 
+class _HostModelTimingCallback(AsyncCallbackHandler):
+    """Only runtime-observed model request durations; never model payloads."""
+
+    def __init__(self, binding: NodeExecutionBinding):
+        self.binding = binding
+        self.started: dict[str, float] = {}
+
+    async def on_chat_model_start(self, serialized: Any, messages: Any,
+                                  *, run_id: Any, **kwargs: Any) -> None:
+        self.started.setdefault(str(run_id), time.monotonic())
+
+    async def on_llm_start(self, serialized: Any, prompts: Any,
+                           *, run_id: Any, **kwargs: Any) -> None:
+        self.started.setdefault(str(run_id), time.monotonic())
+
+    def _finish(self, run_id: Any, status: str) -> None:
+        begin = self.started.pop(str(run_id), None)
+        if begin is None:
+            return
+        sink = self.binding.guard.trace_sink
+        if sink is not None:
+            inv = self.binding.invocation
+            sink.emit("model.request.finished", node_id=inv.node_id, payload={
+                "execution_id": inv.execution_id, "attempt": inv.attempt,
+                "status": status,
+                "duration_ms": max(0, int((time.monotonic() - begin) * 1000)),
+            })
+
+    async def on_llm_end(self, response: Any, *, run_id: Any,
+                         **kwargs: Any) -> None:
+        self._finish(run_id, "completed")
+
+    async def on_llm_error(self, error: BaseException, *, run_id: Any,
+                           **kwargs: Any) -> None:
+        self._finish(run_id, "failed")
+
+
 class _ReservedContextGraph:
     """Graph proxy enforcing Scheduler-stamped context on each astream.
 
@@ -137,8 +176,21 @@ class _ReservedContextGraph:
         sealed["agent_id"] = self._binding.resources.node_id
         # Own this exact dictionary: no caller may reuse a mutable request
         # context and overwrite reserved fields after graph dispatch.
+        # Add a non-authoritative per-native-model-call timer at the actual
+        # LangChain request boundary. This is not a guessed graph gap or
+        # provider usage. Never touch native message history or timing status.
+        runtime_config = dict(config or {})
+        callbacks = runtime_config.get("callbacks")
+        if callbacks is None:
+            runtime_config["callbacks"] = [_HostModelTimingCallback(self._binding)]
+        elif isinstance(callbacks, (list, tuple)):
+            runtime_config["callbacks"] = [
+                *callbacks, _HostModelTimingCallback(self._binding),
+            ]
+        # Unknown callback manager: preserve it unchanged rather than
+        # mutating another runtime's callback authority.
         native_stream = self._graph.astream(
-            state, config=config, context=sealed,
+            state, config=runtime_config, context=sealed,
             stream_mode=stream_mode, **kwargs,
         )
         seen_model_messages: set[str] = set()
@@ -149,7 +201,7 @@ class _ReservedContextGraph:
                 # Observe *completed* model turns in native graph values,
                 # not prompts, message content, or inferred token usage.
                 sink = self._binding.guard.trace_sink
-                if sink is not None and isinstance(part, Mapping):
+                if isinstance(part, Mapping):
                     messages = part.get("messages", ())
                     if isinstance(messages, (list, tuple)):
                         for msg in messages:
@@ -162,15 +214,22 @@ class _ReservedContextGraph:
                             seen_model_messages.add(key)
                             model_round += 1
                             calls = getattr(msg, "tool_calls", ()) or ()
-                            sink.emit("model.turn.finished", node_id=inv.node_id,
-                                payload={"execution_id":inv.execution_id,
-                                         "attempt":inv.attempt,"run_id":inv.run_id,
-                                         "round":model_round,
-                                         "tool_call_count":len(calls),
-                                         # Provider-reported usage only. Never
-                                         # emit message text/response metadata.
-                                         "usage":safe_model_usage(
-                                             getattr(msg,"usage_metadata",None))})
+                            workspace = self._binding.swe_runtime
+                            if workspace is not None:
+                                workspace.record_native_model_turn(
+                                    model_round,
+                                    self._binding.resources.effective_max_turns,
+                                )
+                            if sink is not None:
+                                sink.emit("model.turn.finished", node_id=inv.node_id,
+                                    payload={"execution_id":inv.execution_id,
+                                             "attempt":inv.attempt,"run_id":inv.run_id,
+                                             "round":model_round,
+                                             "tool_call_count":len(calls),
+                                             # Provider-reported usage only. Never
+                                             # emit message text/response metadata.
+                                             "usage":safe_model_usage(
+                                                 getattr(msg,"usage_metadata",None))})
                 yield part
         finally:
             close = getattr(native_stream, "aclose", None)
