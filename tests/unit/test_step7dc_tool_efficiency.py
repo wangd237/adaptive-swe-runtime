@@ -103,3 +103,59 @@ def test_summary_defaults_do_not_invent_tool_efficiency_savings():
     assert result["tool_duration_observed_calls"] == 0
     assert result["tool_duration_max_ms"] is None
     assert result["bash_category_counts"] == {}
+
+
+@pytest.mark.asyncio
+async def test_opt_in_identical_bash_compaction_never_skips_real_execution(repository_fixture):
+    import hashlib
+    from aswe.integrations.deerflow.controlled_swe import (
+        ControlledSWEWorkspace, ShellOutcome,
+    )
+    old, _ = env(repository_fixture)
+
+    class FullDigestSandbox:
+        isolation_kind = "docker-no-network"
+
+        def __init__(self, root):
+            self.workspace_root = Path(root).resolve()
+            self.calls = 0
+            self.content = "KNOWN_OUTPUT_" + ("diagnostic detail " * 180)
+
+        async def run(self, command, *, timeout, max_output):
+            self.calls += 1
+            return ShellOutcome(
+                exit_code=0, timed_out=False, output=self.content,
+                output_sha256=hashlib.sha256(self.content.encode()).hexdigest(),
+                output_total_bytes=len(self.content.encode()),
+            )
+
+    sandbox = FullDigestSandbox(repository_fixture.repository_root)
+    workspace = ControlledSWEWorkspace(
+        invocation=old.invocation, policy=old.policy,
+        root=old.root, command_backend=sandbox,
+        compact_identical_bash=True,
+    )
+    first = await workspace.bash(command="python -m unittest -q")
+    second = await workspace.bash(command="python -m unittest -q")
+    assert sandbox.calls == 2
+    assert "diagnostic detail " in first
+    assert "diagnostic detail " not in second
+    assert "duplicate full command output omitted" in second
+    assert second.startswith("exit_code=0; timed_out=False\n")
+    # A truly different fresh result MUST NOT be compacted.
+    sandbox.content = "FAILED NEW DETAIL that the model must see"
+    third = await workspace.bash(command="python -m unittest -q")
+    assert sandbox.calls == 3
+    assert "FAILED NEW DETAIL" in third
+    assert "duplicate full command output omitted" not in third
+
+
+@pytest.mark.asyncio
+async def test_opt_in_compaction_off_by_default(repository_fixture):
+    workspace, sandbox = env(repository_fixture)
+    assert workspace.compact_identical_bash is False
+    first = await workspace.bash(command="python -m unittest")
+    second = await workspace.bash(command="python -m unittest")
+    assert "synthetic sandbox result" in first
+    assert "synthetic sandbox result" in second
+    assert len(sandbox.commands) == 2
