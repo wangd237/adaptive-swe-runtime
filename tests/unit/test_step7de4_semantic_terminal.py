@@ -35,6 +35,20 @@ def test_bash_shape_advisory_only(command, expected_shape, possible_test, count)
 
 @pytest.mark.parametrize("bad", [None, {}, [], {"command": ["pytest"]},
                                       {"command": "x" * 4097}])
+@pytest.mark.parametrize(("command", "family"), [
+    ("python -c 'print(123)'", "python_inline"),
+    ("python3 -B -c 'print(123)'", "python_inline"),
+    ("python - <<'PY'\nprint('secret')\nPY", "python_heredoc"),
+    ("bash -c 'python -m unittest -q'", "nested_shell"),
+    ("ls\npwd", "multiline"),
+])
+def test_script_families_cannot_claim_attributable_test(command, family):
+    observation = inspect_bash({"command": command})
+    assert observation["family"] == family
+    assert observation["contains_test_step"] is False
+    assert observation["test_verdict_attributable"] is False
+
+
 def test_malformed_arguments_are_unknown(bad):
     assert inspect_bash(bad)["shape"] == "unknown"
     assert not inspect_bash(bad)["test_verdict_attributable"]
