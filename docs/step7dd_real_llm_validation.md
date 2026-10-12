@@ -63,3 +63,45 @@ historical version.
   commit-marker guarded**, executes only these two tasks, and MUST be deleted
   before any PR merge. The retained permanent `main` workflows remain
   typed-`RUN` manual only.
+
+## Evidence: genuine #524, Step 7D-C1/C2
+
+[GitHub Actions run #38210671064](https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38210671064),
+artifact `aswe-step7d-issue-524-evidence` (ID `11728899134`).
+
+This is one real-model unmocked natural-spec run. All host-owned baseline,
+production-modification and independent-testing checks passed:
+
+| Metric | Earlier Step 7D-A #524 | Current Step 7D-C #524 |
+| --- | ---: | ---: |
+| Provider-reported total tokens | 163,623 | **96,873** |
+| Input tokens | 150,918 | **92,670** |
+| Output tokens | 12,705 | **4,203** |
+| Model turns | 16 | **13** |
+| Guarded tool calls | 26 | **13** |
+| Bash calls | 22 | **8** |
+| Native termination | normal | normal |
+| Scheduler accepted Handoff | yes | yes |
+| Independent DAG Tester | passed | passed |
+| Repair rounds | 0 | 0 |
+
+This single comparison has an observed 66,750 total-token difference
+(about 40.8% fewer), 3 fewer model turns and 13 fewer guarded tools.
+The earlier 7D-A output changes and new 7D-C behavior changes are not
+causally separated in this stochastic comparison; do not generalize this
+effect size without repeated matched trials.
+
+Current-only **new** tool diagnostics (historical run did not provide the
+same metrics): 13 completed calls; `bash=8`, `read_file=4`,
+`str_replace=1`; `bash_category_counts.other=8`, conservatively including
+compound shell expressions. No identical tool arguments repeated.
+Measured guarded tool time totaled 2,336ms with a maximum call of 641ms,
+which does not account for hosted model latency or other runtime overhead.
+Provider first-to-last per-turn input tokens were 863→10,472;
+peak was 10,472. Trace observed roughly 34.98s total elapsed, but historical
+run does not have a matched new-schema duration baseline.
+
+The evidence identifies the exact model-configuration fingerprint,
+host-test hash, immutable Docker digest, and runtime evaluation branch SHA,
+while core Runtime files remain identical to merged main
+`0b49eaa5ac94e6f6d2d1092c2aa86de294219c2e`.
