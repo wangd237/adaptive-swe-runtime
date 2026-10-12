@@ -215,8 +215,27 @@ class DockerCommandBackend(IsolatedPythonCommandBackend):
                 if not chunk:
                     break
                 digest.update(chunk)
-            output.seek(0)
-            raw=output.read(max_output)
+            # Long test logs place the diagnostic failure at the END.
+            # Preserve a bounded head and tail rather than returning only
+            # the first N bytes and making the Agent rerun tests for details.
+            output.seek(0, os.SEEK_END)
+            output_bytes = output.tell()
+            if output_bytes <= max_output:
+                output.seek(0)
+                raw=output.read(max_output)
+            else:
+                marker=b"\n...[middle omitted; full output digest preserved]...\n"
+                head_budget=(max_output-len(marker))//3
+                tail_budget=max_output-len(marker)-head_budget
+                if head_budget < 1 or tail_budget < 1:
+                    output.seek(0)
+                    raw=output.read(max_output)
+                else:
+                    output.seek(0)
+                    head=output.read(head_budget)
+                    output.seek(-tail_budget, os.SEEK_END)
+                    tail=output.read(tail_budget)
+                    raw=head+marker+tail
             return ShellOutcome(
                 exit_code=None if timed_out else process.returncode,
                 output=raw.decode("utf-8","replace"),
@@ -251,7 +270,8 @@ class ControlledSWEWorkspace:
     def __init__(self, *, invocation: NodeExecutionInvocation,
                  policy: NodeExecutionPolicy, root: Path,
                  command_backend: IsolatedCommandBackend | None,
-                 max_file_bytes: int = 80_000, max_output_chars: int = 12_000):
+                 max_file_bytes: int = 80_000, max_output_chars: int = 12_000,
+                 max_command_output_chars: int = 4_000):
         if not isinstance(invocation,NodeExecutionInvocation) or not isinstance(policy,NodeExecutionPolicy):
             raise SWEExecutionDenied("SWE_AUTHORITY_UNATTESTED")
         if policy.node_id != invocation.node_id or policy.workspace_access is not WorkspaceAccess.WRITE:
@@ -259,6 +279,8 @@ class ControlledSWEWorkspace:
         root=Path(root).resolve(strict=True)
         if not root.is_dir() or max_file_bytes<1 or max_file_bytes>1_000_000:
             raise SWEExecutionDenied("SWE_WORKSPACE_INVALID")
+        if not 100 <= max_command_output_chars <= max_output_chars:
+            raise SWEExecutionDenied("SWE_COMMAND_OUTPUT_BUDGET_INVALID")
         if command_backend is not None and (
             getattr(command_backend,"isolation_kind",None) != "docker-no-network"
             or Path(command_backend.workspace_root).resolve(strict=True) != root
@@ -279,6 +301,7 @@ class ControlledSWEWorkspace:
         self.command_backend=command_backend
         self.max_file_bytes=max_file_bytes
         self.max_output_chars=max_output_chars
+        self.max_command_output_chars=max_command_output_chars
         self._reads: dict[str,str]={}
         self._changes: set[str]=set()
         self._shell_observations: list[ShellOutcome]=[]
@@ -383,7 +406,7 @@ class ControlledSWEWorkspace:
             raise SWEExecutionDenied("SWE_BASH_ISOLATION_REQUIRED")
         outcome=await self.command_backend.run(
             command, timeout=min(self.policy.timeout_seconds,60),
-            max_output=self.max_output_chars,
+            max_output=self.max_command_output_chars,
         )
         if not isinstance(outcome,ShellOutcome):
             raise SWEExecutionDenied("SWE_COMMAND_OUTCOME_UNATTESTED")
