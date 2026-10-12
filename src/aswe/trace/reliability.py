@@ -119,6 +119,12 @@ def summarize_execution_trace(
     input_token_turns: list[int] = []
     output_token_turns: list[int] = []
     tool_names: Counter[str] = Counter()
+    bash_categories: Counter[str] = Counter()
+    repeated_tool_calls = 0
+    repeated_bash_calls = 0
+    tool_duration_ms = 0
+    tool_duration_observed = 0
+    tool_duration_max_ms: int | None = None
     verifier_results: list[str] = []
     dag_tester_results: list[str] = []
     canonical_verifier_results: list[str] = []
@@ -179,6 +185,22 @@ def summarize_execution_trace(
             tool_names[name if name in (
                 "read_file", "write_file", "str_replace", "bash"
             ) else "other"] += 1
+            category = payload.get("bash_category")
+            if name == "bash":
+                bash_categories[category if category in (
+                    "test_like", "search_like", "other"
+                ) else "unknown"] += 1
+            if payload.get("repeated_exact_arguments") is True:
+                repeated_tool_calls += 1
+                if name == "bash":
+                    repeated_bash_calls += 1
+            elapsed = _nonnegative(payload.get("duration_ms"))
+            if elapsed is not None:
+                tool_duration_ms += elapsed
+                tool_duration_observed += 1
+                tool_duration_max_ms = max(
+                    tool_duration_max_ms or 0, elapsed
+                )
             if status in ("failed", "denied", "cancelled"):
                 code = _code(payload.get("failure_code"))
                 denied[code] += 1
@@ -353,6 +375,12 @@ def summarize_execution_trace(
             [input_token_turns[0], input_token_turns[-1]]
             if input_token_turns else []),
         "tool_name_counts": dict(sorted(tool_names.items())),
+        "bash_category_counts": dict(sorted(bash_categories.items())),
+        "repeated_exact_argument_calls": repeated_tool_calls,
+        "repeated_bash_argument_calls": repeated_bash_calls,
+        "tool_duration_observed_calls": tool_duration_observed,
+        "tool_duration_total_ms": tool_duration_ms,
+        "tool_duration_max_ms": tool_duration_max_ms,
         "tool_calls": counts["tool.call.finished"],
         "tool_status_counts": dict(sorted(statuses.items())),
         "tool_failure_code_counts": dict(sorted(denied.items())),

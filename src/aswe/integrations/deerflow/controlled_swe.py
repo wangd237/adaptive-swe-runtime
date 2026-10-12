@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 import hashlib
+import shlex
 import os
 import secrets
 import sys
@@ -275,7 +276,8 @@ class ControlledSWEWorkspace:
                  policy: NodeExecutionPolicy, root: Path,
                  command_backend: IsolatedCommandBackend | None,
                  max_file_bytes: int = 80_000, max_output_chars: int = 12_000,
-                 max_command_output_chars: int | None = None):
+                 max_command_output_chars: int | None = None,
+                 compact_identical_bash: bool = False):
         if not isinstance(invocation,NodeExecutionInvocation) or not isinstance(policy,NodeExecutionPolicy):
             raise SWEExecutionDenied("SWE_AUTHORITY_UNATTESTED")
         if policy.node_id != invocation.node_id or policy.workspace_access is not WorkspaceAccess.WRITE:
@@ -311,10 +313,20 @@ class ControlledSWEWorkspace:
         self.command_backend=command_backend
         self.max_file_bytes=max_file_bytes
         self.max_output_chars=max_output_chars
+        if type(compact_identical_bash) is not bool:
+            raise SWEExecutionDenied("SWE_CONTEXT_COMPACTION_CONFIG_INVALID")
         self.max_command_output_chars=command_budget
+        self.compact_identical_bash=compact_identical_bash
         self._reads: dict[str,str]={}
         self._changes: set[str]=set()
         self._shell_observations: list[ShellOutcome]=[]
+        # Advisory only. Tool execution is NEVER skipped or cached.
+        self._previous_bash_commands: set[str] = set()
+        self._hinted_bash_commands: set[str] = set()
+        self._completion_hint_emitted = False
+        # Optional model-facing compaction; full observations still executed.
+        # Raw shell commands and output remain out of this index.
+        self._previous_bash_results: dict[str, tuple[str, int | None, bool]] = {}
 
     def _path(self, value: str, *, create: bool=False) -> tuple[Path,str]:
         if not isinstance(value,str) or not value or "\x00" in value or "\\" in value:
@@ -411,6 +423,28 @@ class ControlledSWEWorkspace:
         updated=source.replace(old_str,new_str, -1 if replace_all else 1)
         return self._write(target,name,updated)
 
+    @staticmethod
+    def _is_focused_test_command(command: str) -> bool:
+        """Conservative hinting only, not test authority or command safety."""
+        if not isinstance(command, str) or any(
+            c in command for c in (";", "|", "&", ">", "<", "\n", "\r", "`", "$")
+        ):
+            return False
+        try:
+            args=shlex.split(command)
+        except ValueError:
+            return False
+        if not args:
+            return False
+        if args[0] in ("pytest", "py.test"):
+            return True
+        if args[0] not in ("python", "python3"):
+            return False
+        index = 2 if len(args) >= 3 and args[1] == "-m" else (
+            3 if len(args) >= 4 and args[1:3] == ["-B", "-m"] else -1
+        )
+        return index > 0 and args[index] in ("pytest", "unittest")
+
     async def bash(self, *, command:str) -> str:
         if self.command_backend is None:
             raise SWEExecutionDenied("SWE_BASH_ISOLATION_REQUIRED")
@@ -421,12 +455,51 @@ class ControlledSWEWorkspace:
         if not isinstance(outcome,ShellOutcome):
             raise SWEExecutionDenied("SWE_COMMAND_OUTCOME_UNATTESTED")
         self._shell_observations.append(outcome)
+        key = hashlib.sha256(command.encode("utf-8")).hexdigest()
+        repeated = key in self._previous_bash_commands
+        self._previous_bash_commands.add(key)
+        old = self._previous_bash_results.get(key)
+        full_digest = outcome.output_sha256
+        identical = bool(
+            self.compact_identical_bash and repeated
+            and type(full_digest) is str and len(full_digest) == 64
+            and old == (full_digest, outcome.exit_code, outcome.timed_out)
+        )
+        if (type(full_digest) is str and len(full_digest) == 64):
+            self._previous_bash_results[key] = (
+                full_digest, outcome.exit_code, outcome.timed_out,
+            )
+        suggestions = []
+        if repeated and key not in self._hinted_bash_commands:
+            self._hinted_bash_commands.add(key)
+            suggestions.append(
+                "Efficiency hint: this exact command was executed earlier; "
+                "this is a fresh result, not a cached result. "
+                "Avoid repetition when it adds no new evidence."
+            )
+        if (not self._completion_hint_emitted
+                and self._changes and outcome.exit_code == 0
+                and not outcome.timed_out
+                and self._is_focused_test_command(command)):
+            self._completion_hint_emitted = True
+            suggestions.append(
+                "Completion hint: your source edits passed this agent-run check. "
+                "If the task is ready, finish normally so the host can perform "
+                "independent verification; this is NOT host acceptance."
+            )
+        advisory = ("\n" + "\n".join(suggestions)) if suggestions else ""
+        observed_text = (
+            "[duplicate full command output omitted: fresh command execution "
+            "returned identical full stdout/stderr as the earlier tool result]"
+            if identical else outcome.output
+        )
         # Output status must stay explicit; model can retry after a failure.
         # Keep the existing first-line host receipt format. ToolGuard
         # parses it to emit agent.test.observed and Repair feedback events.
         return (
             f"exit_code={outcome.exit_code}; timed_out={outcome.timed_out}\n"
-            f"output_truncated={outcome.output_truncated}\n{outcome.output}"
+            f"output_truncated={outcome.output_truncated}\n{observed_text}"
+            f"{advisory}"
         )
 
     def development_summary(self, *, native_terminal_status: str) -> SWEDevelopmentSummary:
