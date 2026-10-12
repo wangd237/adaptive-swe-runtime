@@ -78,13 +78,16 @@ async def test_progress_hints_only_with_host_turns_and_current_edit_test(reposit
     workspace, sandbox = env(repository_fixture)
     root=Path(repository_fixture.repository_root)
     (root/"calc.py").write_text("def f():\n    return 1\n")
+    assert workspace.host_observed_progress_phase()=="exploring"
     await workspace.read_file(path="calc.py")
     await workspace.str_replace(path="calc.py", old_str="return 1", new_str="return 42")
+    assert workspace.host_observed_progress_phase()=="code_modified"
     workspace.record_native_model_turn(35, 40)
     ordinary = await workspace.bash(command="git diff --stat")
     assert "Completion hint" not in ordinary and "Budget hint" not in ordinary
     passing = await workspace.bash(command="python -B -m unittest -q")
     assert "Completion hint" in passing
+    assert workspace.host_observed_progress_phase()=="agent_check_passed"
     assert "Budget hint" not in passing
     workspace.record_native_model_turn(37, 40)
     soon = await workspace.bash(command="git status --short")
@@ -94,6 +97,7 @@ async def test_progress_hints_only_with_host_turns_and_current_edit_test(reposit
     assert "Budget hint" not in later
     await workspace.read_file(path="calc.py")
     await workspace.str_replace(path="calc.py", old_str="return 42", new_str="return 43")
+    assert workspace.host_observed_progress_phase()=="code_modified"
     workspace.record_native_model_turn(38, 40)
     changed = await workspace.bash(command="git status")
     assert "Budget hint" in changed
@@ -138,5 +142,47 @@ async def test_real_model_request_callback_records_duration_without_payload(tmp_
     assert summary["model_request_observed_count"]==2
     assert summary["model_request_failed_count"]==1
     assert summary["model_request_duration_total_ms"]>=0
+    assert summary["model_progress_phase_counts"]=={}
     assert secret not in sink.path.read_text()
     assert secret not in json.dumps(summary)
+
+
+@pytest.mark.asyncio
+async def test_failed_recognized_test_and_stale_result_never_count_as_passing(repository_fixture):
+    from aswe.integrations.deerflow.controlled_swe import ShellOutcome
+    workspace, sandbox = env(repository_fixture)
+    root=Path(repository_fixture.repository_root)
+    (root/"calc.py").write_text("old")
+    await workspace.read_file(path="calc.py")
+    await workspace.str_replace(path="calc.py", old_str="old", new_str="new")
+    async def failed_run(command, *, timeout, max_output):
+        return ShellOutcome(exit_code=1, timed_out=False, output="FAILED")
+    sandbox.run = failed_run
+    workspace.record_native_model_turn(38,40)
+    result = await workspace.bash(command="python -B -m unittest -q")
+    assert workspace.host_observed_progress_phase()=="agent_check_failed"
+    assert "latest recognized agent-run test failed" in result
+    assert "Completion hint" not in result
+    # A new source change invalidates the previous test observation.
+    await workspace.read_file(path="calc.py")
+    await workspace.str_replace(path="calc.py", old_str="new", new_str="fixed")
+    assert workspace.host_observed_progress_phase()=="code_modified"
+
+
+def test_sanitized_execution_phase_aggregation():
+    events=[
+        {"task_id":"case","seq":1,"timestamp":"2026-10-12T00:00:01+00:00",
+         "event_type":"model.turn.finished","payload":{
+             "progress_phase":"exploring", "usage":{"input_tokens":10}}},
+        {"task_id":"case","seq":2,"timestamp":"2026-10-12T00:00:02+00:00",
+         "event_type":"model.turn.finished","payload":{
+             "progress_phase":"code_modified", "usage":{"input_tokens":20}}},
+        {"task_id":"case","seq":3,"timestamp":"2026-10-12T00:00:03+00:00",
+         "event_type":"model.turn.finished","payload":{
+             "progress_phase":"secret-arbitrary-text"}},
+    ]
+    report=summarize_execution_trace(events)
+    assert report["model_progress_phase_counts"]=={
+        "code_modified":1,"exploring":1,"unknown":1,
+    }
+    assert "secret-arbitrary-text" not in json.dumps(report)
