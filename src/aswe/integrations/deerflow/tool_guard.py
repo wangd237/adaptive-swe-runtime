@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
-import shlex
 from copy import deepcopy
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -18,6 +17,7 @@ from typing import Any, Awaitable, Callable, Mapping
 from aswe.core.contracts.backend import NodeExecutionInvocation, NodeExecutionPreparation
 from aswe.capabilities.effects import DEERFLOW_USE_BY_CONTRACT, STANDARD_EFFECTS, ToolEffect
 from aswe.integrations.deerflow.controlled_swe import ControlledSWEWorkspace, SWEExecutionDenied
+from aswe.integrations.deerflow.bash_intent import classify_bash
 from aswe.integrations.deerflow.docker_bash_capability import RuntimeDockerBashSource
 from aswe.trace.minimal_events import LocalRuntimeEventSink
 from aswe.integrations.deerflow.preparation import (
@@ -35,29 +35,8 @@ class ToolBindingError(RuntimeError):
 
 
 def _bash_category(argument: Any) -> str:
-    """Non-authoritative command category; no raw shell data in traces."""
-    command = argument.get("command") if isinstance(argument, dict) else None
-    if not isinstance(command, str) or len(command) > 4096:
-        return "other"
-    if any(char in command for char in (";", "|", "&", ">", "<", "\n", "\r", "`", "$")):
-        return "other"
-    try:
-        args = shlex.split(command)
-    except ValueError:
-        return "other"
-    if not args:
-        return "other"
-    if args[0] in ("pytest", "py.test"):
-        return "test_like"
-    if args[0] in ("python", "python3") and len(args) >= 3:
-        pos = 2 if args[1] == "-m" else (
-            3 if len(args) >= 4 and args[1:3] == ["-B", "-m"] else -1
-        )
-        if pos >= 0 and args[pos] in ("pytest", "unittest"):
-            return "test_like"
-    if args[0] in ("grep", "rg", "find", "ls"):
-        return "search_like"
-    return "other"
+    # Kept as stable import surface for older ToolGuard tests.
+    return classify_bash(argument)
 
 
 def _deny(code: str) -> None:
@@ -373,9 +352,11 @@ class ToolCallGuard:
                                      "repeated_exact_arguments": repeated,
                                      "bash_category": category,
                                  })
-            # Model-controlled Bash is a development observation, not the
-            # independently trusted Canonical Verification verdict.
-            if name == "bash" and status == "completed":
+            # Only an unambiguous TEST invocation can become a test
+            # observation. Successful grep/git/ls must not impersonate a
+            # passing test or trigger a false RepairFeedback.
+            if (name == "bash" and status == "completed"
+                    and category == "test_like"):
                 import re
                 # LangChain middleware returns a ToolMessage, not raw tool text.
                 # Read only its bounded status header, never persist content.
