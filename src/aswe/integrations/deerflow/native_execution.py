@@ -215,8 +215,9 @@ class _ReservedContextGraph:
                             model_round += 1
                             calls = getattr(msg, "tool_calls", ()) or ()
                             workspace = self._binding.swe_runtime
-                            if workspace is not None:
-                                workspace.record_native_model_turn(
+                            progress = getattr(workspace, "record_native_model_turn", None)
+                            if callable(progress):
+                                progress(
                                     model_round,
                                     self._binding.resources.effective_max_turns,
                                 )
