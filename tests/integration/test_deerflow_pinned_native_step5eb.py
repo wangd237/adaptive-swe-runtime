@@ -580,7 +580,7 @@ async def test_step6_real_native_guard_writes_digest_only_tool_trace(tmp_path):
                for e in timings)
     assert [e.payload["round"] for e in events
             if e.event_type=="model.turn.finished"]==[1,2]
-    event=events[1]
+    event=next(e for e in events if e.event_type=="tool.call.finished")
     assert event.event_type=="tool.call.finished"
     assert event.node_id=="node-poc"
     assert event.payload["tool_name"]=="read_file"
