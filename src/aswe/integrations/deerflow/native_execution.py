@@ -229,10 +229,20 @@ class _ReservedContextGraph:
                                     self._binding.resources.effective_max_turns,
                                 )
                             if sink is not None:
+                                phase_reader = getattr(
+                                    workspace, "host_observed_progress_phase", None)
+                                phase = (phase_reader() if callable(phase_reader)
+                                         else "unknown")
+                                if phase not in (
+                                    "exploring", "code_modified", "agent_check_passed",
+                                    "agent_check_failed",
+                                ):
+                                    phase = "unknown"
                                 sink.emit("model.turn.finished", node_id=inv.node_id,
                                     payload={"execution_id":inv.execution_id,
                                              "attempt":inv.attempt,"run_id":inv.run_id,
                                              "round":model_round,
+                                             "progress_phase":phase,
                                              "tool_call_count":len(calls),
                                              # Provider-reported usage only. Never
                                              # emit message text/response metadata.
