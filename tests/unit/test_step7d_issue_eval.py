@@ -4,7 +4,7 @@ from pathlib import Path
 from scripts.step7d_real_issue_eval import CASES
 
 def test_preregistered_issue_suite_and_host_owned_tests():
-    assert set(CASES)=={"551","524"}
+    assert set(CASES)=={"551","524","565"}
     for key,c in CASES.items():
         assert c["issue"].endswith("/issues/"+key)
         assert c["source"].startswith("boltons/")
@@ -14,6 +14,8 @@ def test_preregistered_issue_suite_and_host_owned_tests():
         assert "do not" in c["task"].lower()
     assert "test_singleton_key_exceptions_not_suppressed" in CASES["551"]["tests"]
     assert "test_rounding_promotes_kilobytes_to_megabytes" in CASES["524"]["tests"]
+    assert "test_flags_are_scoped_per_branch" in CASES["565"]["tests"]
+    assert "test_ascii_precompiled_does_not_leak" in CASES["565"]["tests"]
 
 def test_paid_matrix_requires_manual_run_and_never_executes_in_normal_ci():
     yml=Path(".github/workflows/swe-step7d-manual.yml").read_text()
