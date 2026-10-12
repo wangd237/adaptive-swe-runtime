@@ -95,7 +95,7 @@ async def observed_bash(self, *, command: str):
     if category_test:
         COUNTS["recognized_test_commands"] += 1
         if item["ever_edited"]:
-            if re.match(r"\\Aexit_code=0; timed_out=False\\n", result):
+            if result.startswith("exit_code=0; timed_out=False\n"):
                 COUNTS["recognized_passing_tests_after_edit"] += 1
                 item["passed_since_last_edit"] = True
             else:
