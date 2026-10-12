@@ -105,3 +105,80 @@ The evidence identifies the exact model-configuration fingerprint,
 host-test hash, immutable Docker digest, and runtime evaluation branch SHA,
 while core Runtime files remain identical to merged main
 `0b49eaa5ac94e6f6d2d1092c2aa86de294219c2e`.
+
+## Evidence: natural full-spec #565, still FAILED
+
+The same [GitHub Actions run #38210671064](https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38210671064)
+has an **independently failed** `real-issues (565)` job. The always-uploaded
+`aswe-step7d-issue-565-evidence` artifact is ID `11728859516`.
+
+| Metric | Earlier Step 7D-A natural #565 | Current Step 7D-C natural #565 |
+| --- | ---: | ---: |
+| Provider-reported total tokens | 323,778 | **313,458** |
+| Input tokens | 307,164 | **300,388** |
+| Output tokens | 16,614 | **13,070** |
+| Model turns | 20 | **24** |
+| Guarded tool calls | 25 | **28** |
+| Bash calls | 17 | **20** |
+| Native exit | **timed_out** | **turn_capped** |
+| Coder Scheduler state | failed | failed |
+| Accepted Coder Handoff | NO | NO |
+| Independent DAG Tester | not run | not run |
+
+This was **not successful**, and 10,320 fewer reported tokens cannot
+be interpreted as better delivery efficiency: the number of turns and
+tools increased, termination changed from native timeout to model-turn cap,
+and no independent Tester was scheduled. The allowed maximum model turns
+and Repair budget were unchanged. Source was modified and host-owned tests
+were untouched, but that is not task acceptance. The independent baseline
+regression failed as required.
+
+Current-only newly instrumented observations:
+
+- `tool_name_counts = {bash:20, read_file:5, str_replace:3}`.
+- `repeated_exact_argument_calls = 0`; `repeated_bash_argument_calls=0`.
+  **Zero exact repeats is NOT zero semantically redundant work.** The
+  repeated-argument hint cannot address unique-but-similar shell commands.
+- 20 Bash invocations were conservatively labeled `other`: complex shell
+  strings are intentionally not classified as safe `test_like`, and raw
+  commands are not exposed to trace or report.
+- Across 28 observed guard calls, total duration was 14,862ms, maximum
+  9,016ms. Total trace elapsed ~153.43s includes model time and overhead;
+  do not equate their difference exclusively with model inference latency.
+- Model input tokens per turn climbed from 1,410 to 20,906, with peak
+  20,906; notable context growth remains.
+- A real `SWE_READ_BEFORE_WRITE_REQUIRED` denial occurred once, but this
+  was not the final failure. `NATIVE_BUDGET_EXHAUSTED` at `turn_capped`
+  was terminal. The Coder never emitted an accepted Practical Handoff,
+  `dag_tester_results=[]`, `repair_rounds=0`.
+- Provider model config fingerprints and Docker digest match the concurrent
+  #524 run, so the two cases in this batch used the same configured provider
+  identity and resolved Docker image. **Historical** provider identity and
+  image might differ; a paired randomized trial was not performed.
+
+## Step 7D-D result and decision
+
+**Validation executed and complete for these two cases; efficiency and
+reliability optimization itself remains OPEN.** Both tasks used genuine
+upstream natural specifications on the merged Step 7D-C Runtime, unchanged
+turn budgets, real external LLM, real host-owned regression and authentic
+Scheduler/Tester acceptance conditions.
+
+- #524: task correctness preserved with descriptively lower total tokens,
+  fewer turns and calls, and accepted Scheduler Handoff.
+- #565: **still failed**; no Handoff or independent Tester. Repeated-shell
+  hint exact-match detection reported zero repeats. Do not label the model
+  more reliable on natural #565 or treat the 565 staged-spec Repair witness
+  as a natural pass.
+- C3 opt-in identical-Bash compaction was **disabled** during both real
+  runs; no effectiveness evidence for context compaction exists yet.
+- Next candidate is **7D-E: semantic tool-workflow and stopping diagnosis**.
+  First determine whether 20 Bash calls reflect independent necessary
+  checks or repeated near-equivalent searches, tests and environment probes.
+  Avoid changing authorization or coercing Native status to completed.
+
+Both artifacts preserve success and failure. The temporary
+`.github/workflows/swe-step7dd-live-temp.yml` one-shot paid push
+workflow was deleted after the results. Permanent paid workflows remain
+manual `workflow_dispatch` with typed `RUN` only. No additional
+automatic paid job is introduced by this PR.
