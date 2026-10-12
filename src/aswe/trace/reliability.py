@@ -202,7 +202,7 @@ def summarize_execution_trace(
             category = payload.get("bash_category")
             if name == "bash":
                 bash_categories[category if category in (
-                    "test_like", "search_like", "other"
+                    "test_like", "search_like", "inspect_like", "other"
                 ) else "unknown"] += 1
             if payload.get("repeated_exact_arguments") is True:
                 repeated_tool_calls += 1
