@@ -327,6 +327,7 @@ class ControlledSWEWorkspace:
         # Advisory state only: never a Scheduler acceptance/terminal signal.
         self._edit_serial = 0
         self._last_focused_test_pass_serial: int | None = None
+        self._last_focused_test_failed_serial: int | None = None
         self._observed_model_round = 0
         self._observed_max_turns: int | None = None
         self._budget_hint_emitted = False
@@ -412,6 +413,7 @@ class ControlledSWEWorkspace:
         self._completion_hint_emitted = False
         self._budget_hint_emitted = False
         self._last_focused_test_pass_serial = None
+        self._last_focused_test_failed_serial = None
         return f"updated {name}"
 
     async def write_file(self, *, path:str, content:str) -> str:
@@ -451,6 +453,16 @@ class ControlledSWEWorkspace:
             self._observed_model_round = completed_turn
             self._observed_max_turns = max_turns
 
+    def host_observed_progress_phase(self) -> str:
+        """Finite host hints, never an independent-code-verification verdict."""
+        if not self._changes:
+            return "exploring"
+        if self._last_focused_test_pass_serial == self._edit_serial:
+            return "agent_check_passed"
+        if self._last_focused_test_failed_serial == self._edit_serial:
+            return "agent_check_failed"
+        return "code_modified"
+
     async def bash(self, *, command:str) -> str:
         if self.command_backend is None:
             raise SWEExecutionDenied("SWE_BASH_ISOLATION_REQUIRED")
@@ -484,8 +496,13 @@ class ControlledSWEWorkspace:
                 "Avoid repetition when it adds no new evidence."
             )
         is_test = self._is_focused_test_command(command)
-        if is_test and outcome.exit_code == 0 and not outcome.timed_out:
-            self._last_focused_test_pass_serial = self._edit_serial
+        if is_test:
+            if outcome.exit_code == 0 and not outcome.timed_out:
+                self._last_focused_test_pass_serial = self._edit_serial
+                self._last_focused_test_failed_serial = None
+            else:
+                self._last_focused_test_pass_serial = None
+                self._last_focused_test_failed_serial = self._edit_serial
         if (not self._completion_hint_emitted and self._changes
                 and self._last_focused_test_pass_serial == self._edit_serial
                 and is_test and outcome.exit_code == 0 and not outcome.timed_out):
@@ -506,6 +523,13 @@ class ControlledSWEWorkspace:
                     "source edit has an agent-run passing test. If ready, "
                     "return a final response now so the host can independently "
                     "verify; continuing exploration risks losing this attempt."
+                )
+            elif self._last_focused_test_failed_serial == self._edit_serial:
+                suggestions.append(
+                    "Budget hint: very few model turns remain, and the latest "
+                    "recognized agent-run test failed. Prioritize addressing "
+                    "its concrete failure, then conclude normally; independent "
+                    "verification belongs to the host."
                 )
             else:
                 suggestions.append(
