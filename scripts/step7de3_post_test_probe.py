@@ -78,8 +78,10 @@ def observed_write(self, *args, **kwargs):
     return result
 
 
-async def observed_read(self, *args, **kwargs):
-    result = await _original_read(self, *args, **kwargs)
+async def observed_read(self, *, path: str, start_line: int | None = None,
+                        end_line: int | None = None):
+    result = await _original_read(self, path=path, start_line=start_line,
+                                  end_line=end_line)
     if state(self)["passed_since_last_edit"]:
         COUNTS["post_pass_read_file_calls"] += 1
     return result
