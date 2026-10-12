@@ -125,6 +125,11 @@ def summarize_execution_trace(
     tool_duration_ms = 0
     tool_duration_observed = 0
     tool_duration_max_ms: int | None = None
+    model_request_observed_count = 0
+    model_request_failed_count = 0
+    model_request_duration_total_ms = 0
+    model_request_duration_max_ms: int | None = None
+    model_progress_phases: Counter[str] = Counter()
     verifier_results: list[str] = []
     dag_tester_results: list[str] = []
     canonical_verifier_results: list[str] = []
@@ -168,7 +173,22 @@ def summarize_execution_trace(
             last_time = at if last_time is None else max(last_time, at)
 
         counts[event] += 1
-        if event == "model.turn.finished":
+        if event == "model.request.finished":
+            elapsed = _nonnegative(payload.get("duration_ms"))
+            status = payload.get("status")
+            if status in ("completed", "failed") and elapsed is not None:
+                model_request_observed_count += 1
+                model_request_failed_count += status == "failed"
+                model_request_duration_total_ms += elapsed
+                model_request_duration_max_ms = max(
+                    model_request_duration_max_ms or 0, elapsed,
+                )
+        elif event == "model.turn.finished":
+            phase = payload.get("progress_phase")
+            model_progress_phases[phase if phase in (
+                "exploring", "code_modified", "agent_check_passed",
+                "agent_check_failed",
+            ) else "unknown"] += 1
             usage = safe_model_usage(payload.get("usage"))
             if usage:
                 token_reported_turns += 1
@@ -188,7 +208,7 @@ def summarize_execution_trace(
             category = payload.get("bash_category")
             if name == "bash":
                 bash_categories[category if category in (
-                    "test_like", "search_like", "other"
+                    "test_like", "search_like", "inspect_like", "other"
                 ) else "unknown"] += 1
             if payload.get("repeated_exact_arguments") is True:
                 repeated_tool_calls += 1
@@ -381,6 +401,11 @@ def summarize_execution_trace(
         "tool_duration_observed_calls": tool_duration_observed,
         "tool_duration_total_ms": tool_duration_ms,
         "tool_duration_max_ms": tool_duration_max_ms,
+        "model_request_observed_count": model_request_observed_count,
+        "model_request_failed_count": model_request_failed_count,
+        "model_request_duration_total_ms": model_request_duration_total_ms,
+        "model_request_duration_max_ms": model_request_duration_max_ms,
+        "model_progress_phase_counts": dict(sorted(model_progress_phases.items())),
         "tool_calls": counts["tool.call.finished"],
         "tool_status_counts": dict(sorted(statuses.items())),
         "tool_failure_code_counts": dict(sorted(denied.items())),
