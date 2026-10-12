@@ -96,6 +96,137 @@ def _time(value: Any) -> datetime | None:
     return result if result.tzinfo is not None else None
 
 
+
+
+def _diagnose_semantic_terminal(records: tuple[Any, ...]) -> dict[str, Any]:
+    """Strictly advisory, content-free chronology of host events.
+
+    Passing checks here are agent-local simple Bash observations, NOT the
+    independent Tester. Command shape is diagnostic only: a compound Bash
+    with a test step cannot establish whether that test was reached/passed.
+    """
+    shapes: Counter[str] = Counter()
+    families: Counter[str] = Counter()
+    possible_test_calls = 0
+    unknown_bash = 0
+    after_pass_tool_calls = 0
+    after_pass_bash_calls = 0
+    after_pass_non_test_bash_calls = 0
+    after_pass_model_turns = 0
+    after_pass_edits = 0
+    recognized_tests = recognized_passing_tests = 0
+    recognized_post_edit_passing_tests = 0
+    edited = False
+    pass_current_edit = False
+    no_tool_turns = with_tool_turns = 0
+    last_model_turn_tool_calls: int | None = None
+    tail: list[dict[str, Any]] = []
+    for record in records:
+        event = _get(record, "event_type")
+        p = _get(record, "payload", {})
+        p = p if isinstance(p, Mapping) else {}
+        item: dict[str, Any] | None = None
+        if event == "model.turn.finished":
+            num_tools = _nonnegative(p.get("tool_call_count"))
+            last_model_turn_tool_calls = num_tools
+            if num_tools is not None:
+                if num_tools:
+                    with_tool_turns += 1
+                else:
+                    no_tool_turns += 1
+            if pass_current_edit:
+                after_pass_model_turns += 1
+            item = {"kind": "model_turn", "tools_requested": num_tools,
+                    "phase": _status(p.get("progress_phase"),
+                        frozenset(("exploring", "code_modified",
+                                   "agent_check_failed", "agent_check_passed")),
+                        "unknown")}
+        elif event == "tool.call.finished":
+            tool = p.get("tool_name")
+            status = p.get("status")
+            if tool not in ("bash", "read_file", "write_file", "str_replace"):
+                tool = "other"
+            item = {"kind": "tool", "tool": tool,
+                    "status": _status(status, _TOOL_STATUSES, "unknown")}
+            if pass_current_edit:
+                after_pass_tool_calls += 1
+                if tool == "bash":
+                    after_pass_bash_calls += 1
+                    if p.get("bash_category") != "test_like":
+                        after_pass_non_test_bash_calls += 1
+            if tool == "bash":
+                shape = p.get("bash_structure")
+                shape = shape if isinstance(shape, Mapping) else {}
+                kind = _status(shape.get("shape"),
+                               frozenset(("single", "compound", "unknown")),
+                               "unknown")
+                shapes[kind] += 1
+                family = _status(shape.get("family"), frozenset((
+                    "unknown", "ordinary", "python_heredoc", "python_inline",
+                    "nested_shell", "multiline")), "unknown")
+                families[family] += 1
+                item["bash_shape"] = kind
+                item["bash_family"] = family
+                step_count = _nonnegative(shape.get("step_count"))
+                item["steps"] = min(step_count, 16) if step_count is not None else None
+                if shape.get("contains_test_step") is True:
+                    possible_test_calls += 1
+                    item["possible_test_step"] = True
+                if kind == "unknown":
+                    unknown_bash += 1
+            if (tool in ("str_replace", "write_file")
+                    and status == "completed"):
+                if pass_current_edit:
+                    after_pass_edits += 1
+                edited = True
+                pass_current_edit = False
+                item["edit"] = True
+        elif event == "agent.test.observed":
+            if p.get("authority") == "agent_observed_only":
+                recognized_tests += 1
+                passed = p.get("passed") is True
+                recognized_passing_tests += passed
+                if edited:
+                    pass_current_edit = passed
+                    if passed:
+                        recognized_post_edit_passing_tests += 1
+                item = {"kind": "agent_check", "passed": passed}
+        elif event == "workflow.stage.finished":
+            item = {"kind": "stage_finished",
+                    "native_status": _status(p.get("native_status"),
+                        _NATIVE_STATUS, "unknown"),
+                    "stop": _status(p.get("native_stop_reason"),
+                        _NATIVE_STOPS, "none")}
+        if item is not None:
+            tail.append(item)
+            if len(tail) > 24:
+                tail.pop(0)
+    return {
+        "bash_structure_counts": dict(sorted(shapes.items())),
+        "bash_family_counts": dict(sorted(families.items())),
+        "bash_contains_possible_test_step_calls": possible_test_calls,
+        "bash_unknown_shape_calls": unknown_bash,
+        "agent_recognized_test_events": recognized_tests,
+        "agent_recognized_passing_test_events": recognized_passing_tests,
+        "agent_recognized_post_edit_passing_test_events":
+            recognized_post_edit_passing_tests,
+        # No denominator -> cannot represent zero waste, use null instead.
+        "post_recognized_pass_tool_calls": (
+            after_pass_tool_calls if recognized_post_edit_passing_tests else None),
+        "post_recognized_pass_bash_calls": (
+            after_pass_bash_calls if recognized_post_edit_passing_tests else None),
+        "post_recognized_pass_non_test_bash_calls": (
+            after_pass_non_test_bash_calls if recognized_post_edit_passing_tests else None),
+        "post_recognized_pass_model_turns": (
+            after_pass_model_turns if recognized_post_edit_passing_tests else None),
+        "post_recognized_pass_source_edits": (
+            after_pass_edits if recognized_post_edit_passing_tests else None),
+        "model_turns_requesting_tools": with_tool_turns,
+        "model_turns_without_tool_requests": no_tool_turns,
+        "last_model_turn_tool_call_count": last_model_turn_tool_calls,
+        "semantic_execution_tail": tail,
+    }
+
 def summarize_execution_trace(
     events: Iterable[Any],
     *,
@@ -361,6 +492,7 @@ def summarize_execution_trace(
     # The trace contains zero price authority. No "cost_usd" is emitted.
     return {
         "schema_version": SCHEMA_VERSION,
+        **_diagnose_semantic_terminal(records),
         "source": "host_runtime_trace",
         "execution_kind": ("developer_workflow" if counts["workflow.started"]
                            else "single_node_mvp" if last_mvp_payload is not None

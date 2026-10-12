@@ -17,7 +17,7 @@ from typing import Any, Awaitable, Callable, Mapping
 from aswe.core.contracts.backend import NodeExecutionInvocation, NodeExecutionPreparation
 from aswe.capabilities.effects import DEERFLOW_USE_BY_CONTRACT, STANDARD_EFFECTS, ToolEffect
 from aswe.integrations.deerflow.controlled_swe import ControlledSWEWorkspace, SWEExecutionDenied
-from aswe.integrations.deerflow.bash_intent import classify_bash
+from aswe.integrations.deerflow.bash_intent import classify_bash, inspect_bash
 from aswe.integrations.deerflow.docker_bash_capability import RuntimeDockerBashSource
 from aswe.trace.minimal_events import LocalRuntimeEventSink
 from aswe.integrations.deerflow.preparation import (
@@ -351,6 +351,8 @@ class ToolCallGuard:
                                      "duration_ms": duration_ms,
                                      "repeated_exact_arguments": repeated,
                                      "bash_category": category,
+                                     "bash_structure": (inspect_bash(argument)
+                                                        if name == "bash" else None),
                                  })
             # Only an unambiguous TEST invocation can become a test
             # observation. Successful grep/git/ls must not impersonate a
