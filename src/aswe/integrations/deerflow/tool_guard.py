@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
+import shlex
 from copy import deepcopy
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -30,6 +32,32 @@ class ToolBindingError(RuntimeError):
     def __init__(self, code: str):
         self.code = code
         super().__init__(code)
+
+
+def _bash_category(argument: Any) -> str:
+    """Non-authoritative command category; no raw shell data in traces."""
+    command = argument.get("command") if isinstance(argument, dict) else None
+    if not isinstance(command, str) or len(command) > 4096:
+        return "other"
+    if any(char in command for char in (";", "|", "&", ">", "<", "\n", "\r", "`", "$")):
+        return "other"
+    try:
+        args = shlex.split(command)
+    except ValueError:
+        return "other"
+    if not args:
+        return "other"
+    if args[0] in ("pytest", "py.test"):
+        return "test_like"
+    if args[0] in ("python", "python3") and len(args) >= 3:
+        pos = 2 if args[1] == "-m" else (
+            3 if len(args) >= 4 and args[1:3] == ["-B", "-m"] else -1
+        )
+        if pos >= 0 and args[pos] in ("pytest", "unittest"):
+            return "test_like"
+    if args[0] in ("grep", "rg", "find", "ls"):
+        return "search_like"
+    return "other"
 
 
 def _deny(code: str) -> None:
@@ -229,6 +257,7 @@ class ToolCallGuard:
         self._used_call_ids: set[str] = set()
         self._tool_receipts: list[dict[str, str]] = []
         self._dev_failed_checks = 0
+        self._seen_observations: set[tuple[str, str]] = set()
 
     def close(self) -> None:
         """Revoke future calls. In-flight provider/native tool quiescence is 5E."""
@@ -305,7 +334,8 @@ class ToolCallGuard:
             return name
 
     def _record(self, *, name: str, call_id: str, argument: Any,
-                status: str, result: Any = None, failure: str = "") -> None:
+                status: str, result: Any = None, failure: str = "",
+                duration_ms: int | None = None) -> None:
         # This is a bounded, host-observed ToolCallGuard *receipt*, not a
         # native shell/Workspace effect attestation. Never persist raw data.
         try:
@@ -326,13 +356,22 @@ class ToolCallGuard:
             "execution_id": self.invocation.execution_id,
         }
         with self._call_lock:
+            repeated = (name, args_digest) in self._seen_observations
+            if status == "completed":
+                self._seen_observations.add((name, args_digest))
             self._tool_receipts.append(receipt)
         if self.trace_sink is not None:
+            category = _bash_category(argument) if name == "bash" else "not_bash"
             common = {"execution_id":self.invocation.execution_id,
                       "attempt":self.invocation.attempt,
                       "run_id":self.invocation.run_id}
             self.trace_sink.emit("tool.call.finished",node_id=self.invocation.node_id,
-                                 payload={**receipt, **common})
+                                 payload={
+                                     **receipt, **common,
+                                     "duration_ms": duration_ms,
+                                     "repeated_exact_arguments": repeated,
+                                     "bash_category": category,
+                                 })
             # Model-controlled Bash is a development observation, not the
             # independently trusted Canonical Verification verdict.
             if name == "bash" and status == "completed":
@@ -380,6 +419,7 @@ class ToolCallGuard:
                       tool_input: dict | str, handler: Callable[[], Awaitable[Any]]) -> Any:
         """Authorize the real native tool handler, record effect-agnostic receipt."""
         name = self._reserve(tool=tool, tool_call_id=tool_call_id, tool_input=tool_input)
+        started = time.monotonic()
         try:
             if self.auth_enabled:
                 try:
@@ -408,11 +448,13 @@ class ToolCallGuard:
                                 else "failed",
                          failure=(exc.code if isinstance(exc, (ToolBindingError, SWEExecutionDenied))
                                   else "TOOL_CANCELLED" if isinstance(exc, asyncio.CancelledError)
-                                  else "NATIVE_TOOL_FAILED"))
+                                  else "NATIVE_TOOL_FAILED"),
+                         duration_ms=max(0, int((time.monotonic() - started)*1000)))
             raise
         else:
             self._record(name=name, call_id=tool_call_id, argument=tool_input,
-                         status="completed", result=result)
+                         status="completed", result=result,
+                         duration_ms=max(0, int((time.monotonic() - started)*1000)))
             return result
         finally:
             with self._call_lock:
@@ -422,6 +464,7 @@ class ToolCallGuard:
                tool_input: dict | str, handler: Callable[[], Any]) -> Any:
         """Sync native tool call, atomic replay reservation across threads."""
         name = self._reserve(tool=tool, tool_call_id=tool_call_id, tool_input=tool_input)
+        started = time.monotonic()
         try:
             if self.auth_enabled:
                 try:
@@ -445,11 +488,13 @@ class ToolCallGuard:
             self._record(name=name, call_id=tool_call_id, argument=tool_input,
                          status="denied" if isinstance(exc, (ToolBindingError, SWEExecutionDenied)) else "failed",
                          failure=exc.code if isinstance(exc, (ToolBindingError, SWEExecutionDenied))
-                                 else "NATIVE_TOOL_FAILED")
+                                 else "NATIVE_TOOL_FAILED",
+                         duration_ms=max(0, int((time.monotonic() - started)*1000)))
             raise
         else:
             self._record(name=name, call_id=tool_call_id, argument=tool_input,
-                         status="completed", result=result)
+                         status="completed", result=result,
+                         duration_ms=max(0, int((time.monotonic() - started)*1000)))
             return result
         finally:
             with self._call_lock:
