@@ -322,6 +322,8 @@ class ControlledSWEWorkspace:
         self._shell_observations: list[ShellOutcome]=[]
         # Advisory only. Tool execution is NEVER skipped or cached.
         self._previous_bash_commands: set[str] = set()
+        self._hinted_bash_commands: set[str] = set()
+        self._completion_hint_emitted = False
         # Optional model-facing compaction; full observations still executed.
         # Raw shell commands and output remain out of this index.
         self._previous_bash_results: dict[str, tuple[str, int | None, bool]] = {}
@@ -468,14 +470,18 @@ class ControlledSWEWorkspace:
                 full_digest, outcome.exit_code, outcome.timed_out,
             )
         suggestions = []
-        if repeated:
+        if repeated and key not in self._hinted_bash_commands:
+            self._hinted_bash_commands.add(key)
             suggestions.append(
                 "Efficiency hint: this exact command was executed earlier; "
                 "this is a fresh result, not a cached result. "
                 "Avoid repetition when it adds no new evidence."
             )
-        if (self._changes and outcome.exit_code == 0 and not outcome.timed_out
+        if (not self._completion_hint_emitted
+                and self._changes and outcome.exit_code == 0
+                and not outcome.timed_out
                 and self._is_focused_test_command(command)):
+            self._completion_hint_emitted = True
             suggestions.append(
                 "Completion hint: your source edits passed this agent-run check. "
                 "If the task is ready, finish normally so the host can perform "
