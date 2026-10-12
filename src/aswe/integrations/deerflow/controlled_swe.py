@@ -331,6 +331,7 @@ class ControlledSWEWorkspace:
         self._observed_model_round = 0
         self._observed_max_turns: int | None = None
         self._budget_hint_emitted = False
+        self._mid_budget_hint_emitted = False
         # Optional model-facing compaction; full observations still executed.
         # Raw shell commands and output remain out of this index.
         self._previous_bash_results: dict[str, tuple[str, int | None, bool]] = {}
@@ -514,6 +515,22 @@ class ControlledSWEWorkspace:
             )
         remaining = (self._observed_max_turns - self._observed_model_round
                      if self._observed_max_turns is not None else None)
+        # LangGraph counts super-steps, so its physical recursion ceiling
+        # may be reached BEFORE all configured logical model turns are used.
+        # Do not wait until the final four nominal turns for the first hint.
+        if (not self._mid_budget_hint_emitted and self._changes
+                and self._observed_max_turns is not None
+                and self._observed_model_round >=
+                    max(4, self._observed_max_turns // 2)
+                and (remaining is not None and remaining > 4)):
+            self._mid_budget_hint_emitted = True
+            suggestions.append(
+                "Progress hint: you have used at least half of the configured "
+                "logical turn budget. The graph may reach its physical step "
+                "limit sooner. Prefer completing the current fix and checking "
+                "the relevant behavior over expanding exploration. This does "
+                "not establish independent test success."
+            )
         if (not self._budget_hint_emitted and self._changes
                 and remaining is not None and 0 <= remaining <= 4):
             self._budget_hint_emitted = True
