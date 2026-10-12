@@ -24,6 +24,7 @@ from scripts.live_adaptive_acceptance import (
     AcceptanceFailed, python_image_digest, require,
 )
 from scripts.step7_real_issue import UPSTREAM_URL, UPSTREAM_COMMIT, run_git
+from scripts.step7c_staged_real_repair_565 import TEST_CODE as ISSUE565_TESTS
 
 
 ISSUE551_TESTS = '''"""Host-owned independent tests: boltons Issue #551."""
@@ -97,6 +98,25 @@ class Issue524(unittest.TestCase):
 '''
 
 CASES = {
+    "565": {
+        "issue": "https://github.com/mahmoud/boltons/issues/565",
+        "source": "boltons/strutils.py",
+        "test_path": "tests/test_aswe_issue565.py",
+        "module": "tests.test_aswe_issue565",
+        "tests": ISSUE565_TESTS,
+        "task": (
+            "Fix the original genuine boltons issue #565 naturally. "
+            "MultiReplace loses the distinct compiled flags of re.Pattern "
+            "inputs: IGNORECASE, MULTILINE, DOTALL, VERBOSE and ASCII. "
+            "Keep each precompiled regex's flags scoped to its own branch, "
+            "without leaking to adjacent branches; preserve leading inline "
+            "flags, literal string and constructor flags behavior. "
+            "Explore the actual pinned implementation, make a general "
+            "production-only fix, run relevant tests and finish normally "
+            "when the issue is addressed. The host will independently test "
+            "all behavior. Do not modify tests, project metadata or .git."
+        ),
+    },
     "551": {
         "issue": "https://github.com/mahmoud/boltons/issues/551",
         "source": "boltons/iterutils.py",
