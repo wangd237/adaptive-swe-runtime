@@ -116,6 +116,9 @@ def summarize_execution_trace(
     native_stops: Counter[str] = Counter()
     tokens: Counter[str] = Counter()
     token_reported_turns = 0
+    input_token_turns: list[int] = []
+    output_token_turns: list[int] = []
+    tool_names: Counter[str] = Counter()
     verifier_results: list[str] = []
     dag_tester_results: list[str] = []
     canonical_verifier_results: list[str] = []
@@ -165,9 +168,17 @@ def summarize_execution_trace(
                 token_reported_turns += 1
                 for key, value in usage.items():
                     tokens[key] += value
+                if "input_tokens" in usage:
+                    input_token_turns.append(usage["input_tokens"])
+                if "output_tokens" in usage:
+                    output_token_turns.append(usage["output_tokens"])
         elif event == "tool.call.finished":
             status = _status(payload.get("status"), _TOOL_STATUSES, "unknown")
             statuses[status] += 1
+            name = payload.get("tool_name")
+            tool_names[name if name in (
+                "read_file", "write_file", "str_replace", "bash"
+            ) else "other"] += 1
             if status in ("failed", "denied", "cancelled"):
                 code = _code(payload.get("failure_code"))
                 denied[code] += 1
@@ -332,6 +343,16 @@ def summarize_execution_trace(
         "model_turns": counts["model.turn.finished"],
         "token_reported_turns": token_reported_turns,
         "token_usage_reported": dict(sorted(tokens.items())),
+        # A bounded per-turn numeric trend is enough to diagnose context
+        # inflation without exposing messages, prompts, paths or raw data.
+        "input_tokens_per_turn_tail": input_token_turns[-40:],
+        "output_tokens_per_turn_tail": output_token_turns[-40:],
+        "peak_input_tokens_per_turn": (
+            max(input_token_turns) if input_token_turns else None),
+        "first_last_input_tokens": (
+            [input_token_turns[0], input_token_turns[-1]]
+            if input_token_turns else []),
+        "tool_name_counts": dict(sorted(tool_names.items())),
         "tool_calls": counts["tool.call.finished"],
         "tool_status_counts": dict(sorted(statuses.items())),
         "tool_failure_code_counts": dict(sorted(denied.items())),
