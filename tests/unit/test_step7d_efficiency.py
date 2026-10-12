@@ -44,6 +44,19 @@ async def test_invalid_command_budget_refused_before_tool_execution(repository_f
     assert sandbox.commands==[]
 
 
+@pytest.mark.asyncio
+async def test_old_small_read_output_limits_remain_supported(repository_fixture):
+    workspace,sandbox=env(repository_fixture)
+    reduced=ControlledSWEWorkspace(
+        invocation=workspace.invocation,policy=workspace.policy,
+        root=workspace.root,command_backend=sandbox,
+        max_output_chars=600,
+    )
+    assert reduced.max_command_output_chars==600
+    await reduced.bash(command="echo bounded")
+    assert sandbox.commands[-1][2]==600
+
+
 def ev(i,event,payload):
     return {
         "task_id":"task","seq":i,"event_type":event,
