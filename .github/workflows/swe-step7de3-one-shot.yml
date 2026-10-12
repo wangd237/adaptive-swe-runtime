@@ -9,7 +9,6 @@ permissions:
   contents: read
 jobs:
   natural-comparison:
-    if: ${{ github.event.head_commit.message == 'eval(7de3): authorize one-shot two-by-two real LLM comparison' }}
     strategy:
       fail-fast: false
       max-parallel: 2
