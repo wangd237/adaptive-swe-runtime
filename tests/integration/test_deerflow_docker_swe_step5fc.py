@@ -51,3 +51,27 @@ async def test_actual_docker_dynamic_command_is_networkless_and_workspace_bounde
 
     timed=await runtime.run("sleep 5",timeout=0.1,max_output=1200)
     assert timed.timed_out and timed.exit_code is None
+
+
+@pytest.mark.asyncio
+async def test_long_docker_output_keeps_failure_tail_without_leaking_full_log(tmp_path):
+    root=tmp_path/"repo"
+    root.mkdir()
+    runtime=DockerCommandBackend(workspace_root=root,image=local_image_digest())
+    # The diagnostic failure is at the end; returning only the first 1 KiB
+    # would have hidden it and induced repeated full test runs.
+    result=await runtime.run(
+        "printf 'BEGIN_TRACE\\n'; "
+        "head -c 12000 /dev/zero | tr '\\000' 'X'; "
+        "printf '\\nFINAL_FAILURE_EXPLANATION\\n'",
+        timeout=20,max_output=1200,
+    )
+    assert result.exit_code==0
+    assert result.output_truncated is True
+    assert result.output_total_bytes>12000
+    assert result.output.startswith("BEGIN_TRACE")
+    assert "FINAL_FAILURE_EXPLANATION" in result.output
+    assert "[middle omitted" in result.output
+    assert len(result.output.encode())<=1200
+    assert len(result.output_sha256)==64
+    assert runtime.practical_resources_drained
