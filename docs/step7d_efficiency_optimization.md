@@ -62,3 +62,59 @@ invalidates the optimization as a delivery improvement.
 
 The temporary paid push-triggered workflow is deleted after the experiment.
 Permanent evaluation remains manual typed `RUN` only.
+
+## Actual genuine Issue #524 A/B observation
+
+Experimental GitHub Actions:
+[Step 7D #524 run #38194147927](https://github.com/wangd237/adaptive-swe-runtime/actions/runs/38194147927).
+Reported artifact: `aswe-step7d-issue-524-evidence` (GitHub Actions ID
+`11722827019`). Exact code under test was from this branch SHA
+`5a22109ab94e3adf4cd4db25a1681c9f83832f0e`; the later output-limit
+compatibility adjustment affects only non-default small-output profiles and
+was separately tested.
+
+| Measure | Earlier natural #524 | Optimized natural #524 |
+| --- | ---: | ---: |
+| Provider-reported total tokens | 400,654 | **163,623** |
+| Input tokens | 379,787 | **150,918** |
+| Output tokens | 20,867 | **12,705** |
+| Model turns | 22 | **16** |
+| Guarded tool calls | 38 | **26** |
+| Accepted Practical Handoff | yes | yes |
+| Independent Tester | passed | passed |
+| Native stop cap | none | none |
+| Repair | 0 | 0 |
+
+**One observed reduction of 237,031 total tokens (~59.2%),** six fewer
+model turns and twelve fewer tools, while preserving the accepted result.
+This comparison is not causally isolated: model stochasticity, per-run
+provider behavior and different Coder instructions are not controlled
+separately. No claim of a stable 59% improvement should be made without
+repeated matched trials. It is nevertheless a concrete regression check
+that the output compaction has not prevented actual model success.
+
+The optimized redacted trace also reports:
+
+- 16 provider-reported model turns, input tokens per turn from **850** to
+  **19,645** (max 19,645). The remaining context growth is significant.
+- 26 tools = **22 Bash**, 3 `read_file`, 1 `str_replace`. Next iteration
+  should investigate redundant shell commands, not blindly increase turns.
+- Original independent host-owned suite failed at baseline, production code
+  changed, host tests and original upstream unchanged, Coder Scheduler
+  `succeeded`, DAG Tester `passed`, no fake native completion.
+
+## Remaining Step 7D work (not yet proven)
+
+- Re-execute the **natural** full-spec Issue #565 on this Runtime. The
+  earlier failure was `turn_capped`; the improved prompt is intended to
+  encourage normal completion, but no new natural #565 result is currently
+  available. Never mark it fixed solely from this Issue #524 success.
+- Analyze 22 Bash invocations in the #524 optimized run with privacy-safe
+  categories (e.g. read-only searching versus test execution). Do not
+  store raw shell commands or expose secrets just for analytics.
+- Run multiple matched A/B trials before inferring a general improvement
+  rate; report failures and repeated attempts alongside successes.
+
+Temporary paid push workflows have been removed. Durable live survey
+workflow in main continues to require manual `workflow_dispatch` and
+explicit `RUN`.
