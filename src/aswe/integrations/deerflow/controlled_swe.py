@@ -276,7 +276,8 @@ class ControlledSWEWorkspace:
                  policy: NodeExecutionPolicy, root: Path,
                  command_backend: IsolatedCommandBackend | None,
                  max_file_bytes: int = 80_000, max_output_chars: int = 12_000,
-                 max_command_output_chars: int | None = None):
+                 max_command_output_chars: int | None = None,
+                 compact_identical_bash: bool = False):
         if not isinstance(invocation,NodeExecutionInvocation) or not isinstance(policy,NodeExecutionPolicy):
             raise SWEExecutionDenied("SWE_AUTHORITY_UNATTESTED")
         if policy.node_id != invocation.node_id or policy.workspace_access is not WorkspaceAccess.WRITE:
@@ -312,12 +313,18 @@ class ControlledSWEWorkspace:
         self.command_backend=command_backend
         self.max_file_bytes=max_file_bytes
         self.max_output_chars=max_output_chars
+        if type(compact_identical_bash) is not bool:
+            raise SWEExecutionDenied("SWE_CONTEXT_COMPACTION_CONFIG_INVALID")
         self.max_command_output_chars=command_budget
+        self.compact_identical_bash=compact_identical_bash
         self._reads: dict[str,str]={}
         self._changes: set[str]=set()
         self._shell_observations: list[ShellOutcome]=[]
         # Advisory only. Tool execution is NEVER skipped or cached.
         self._previous_bash_commands: set[str] = set()
+        # Optional model-facing compaction; full observations still executed.
+        # Raw shell commands and output remain out of this index.
+        self._previous_bash_results: dict[str, tuple[str, int | None, bool]] = {}
 
     def _path(self, value: str, *, create: bool=False) -> tuple[Path,str]:
         if not isinstance(value,str) or not value or "\x00" in value or "\\" in value:
@@ -446,8 +453,20 @@ class ControlledSWEWorkspace:
         if not isinstance(outcome,ShellOutcome):
             raise SWEExecutionDenied("SWE_COMMAND_OUTCOME_UNATTESTED")
         self._shell_observations.append(outcome)
-        repeated = command in self._previous_bash_commands
-        self._previous_bash_commands.add(command)
+        key = hashlib.sha256(command.encode("utf-8")).hexdigest()
+        repeated = key in self._previous_bash_commands
+        self._previous_bash_commands.add(key)
+        old = self._previous_bash_results.get(key)
+        full_digest = outcome.output_sha256
+        identical = bool(
+            self.compact_identical_bash and repeated
+            and type(full_digest) is str and len(full_digest) == 64
+            and old == (full_digest, outcome.exit_code, outcome.timed_out)
+        )
+        if (type(full_digest) is str and len(full_digest) == 64):
+            self._previous_bash_results[key] = (
+                full_digest, outcome.exit_code, outcome.timed_out,
+            )
         suggestions = []
         if repeated:
             suggestions.append(
@@ -463,12 +482,17 @@ class ControlledSWEWorkspace:
                 "independent verification; this is NOT host acceptance."
             )
         advisory = ("\n" + "\n".join(suggestions)) if suggestions else ""
+        observed_text = (
+            "[duplicate full command output omitted: fresh command execution "
+            "returned identical full stdout/stderr as the earlier tool result]"
+            if identical else outcome.output
+        )
         # Output status must stay explicit; model can retry after a failure.
         # Keep the existing first-line host receipt format. ToolGuard
         # parses it to emit agent.test.observed and Repair feedback events.
         return (
             f"exit_code={outcome.exit_code}; timed_out={outcome.timed_out}\n"
-            f"output_truncated={outcome.output_truncated}\n{outcome.output}"
+            f"output_truncated={outcome.output_truncated}\n{observed_text}"
             f"{advisory}"
         )
 
