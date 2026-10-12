@@ -356,8 +356,9 @@ class ToolCallGuard:
             "execution_id": self.invocation.execution_id,
         }
         with self._call_lock:
-            repeated = (name, args_digest) in self._seen_observations
-            if status == "completed":
+            repeated = (args_digest != "unserializable"
+                        and (name, args_digest) in self._seen_observations)
+            if status == "completed" and args_digest != "unserializable":
                 self._seen_observations.add((name, args_digest))
             self._tool_receipts.append(receipt)
         if self.trace_sink is not None:
