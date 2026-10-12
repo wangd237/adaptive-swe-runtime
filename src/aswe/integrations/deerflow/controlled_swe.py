@@ -275,7 +275,7 @@ class ControlledSWEWorkspace:
                  policy: NodeExecutionPolicy, root: Path,
                  command_backend: IsolatedCommandBackend | None,
                  max_file_bytes: int = 80_000, max_output_chars: int = 12_000,
-                 max_command_output_chars: int = 4_000):
+                 max_command_output_chars: int | None = None):
         if not isinstance(invocation,NodeExecutionInvocation) or not isinstance(policy,NodeExecutionPolicy):
             raise SWEExecutionDenied("SWE_AUTHORITY_UNATTESTED")
         if policy.node_id != invocation.node_id or policy.workspace_access is not WorkspaceAccess.WRITE:
@@ -283,7 +283,13 @@ class ControlledSWEWorkspace:
         root=Path(root).resolve(strict=True)
         if not root.is_dir() or max_file_bytes<1 or max_file_bytes>1_000_000:
             raise SWEExecutionDenied("SWE_WORKSPACE_INVALID")
-        if not 100 <= max_command_output_chars <= max_output_chars:
+        # Backward compatible with an explicitly reduced file-output limit.
+        # Existing callers may configure max_output_chars < 4000; do not
+        # reject those valid profiles merely for using the new default.
+        command_budget = (min(4000, max_output_chars)
+                          if max_command_output_chars is None
+                          else max_command_output_chars)
+        if not 1 <= command_budget <= max_output_chars:
             raise SWEExecutionDenied("SWE_COMMAND_OUTPUT_BUDGET_INVALID")
         if command_backend is not None and (
             getattr(command_backend,"isolation_kind",None) != "docker-no-network"
@@ -305,7 +311,7 @@ class ControlledSWEWorkspace:
         self.command_backend=command_backend
         self.max_file_bytes=max_file_bytes
         self.max_output_chars=max_output_chars
-        self.max_command_output_chars=max_command_output_chars
+        self.max_command_output_chars=command_budget
         self._reads: dict[str,str]={}
         self._changes: set[str]=set()
         self._shell_observations: list[ShellOutcome]=[]
