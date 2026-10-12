@@ -12,7 +12,6 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 import hashlib
-import shlex
 import os
 import secrets
 import sys
@@ -21,6 +20,7 @@ from pathlib import Path
 from typing import Protocol, Any
 
 from aswe.runtime.command_observations import IsolatedPythonCommandBackend
+from aswe.integrations.deerflow.bash_intent import classify_bash
 from aswe.core.contracts.backend import NodeExecutionInvocation
 from aswe.core.contracts.workspace import WorkspaceAccess
 from aswe.providers.policy import NodeExecutionPolicy
@@ -324,6 +324,12 @@ class ControlledSWEWorkspace:
         self._previous_bash_commands: set[str] = set()
         self._hinted_bash_commands: set[str] = set()
         self._completion_hint_emitted = False
+        # Advisory state only: never a Scheduler acceptance/terminal signal.
+        self._edit_serial = 0
+        self._last_focused_test_pass_serial: int | None = None
+        self._observed_model_round = 0
+        self._observed_max_turns: int | None = None
+        self._budget_hint_emitted = False
         # Optional model-facing compaction; full observations still executed.
         # Raw shell commands and output remain out of this index.
         self._previous_bash_results: dict[str, tuple[str, int | None, bool]] = {}
@@ -402,6 +408,10 @@ class ControlledSWEWorkspace:
             raise SWEExecutionDenied("SWE_WRITE_FAILED") from None
         self._reads.pop(name,None)
         self._changes.add(name)
+        self._edit_serial += 1
+        self._completion_hint_emitted = False
+        self._budget_hint_emitted = False
+        self._last_focused_test_pass_serial = None
         return f"updated {name}"
 
     async def write_file(self, *, path:str, content:str) -> str:
@@ -425,25 +435,21 @@ class ControlledSWEWorkspace:
 
     @staticmethod
     def _is_focused_test_command(command: str) -> bool:
-        """Conservative hinting only, not test authority or command safety."""
-        if not isinstance(command, str) or any(
-            c in command for c in (";", "|", "&", ">", "<", "\n", "\r", "`", "$")
-        ):
-            return False
-        try:
-            args=shlex.split(command)
-        except ValueError:
-            return False
-        if not args:
-            return False
-        if args[0] in ("pytest", "py.test"):
-            return True
-        if args[0] not in ("python", "python3"):
-            return False
-        index = 2 if len(args) >= 3 and args[1] == "-m" else (
-            3 if len(args) >= 4 and args[1:3] == ["-B", "-m"] else -1
-        )
-        return index > 0 and args[index] in ("pytest", "unittest")
+        return classify_bash({"command": command}) == "test_like"
+
+    def record_native_model_turn(self, completed_turn: int, max_turns: int) -> None:
+        """Receive HOST-counted actual native graph turns; advisory only.
+
+        A tool invocation cannot control these values. The progress hint
+        cannot claim normal terminal completion, independent verification or
+        a valid Scheduler Handoff.
+        """
+        if (type(completed_turn) is not int or type(max_turns) is not int
+                or not 1 <= completed_turn <= max_turns <= 10000):
+            return
+        if completed_turn >= self._observed_model_round:
+            self._observed_model_round = completed_turn
+            self._observed_max_turns = max_turns
 
     async def bash(self, *, command:str) -> str:
         if self.command_backend is None:
@@ -477,16 +483,36 @@ class ControlledSWEWorkspace:
                 "this is a fresh result, not a cached result. "
                 "Avoid repetition when it adds no new evidence."
             )
-        if (not self._completion_hint_emitted
-                and self._changes and outcome.exit_code == 0
-                and not outcome.timed_out
-                and self._is_focused_test_command(command)):
+        is_test = self._is_focused_test_command(command)
+        if is_test and outcome.exit_code == 0 and not outcome.timed_out:
+            self._last_focused_test_pass_serial = self._edit_serial
+        if (not self._completion_hint_emitted and self._changes
+                and self._last_focused_test_pass_serial == self._edit_serial
+                and is_test and outcome.exit_code == 0 and not outcome.timed_out):
             self._completion_hint_emitted = True
             suggestions.append(
                 "Completion hint: your source edits passed this agent-run check. "
                 "If the task is ready, finish normally so the host can perform "
                 "independent verification; this is NOT host acceptance."
             )
+        remaining = (self._observed_max_turns - self._observed_model_round
+                     if self._observed_max_turns is not None else None)
+        if (not self._budget_hint_emitted and self._changes
+                and remaining is not None and 0 <= remaining <= 4):
+            self._budget_hint_emitted = True
+            if self._last_focused_test_pass_serial == self._edit_serial:
+                suggestions.append(
+                    "Budget hint: very few model turns remain; your latest "
+                    "source edit has an agent-run passing test. If ready, "
+                    "return a final response now so the host can independently "
+                    "verify; continuing exploration risks losing this attempt."
+                )
+            else:
+                suggestions.append(
+                    "Budget hint: very few model turns remain. Prioritize a "
+                    "focused verification of your current patch and a normal "
+                    "final response; the host—not this hint—will decide acceptance."
+                )
         advisory = ("\n" + "\n".join(suggestions)) if suggestions else ""
         observed_text = (
             "[duplicate full command output omitted: fresh command execution "
