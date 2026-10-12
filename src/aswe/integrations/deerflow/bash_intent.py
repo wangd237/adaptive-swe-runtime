@@ -7,6 +7,7 @@ not execute shell grammar, infer outcomes, persist arguments, or change tools.
 """
 from __future__ import annotations
 
+import re
 import shlex
 from typing import Any
 
@@ -55,6 +56,23 @@ def classify_bash(argument: Any) -> str:
     return _classify_argv(args)
 
 
+def _script_family(command: Any) -> str:
+    """Fixed safe diagnostic label; inline script BODY is never inspected."""
+    if not isinstance(command, str):
+        return "unknown"
+    start = command.lstrip()
+    python_cmd = r"(?:python|python3|python3[.]12|/usr/bin/python3?)"
+    if re.match(r"^" + python_cmd + r"\s+(?:-B\s+)?-\s*<<", start):
+        return "python_heredoc"
+    if re.match(r"^" + python_cmd + r"\s+(?:-B\s+)?-c(?:\s|$)", start):
+        return "python_inline"
+    if re.match(r"^(?:bash|sh)\s+-c(?:\s|$)", start):
+        return "nested_shell"
+    if "\n" in command or "\r" in command:
+        return "multiline"
+    return "ordinary"
+
+
 def inspect_bash(argument: Any) -> dict[str, object]:
     """Read-only command *shape*, not shell-execution or verdict authority.
 
@@ -65,7 +83,8 @@ def inspect_bash(argument: Any) -> dict[str, object]:
     No shell strings, argv, raw output, paths or hashes are returned.
     """
     unknown = {
-        "shape": "unknown", "step_count": 0, "contains_test_step": False,
+        "shape": "unknown", "family": _script_family(argument.get("command") if isinstance(argument, dict) else None),
+        "step_count": 0, "contains_test_step": False,
         "contains_search_step": False, "contains_inspect_step": False,
         "test_verdict_attributable": False,
     }
@@ -104,6 +123,7 @@ def inspect_bash(argument: Any) -> dict[str, object]:
     isolated = len(chunks) == 1 and classify_bash(argument) == "test_like"
     return {
         "shape": "single" if len(chunks) == 1 else "compound",
+        "family": _script_family(command),
         "step_count": len(chunks),
         "contains_test_step": "test_like" in kinds,
         "contains_search_step": "search_like" in kinds,
