@@ -39,6 +39,8 @@ class ShellOutcome:
     output: str
     timed_out: bool = False
     output_sha256: str | None = None
+    output_truncated: bool = False
+    output_total_bytes: int | None = None
 
 
 class IsolatedCommandBackend(Protocol):
@@ -241,6 +243,8 @@ class DockerCommandBackend(IsolatedPythonCommandBackend):
                 output=raw.decode("utf-8","replace"),
                 timed_out=timed_out,
                 output_sha256=digest.hexdigest(),
+                output_truncated=output_bytes>max_output,
+                output_total_bytes=output_bytes,
             )
 
 
@@ -412,7 +416,10 @@ class ControlledSWEWorkspace:
             raise SWEExecutionDenied("SWE_COMMAND_OUTCOME_UNATTESTED")
         self._shell_observations.append(outcome)
         # Output status must stay explicit; model can retry after a failure.
-        return f"exit_code={outcome.exit_code}; timed_out={outcome.timed_out}\n{outcome.output}"
+        return (
+            f"exit_code={outcome.exit_code}; timed_out={outcome.timed_out}; "
+            f"output_truncated={outcome.output_truncated}\n{outcome.output}"
+        )
 
     def development_summary(self, *, native_terminal_status: str) -> SWEDevelopmentSummary:
         """MVP diagnostic, not a trusted canonical verification outcome.
