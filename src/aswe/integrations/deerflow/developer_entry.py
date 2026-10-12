@@ -165,10 +165,15 @@ async def execute_swe_task(*, repository: Path, task: str, runtime_dir: Path,
         return SubagentConfig(name=name,description="SWE developer CLI",
             model="inherit",tools=["read_file","str_replace","bash"],
             disallowed_tools=[],skills=[],
-            system_prompt=("You are a software engineering agent. Inspect code and tests "
-                "before editing. Use read_file then str_replace. Run tests with the "
-                "isolated bash tool and repair failures. Do not change .git or tests "
-                "unless explicitly requested. The host will verify independently."),
+            system_prompt=("You are a software engineering agent. Inspect relevant code "
+                "and tests before editing. Use read_file then str_replace. Prefer narrow "
+                "file line ranges and focused test commands; avoid re-reading unchanged "
+                "files or rerunning an identical passing check without new evidence. "
+                "Run the relevant tests with isolated bash, then address real failures. "
+                "Once the requested fix is implemented and the relevant check passes, "
+                "finish with a concise final response and no further tool calls; the "
+                "host will run independent verification. Do not change .git or tests "
+                "unless explicitly requested. Do not claim success without evidence."),
             max_turns=40,timeout_seconds=240)
     prep=DeerFlowPreparationBackend(
         task_id=task_id,descriptor=descriptor,policy=policy,
