@@ -567,8 +567,17 @@ async def test_step6_real_native_guard_writes_digest_only_tool_trace(tmp_path):
     result=await executor._aexecute("Read fixture")
     assert result.status.value=="completed"
     events=sink.read_all()
-    assert [e.event_type for e in events]==[
+    # Real model request timings are additive, never a replacement for
+    # the original native model/tool observability ordering.
+    assert [e.event_type for e in events
+            if e.event_type != "model.request.finished"]==[
         "model.turn.finished","tool.call.finished","model.turn.finished"]
+    timings=[e.payload for e in events
+             if e.event_type=="model.request.finished"]
+    assert len(timings)==2
+    assert all(e["status"]=="completed" and
+               type(e["duration_ms"]) is int and e["duration_ms"]>=0
+               for e in timings)
     assert [e.payload["round"] for e in events
             if e.event_type=="model.turn.finished"]==[1,2]
     event=events[1]
