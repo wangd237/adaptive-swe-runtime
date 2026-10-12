@@ -1,0 +1,92 @@
+# One-shot paid E3 run: exact eval branch only. DELETE after evidence is collected.
+name: Step 7D-E3 Temporary Paired Real LLM Validation
+on:
+  push:
+    branches: [coding/step7de3-validation-20261012]
+    paths:
+      - .github/workflows/swe-step7de3-one-shot.yml
+permissions:
+  contents: read
+jobs:
+  natural-comparison:
+    if: ${{ github.event.head_commit.message == 'eval(7de3): authorize one-shot two-by-two real LLM comparison' }}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - issue: '524'
+            version: old
+            runtime_ref: 2a64d8a20ce54cc605c17b6d5153ab3a1aef6ee6
+          - issue: '565'
+            version: old
+            runtime_ref: 2a64d8a20ce54cc605c17b6d5153ab3a1aef6ee6
+          - issue: '524'
+            version: new
+            runtime_ref: 40f6c8afd95fa8d2261e330b7e7315a1706137bc
+          - issue: '565'
+            version: new
+            runtime_ref: 40f6c8afd95fa8d2261e330b7e7315a1706137bc
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: aswe-e3-${{ matrix.version }}-${{ matrix.issue }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.runtime_ref }}
+          path: runtime
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: coding/step7de3-validation-20261012
+          path: observation
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: bytedance/deer-flow
+          ref: c0895d295bba34f6e95188fca380f555dabed891
+          path: runtime/vendor/deer-flow
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install frozen packages and evaluation-only probe
+        working-directory: runtime
+        run: |
+          test "$(git -C vendor/deer-flow rev-parse HEAD)" = c0895d295bba34f6e95188fca380f555dabed891
+          cp ../observation/scripts/step7de3_post_test_probe.py scripts/
+          uv pip install --system -e '.[dev]' -e vendor/deer-flow/backend/packages/harness
+          python -m compileall -q scripts/step7de3_post_test_probe.py scripts/step7d_real_issue_eval.py
+      - name: Prepare isolated pinned Docker runtime
+        run: |
+          docker pull python:3.12-slim
+          docker image inspect python:3.12-slim --format '{{index .RepoDigests 0}}'
+      - name: Run genuine original-spec issue, original budgets, independent DAG Tester
+        timeout-minutes: 23
+        working-directory: runtime
+        env:
+          GITHUB_ACTIONS: 'true'
+          ASWE_LIVE_SMOKE: '1'
+          ASWE_STEP7D_EVAL_ONCE: '1'
+          ASWE_EVAL_CASE: ${{ matrix.issue }}
+          PYTHONPATH: 'src:.'
+          LLM_API_KEY: ${{ secrets.SWE_LLM_API_KEY }}
+          LLM_MODEL: ${{ secrets.SWE_LLM_MODEL }}
+          LLM_BASE_URL: ${{ secrets.SWE_LLM_BASE_URL }}
+          LANGCHAIN_TRACING_V2: 'false'
+          LANGSMITH_TRACING: 'false'
+          ASWE_STEP7D_EVAL_REPORT_PATH: ${{ runner.temp }}/e3-${{ matrix.version }}-${{ matrix.issue }}.json
+        run: python scripts/step7de3_post_test_probe.py
+      - name: Preserve both successes and failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: step7de3-${{ matrix.version }}-${{ matrix.issue }}-evidence
+          path: ${{ runner.temp }}/e3-${{ matrix.version }}-${{ matrix.issue }}.json
+          if-no-files-found: warn
+          retention-days: 7
