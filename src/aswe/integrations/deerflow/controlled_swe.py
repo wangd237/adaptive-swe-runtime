@@ -416,8 +416,10 @@ class ControlledSWEWorkspace:
             raise SWEExecutionDenied("SWE_COMMAND_OUTCOME_UNATTESTED")
         self._shell_observations.append(outcome)
         # Output status must stay explicit; model can retry after a failure.
+        # Keep the existing first-line host receipt format. ToolGuard
+        # parses it to emit agent.test.observed and Repair feedback events.
         return (
-            f"exit_code={outcome.exit_code}; timed_out={outcome.timed_out}; "
+            f"exit_code={outcome.exit_code}; timed_out={outcome.timed_out}\n"
             f"output_truncated={outcome.output_truncated}\n{outcome.output}"
         )
 
