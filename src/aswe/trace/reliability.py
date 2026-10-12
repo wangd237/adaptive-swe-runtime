@@ -129,6 +129,7 @@ def summarize_execution_trace(
     model_request_failed_count = 0
     model_request_duration_total_ms = 0
     model_request_duration_max_ms: int | None = None
+    model_progress_phases: Counter[str] = Counter()
     verifier_results: list[str] = []
     dag_tester_results: list[str] = []
     canonical_verifier_results: list[str] = []
@@ -183,6 +184,11 @@ def summarize_execution_trace(
                     model_request_duration_max_ms or 0, elapsed,
                 )
         elif event == "model.turn.finished":
+            phase = payload.get("progress_phase")
+            model_progress_phases[phase if phase in (
+                "exploring", "code_modified", "agent_check_passed",
+                "agent_check_failed",
+            ) else "unknown"] += 1
             usage = safe_model_usage(payload.get("usage"))
             if usage:
                 token_reported_turns += 1
@@ -399,6 +405,7 @@ def summarize_execution_trace(
         "model_request_failed_count": model_request_failed_count,
         "model_request_duration_total_ms": model_request_duration_total_ms,
         "model_request_duration_max_ms": model_request_duration_max_ms,
+        "model_progress_phase_counts": dict(sorted(model_progress_phases.items())),
         "tool_calls": counts["tool.call.finished"],
         "tool_status_counts": dict(sorted(statuses.items())),
         "tool_failure_code_counts": dict(sorted(denied.items())),
