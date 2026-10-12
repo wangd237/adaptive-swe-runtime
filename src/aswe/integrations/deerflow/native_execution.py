@@ -12,7 +12,14 @@ from __future__ import annotations
 
 import asyncio
 import time
-from langchain_core.callbacks import AsyncCallbackHandler
+try:
+    from langchain_core.callbacks import AsyncCallbackHandler
+except ImportError:
+    # Core Runtime unit tests intentionally run without the optional
+    # native LangChain/DeerFlow integration dependency. Physical integration
+    # CI installs the real AsyncCallbackHandler.
+    class AsyncCallbackHandler:
+        pass
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Mapping
