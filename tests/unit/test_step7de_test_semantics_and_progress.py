@@ -106,6 +106,26 @@ async def test_progress_hints_only_with_host_turns_and_current_edit_test(reposit
 
 
 @pytest.mark.asyncio
+async def test_midpoint_early_budget_caution_is_not_a_forced_stop(repository_fixture):
+    workspace, sandbox = env(repository_fixture)
+    root=Path(repository_fixture.repository_root)
+    (root/"calc.py").write_text("original")
+    await workspace.read_file(path="calc.py")
+    await workspace.str_replace(path="calc.py",old_str="original",new_str="patched")
+    workspace.record_native_model_turn(19,40)
+    early=await workspace.bash(command="git diff")
+    assert "Progress hint" not in early
+    workspace.record_native_model_turn(20,40)
+    middle=await workspace.bash(command="git status")
+    assert "Progress hint" in middle
+    assert "physical step limit sooner" in middle
+    assert "Budget hint" not in middle
+    next_command=await workspace.bash(command="git diff --stat")
+    assert "Progress hint" not in next_command
+    assert len(sandbox.commands)==3
+
+
+@pytest.mark.asyncio
 async def test_progress_hint_does_not_accept_model_controlled_budget(repository_fixture):
     workspace, sandbox = env(repository_fixture)
     assert workspace._observed_model_round == 0
