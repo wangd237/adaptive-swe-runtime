@@ -106,6 +106,7 @@ def _diagnose_semantic_terminal(records: tuple[Any, ...]) -> dict[str, Any]:
     with a test step cannot establish whether that test was reached/passed.
     """
     shapes: Counter[str] = Counter()
+    families: Counter[str] = Counter()
     possible_test_calls = 0
     unknown_bash = 0
     after_pass_tool_calls = 0
@@ -160,7 +161,12 @@ def _diagnose_semantic_terminal(records: tuple[Any, ...]) -> dict[str, Any]:
                                frozenset(("single", "compound", "unknown")),
                                "unknown")
                 shapes[kind] += 1
+                family = _status(shape.get("family"), frozenset((
+                    "unknown", "ordinary", "python_heredoc", "python_inline",
+                    "nested_shell", "multiline")), "unknown")
+                families[family] += 1
                 item["bash_shape"] = kind
+                item["bash_family"] = family
                 step_count = _nonnegative(shape.get("step_count"))
                 item["steps"] = min(step_count, 16) if step_count is not None else None
                 if shape.get("contains_test_step") is True:
@@ -197,6 +203,7 @@ def _diagnose_semantic_terminal(records: tuple[Any, ...]) -> dict[str, Any]:
                 tail.pop(0)
     return {
         "bash_structure_counts": dict(sorted(shapes.items())),
+        "bash_family_counts": dict(sorted(families.items())),
         "bash_contains_possible_test_step_calls": possible_test_calls,
         "bash_unknown_shape_calls": unknown_bash,
         "agent_recognized_test_events": recognized_tests,
